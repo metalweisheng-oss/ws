@@ -54,10 +54,17 @@ function stopOne(stockNo) {
 function startAll()  { STOCKS.forEach(s => startOne(s.no)) }
 function stopAll()   { STOCKS.forEach(s => stopOne(s.no)) }
 
+const telegramStatus = ref('')
 async function testTelegram() {
-  const r = await fetch(`${API}/api/test/telegram`, { method: 'POST' })
-  const d = await r.json()
-  alert(d.message)
+  telegramStatus.value = '發送中...'
+  try {
+    const r = await fetch(`${API}/api/test/telegram`, { method: 'POST' })
+    const d = await r.json()
+    telegramStatus.value = d.ok ? '✅ 已發送！請查看 Telegram' : '❌ 發送失敗'
+  } catch(e) {
+    telegramStatus.value = '❌ 網路錯誤：' + e.message
+  }
+  setTimeout(() => telegramStatus.value = '', 5000)
 }
 const anyConnected = () => STOCKS.some(s => stocks[s.no].connected)
 
@@ -322,6 +329,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 class="px-4 py-2 rounded-lg bg-blue-700 hover:bg-blue-600 text-sm font-medium transition">
           📨 測試 Telegram
         </button>
+        <span v-if="telegramStatus" class="text-sm text-cyan-400 self-center">{{ telegramStatus }}</span>
         <span class="text-xs text-gray-600 self-center">每 30 秒自動更新</span>
       </div>
 
