@@ -889,6 +889,52 @@ app.post('/api/sync/run', (req, res) => {
   runDailySync()
 })
 
+app.post('/api/sync/backfill', async (req, res) => {
+  const { date } = req.body  // 格式: "20260428"
+  if (!date) return res.status(400).json({ error: '需要提供 date 參數（格式：YYYYMMDD）' })
+  res.json({ message: `開始補抓 ${date} 的資料...` })
+
+  const n = s => +(s?.replace(/,/g, '') || 0)
+  const y = date.slice(0, 4), m = date.slice(4, 6), d = date.slice(6, 8)
+
+  const instMap = {}
+  try {
+    const twse = await fetchUrl(`https://www.twse.com.tw/rwd/zh/fund/T86?date=${date}&selectType=ALLBUT0999&response=json`)
+    for (const row of twse.data || []) instMap[row[0]] = { foreign: n(row[4]), trust: n(row[10]), dealer: n(row[11]) }
+    console.log(`[backfill ${date}] 三大法人 ${Object.keys(instMap).length} 檔 ✓`)
+  } catch (e) { console.error(`[backfill] 三大法人失敗:`, e.message) }
+
+  const marginMap = {}
+  try {
+    const twseM = await fetchUrl(`https://www.twse.com.tw/rwd/zh/marginTrading/MI_MARGN?date=${date}&selectType=STOCK&response=json`)
+    for (const row of twseM.tables?.[1]?.data || []) marginMap[row[0]] = n(row[6])
+  } catch (e) {}
+  try {
+    const minguo = +y - 1911
+    const tpex = await fetchUrl(`https://www.tpex.org.tw/web/stock/margin_trading/margin_balance/margin_bal_result.php?l=zh-tw&o=json&d=${minguo}/${m}/${d}`)
+    for (const row of tpex.tables?.[0]?.data || []) marginMap[row[0]] = n(row[6])
+  } catch (e) {}
+
+  for (const { no, name } of STOCKS_LIST) {
+    try {
+      const inst = instMap[no]
+      const margin = marginMap[no] ?? null
+      if (inst || margin !== null) {
+        await pool.query(
+          `UPDATE daily_summary SET
+             inst_foreign = COALESCE($3, inst_foreign),
+             inst_trust   = COALESCE($4, inst_trust),
+             inst_dealer  = COALESCE($5, inst_dealer),
+             margin_balance = COALESCE($6, margin_balance)
+           WHERE stock_no=$1 AND trade_date=$2`,
+          [no, `${y}-${m}-${d}`, inst?.foreign ?? null, inst?.trust ?? null, inst?.dealer ?? null, margin]
+        )
+        console.log(`[backfill ${date}] ${name} 補齊 ✓`)
+      }
+    } catch (e) { console.error(`[backfill] ${name} 失敗:`, e.message) }
+  }
+})
+
 app.post('/api/test/telegram', (req, res) => {
   const now = new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' })
   sendTelegram(
@@ -909,6 +955,86 @@ cron.schedule('0 15 * * 1-5', () => {
   console.log('[cron] 15:00 自動同步觸發')
   runDailySync()
 }, { timezone: 'Asia/Taipei' })
+
+// ── 伺服器端背景監控（不需開瀏覽器）────────────────────
+const serverLastNotify = {}  // { stockNo: 'date-hour-signal' }
+
+async function serverCheckOne({ no, name }) {
+  try {
+    const json = await fetchUrl(
+      `https://query1.finance.yahoo.com/v8/finance/chart/${getSymbol(no)}?interval=1m&range=1d`
+    )
+    const result = json.chart.result?.[0]
+    if (!result?.timestamp) return
+
+    const q = result.indicators.quote[0]
+    const rows = result.timestamp
+      .map((ts, i) => ({ ts, open: q.open[i], high: q.high[i], low: q.low[i], close: q.close[i], volume: q.volume[i] }))
+      .filter(r => r.close != null && r.volume > 0)
+    if (!rows.length) return
+
+    const avgVol  = rows.reduce((s, r) => s + r.volume, 0) / rows.length
+    const dayLow  = Math.min(...rows.map(r => r.low))
+    const dayHigh = Math.max(...rows.map(r => r.high))
+    const last    = rows[rows.length - 1]
+    const prev    = rows[rows.length - 2]
+    const volRatio = +(last.volume / avgVol).toFixed(2)
+    const nearLow  = (last.low  - dayLow)  / dayLow  < 0.05
+    const nearHigh = (dayHigh   - last.high) / dayHigh < 0.05
+    const reversal = prev && last.close > prev.close
+
+    const macdResult  = calcMACD(rows.map(r => r.close))
+    const macdDiv     = detectDivergence(rows, macdResult)
+    const macdTopDiv  = detectTopDivergence(rows, macdResult)
+    const macdPayload = macdResult
+      ? { line: macdResult.line, sig: macdResult.sig, hist: macdResult.hist, divergence: macdDiv, topDivergence: macdTopDiv }
+      : null
+
+    const { signal, message } = classifySignal({ volRatio, nearLow, nearHigh, reversal, macdDiv, macdTopDiv, dayLow, dayHigh })
+
+    const notifySignals = ['entry', 'warning', 'exit', 'exit_warning']
+    if (notifySignals.includes(signal)) {
+      const cst  = new Date(Date.now() + 8 * 3600000)
+      const key  = `${cst.getUTCFullYear()}${cst.getUTCMonth()}${cst.getUTCDate()}-${cst.getUTCHours()}-${signal}`
+      if (serverLastNotify[no] !== key) {
+        serverLastNotify[no] = key
+        const emoji = { entry: '🚨', warning: '⚠️', exit: '🔴', exit_warning: '🟠' }[signal] || '📢'
+        const dt = new Date(last.ts * 1000)
+        const dataTime = `${String((dt.getUTCHours()+8)%24).padStart(2,'0')}:${String(dt.getUTCMinutes()).padStart(2,'0')}`
+        sendTelegram(
+          `${emoji} <b>${name} ${no} 訊號</b>\n` +
+          `${message}\n\n` +
+          `現價：<b>${last.close}</b>\n` +
+          `量比：<b>${volRatio}x</b>\n` +
+          `日低：${dayLow}　日高：${dayHigh}\n` +
+          `資料時間：${dataTime}`
+        )
+        saveSignal({
+          stockNo: no, stockName: name,
+          signalTime: new Date(last.ts * 1000),
+          signalType: signal,
+          price: last.close, volRatio, dayLow, dayHigh, message,
+          macd: macdPayload, source: 'realtime',
+        })
+        console.log(`[monitor] ${name} ${signal} 訊號 → Telegram 已發送`)
+      }
+    }
+  } catch (e) {
+    console.error(`[monitor] ${name} 檢查失敗:`, e.message)
+  }
+}
+
+async function serverMonitorAll() {
+  if (!isMarketOpen()) return
+  console.log(`[monitor] ${cstNow()} 執行監控...`)
+  for (const stock of STOCKS_LIST) {
+    await serverCheckOne(stock)
+  }
+}
+
+// 開盤時間每 30 秒執行一次
+setInterval(serverMonitorAll, 30 * 1000)
+console.log('[monitor] 伺服器端背景監控已啟動（開盤時每 30 秒自動執行）')
 
 console.log('[cron] 已設定每日 15:00 自動存檔（週一至週五）')
 
