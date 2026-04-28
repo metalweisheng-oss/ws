@@ -3,6 +3,7 @@ import { ref, reactive, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { createChart, CandlestickSeries, HistogramSeries, createSeriesMarkers } from 'lightweight-charts'
 
 const tab = ref('monitor') // 'monitor' | 'analysis'
+const API = import.meta.env.VITE_API_BASE || ''
 
 // ── 即時監控 ──────────────────────────────────────
 const STOCKS = [
@@ -32,7 +33,7 @@ const stocks = reactive(
 function startOne(stockNo) {
   const st = stocks[stockNo]
   if (st.sse) st.sse.close()
-  st.sse = new EventSource(`/api/stock/monitor/stream?stockNo=${stockNo}`)
+  st.sse = new EventSource(`${API}/api/stock/monitor/stream?stockNo=${stockNo}`)
   st.connected = true
   st.sse.onmessage = (e) => {
     const data = JSON.parse(e.data)
@@ -52,6 +53,12 @@ function stopOne(stockNo) {
 
 function startAll()  { STOCKS.forEach(s => startOne(s.no)) }
 function stopAll()   { STOCKS.forEach(s => stopOne(s.no)) }
+
+async function testTelegram() {
+  const r = await fetch(`${API}/api/test/telegram`, { method: 'POST' })
+  const d = await r.json()
+  alert(d.message)
+}
 const anyConnected = () => STOCKS.some(s => stocks[s.no].connected)
 
 // ── 歷史資料（DB 查詢）────────────────────────────
@@ -71,7 +78,7 @@ async function loadSignals() {
   dbLoading.value = true
   try {
     const qs = dbStockNo.value ? `?stockNo=${dbStockNo.value}&days=180` : '?days=180'
-    const r  = await fetch(`/api/signals${qs}`)
+    const r  = await fetch(`${API}/api/signals${qs}`)
     const d  = await r.json()
     signalRows.value = d.rows || []
   } finally { dbLoading.value = false }
@@ -81,7 +88,7 @@ async function loadDaily() {
   dbLoading.value = true
   try {
     const qs = dbStockNo.value ? `?stockNo=${dbStockNo.value}&days=60` : '?days=60'
-    const r  = await fetch(`/api/daily-summary${qs}`)
+    const r  = await fetch(`${API}/api/daily-summary${qs}`)
     const d  = await r.json()
     dailyRows.value = d.rows || []
   } finally { dbLoading.value = false }
@@ -89,7 +96,7 @@ async function loadDaily() {
 
 async function loadIntradayDates() {
   if (!dbStockNo.value) return
-  const r = await fetch(`/api/intraday/dates?stockNo=${dbStockNo.value}`)
+  const r = await fetch(`${API}/api/intraday/dates?stockNo=${dbStockNo.value}`)
   const d = await r.json()
   intradayDates.value = d.dates || []
   if (intradayDates.value.length) {
@@ -103,8 +110,8 @@ async function loadIntraday() {
   dbLoading.value = true
   try {
     const [rd, rs] = await Promise.all([
-      fetch(`/api/intraday?stockNo=${dbStockNo.value}&date=${intradayDate.value}`).then(r => r.json()),
-      fetch(`/api/signals?stockNo=${dbStockNo.value}&date=${intradayDate.value}`).then(r => r.json()),
+      fetch(`${API}/api/intraday?stockNo=${dbStockNo.value}&date=${intradayDate.value}`).then(r => r.json()),
+      fetch(`${API}/api/signals?stockNo=${dbStockNo.value}&date=${intradayDate.value}`).then(r => r.json()),
     ])
     intradayRows.value    = rd.rows || []
     intradaySignals.value = rs.rows || []
@@ -170,7 +177,7 @@ async function loadChartData() {
   chartLoading.value = true
   chartError.value   = ''
   try {
-    const r = await fetch(`/api/intraday/chart?stockNo=${chartStockNo.value}&days=${chartDays.value}`)
+    const r = await fetch(`${API}/api/intraday/chart?stockNo=${chartStockNo.value}&days=${chartDays.value}`)
     const d = await r.json()
     if (d.error) throw new Error(d.error)
     await nextTick()
@@ -310,6 +317,10 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
         <button @click="stopAll"
                 class="px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-sm font-medium transition text-gray-300">
           停止監控
+        </button>
+        <button @click="testTelegram"
+                class="px-4 py-2 rounded-lg bg-blue-700 hover:bg-blue-600 text-sm font-medium transition">
+          📨 測試 Telegram
         </button>
         <span class="text-xs text-gray-600 self-center">每 30 秒自動更新</span>
       </div>

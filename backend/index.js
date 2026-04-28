@@ -889,6 +889,21 @@ app.post('/api/sync/run', (req, res) => {
   runDailySync()
 })
 
+app.post('/api/test/telegram', (req, res) => {
+  const now = new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' })
+  sendTelegram(
+    `🧪 <b>測試通知</b>\n` +
+    `時間：${now}\n\n` +
+    `📈 <b>模擬訊號：川湖科技 (2059)</b>\n` +
+    `類型：主力進場\n` +
+    `價格：NT$680\n` +
+    `量比：3.2x\n` +
+    `訊息：成交量異常放大，主力吸籌跡象\n\n` +
+    `⚡ 此為測試訊息，非真實訊號`
+  )
+  res.json({ ok: true, message: '測試訊息已發送到 Telegram' })
+})
+
 // 排程：週一到週五 15:00 自動執行
 cron.schedule('0 15 * * 1-5', () => {
   console.log('[cron] 15:00 自動同步觸發')
