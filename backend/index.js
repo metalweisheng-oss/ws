@@ -935,6 +935,128 @@ app.post('/api/sync/backfill', async (req, res) => {
   }
 })
 
+app.get('/api/daily-report', async (req, res) => {
+  const { stockNo = '2059', date } = req.query
+  const stockName = STOCK_NAMES[stockNo] || stockNo
+
+  try {
+    // 1. 從 DB 取當日行情
+    const targetDate = date || new Date().toISOString().slice(0, 10)
+    const dayRes = await pool.query(
+      `SELECT * FROM daily_summary WHERE stock_no=$1 AND trade_date=$2`,
+      [stockNo, targetDate]
+    )
+    const day = dayRes.rows[0] || null
+
+    // 2. 取近 20 日行情（計算趨勢）
+    const histRes = await pool.query(
+      `SELECT * FROM daily_summary WHERE stock_no=$1 AND trade_date<=$2
+       ORDER BY trade_date DESC LIMIT 20`,
+      [stockNo, targetDate]
+    )
+    const hist = histRes.rows
+
+    // 3. 取當日訊號
+    const sigRes = await pool.query(
+      `SELECT * FROM signals WHERE stock_no=$1
+       AND signal_time::DATE=$2 ORDER BY signal_time`,
+      [stockNo, targetDate]
+    )
+    const signals = sigRes.rows
+
+    // 4. 抓鉅亨網新聞（近 5 筆台股大盤新聞 + 搜尋個股）
+    let news = []
+    try {
+      const nowTs  = Math.floor(Date.now() / 1000)
+      const fromTs = nowTs - 7 * 86400
+      const newsRes = await fetchUrl(
+        `https://api.cnyes.com/media/api/v1/newslist/category/tw_stock_news?limit=50&startAt=${fromTs}&endAt=${nowTs}`
+      )
+      const allNews = newsRes?.items?.data || []
+      const keywords = [stockName, stockNo, '川湖', '滑軌', '伺服器']
+      news = allNews
+        .filter(n => keywords.some(k => (n.title || '').includes(k)))
+        .slice(0, 5)
+        .map(n => ({
+          title: n.title,
+          time:  new Date(n.publishAt * 1000).toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' })
+        }))
+    } catch (e) { /* 新聞抓取失敗不影響報表 */ }
+
+    // 5. 技術分析文字生成
+    const fmt  = v => v != null ? (+v).toLocaleString() : '—'
+    const fmtZ = v => v != null ? Math.floor(Math.abs(+v) / 1000).toLocaleString() + '張' : '—'
+    const sign = v => v > 0 ? `+${fmtZ(v)}` : v < 0 ? `-${fmtZ(v)}` : '0'
+
+    const analysis = []
+
+    if (day) {
+      // 價格分析
+      const change = hist.length >= 2 ? day.close_price - hist[1].close_price : null
+      const changePct = change != null && hist[1]?.close_price ? (change / hist[1].close_price * 100).toFixed(2) : null
+      analysis.push(`📊 當日收盤 ${fmt(day.close_price)} 元，` +
+        (changePct != null ? `較前日${change >= 0 ? '上漲' : '下跌'} ${Math.abs(changePct)}%，` : '') +
+        `成交量 ${fmtZ(day.total_volume)}。`)
+
+      // 三大法人
+      if (day.inst_foreign != null || day.inst_trust != null) {
+        const parts = []
+        if (day.inst_foreign != null) parts.push(`外資 ${sign(day.inst_foreign)}`)
+        if (day.inst_trust   != null) parts.push(`投信 ${sign(day.inst_trust)}`)
+        if (day.inst_dealer  != null) parts.push(`自營商 ${sign(day.inst_dealer)}`)
+        const majorNet = (day.inst_foreign||0) + (day.inst_trust||0) + (day.inst_dealer||0)
+        analysis.push(`🏦 三大法人合計 ${majorNet >= 0 ? '買超' : '賣超'} ${fmtZ(Math.abs(majorNet))}（${parts.join('、')}）。`)
+      }
+
+      // 融資
+      if (day.margin_balance != null)
+        analysis.push(`💳 融資餘額 ${fmtZ(day.margin_balance)}。`)
+
+      // 主力集中度
+      if (day.concentration_5d != null)
+        analysis.push(`📐 5日主力集中度 ${(+day.concentration_5d).toFixed(2)}%，20日 ${day.concentration_20d != null ? (+day.concentration_20d).toFixed(2) + '%' : '—'}。`)
+    }
+
+    // 趨勢分析
+    if (hist.length >= 5) {
+      const closes = hist.slice(0, 5).map(r => +r.close_price).filter(Boolean)
+      const trend  = closes[0] > closes[closes.length - 1] ? '近 5 日股價走勢偏多' : '近 5 日股價走勢偏空'
+      analysis.push(`📈 ${trend}（${closes[closes.length-1]} → ${closes[0]}）。`)
+    }
+
+    // 訊號分析
+    if (signals.length > 0) {
+      const sigLabels = { entry: '主力進場', warning: '進場警戒', exit: '主力出貨', exit_warning: '出貨警戒', watch: '注意量能' }
+      const sigSummary = signals.map(s => `${sigLabels[s.signal_type] || s.signal_type}（${new Date(s.signal_time).toLocaleTimeString('zh-TW', { timeZone: 'Asia/Taipei', hour: '2-digit', minute: '2-digit' })}）`).join('、')
+      analysis.push(`🚨 當日偵測訊號：${sigSummary}。`)
+    } else {
+      analysis.push(`✅ 當日未偵測到異常訊號。`)
+    }
+
+    // 綜合評估
+    const hasEntry   = signals.some(s => s.signal_type === 'entry')
+    const hasExit    = signals.some(s => ['exit', 'exit_warning'].includes(s.signal_type))
+    const majorBuy   = day && ((day.inst_foreign||0) + (day.inst_trust||0) + (day.inst_dealer||0)) > 0
+    let assessment = ''
+    if (hasEntry && majorBuy)      assessment = '法人買超配合主力進場訊號，短線偏多操作。'
+    else if (hasEntry && !majorBuy) assessment = '主力進場訊號出現，但法人持保守態度，建議觀察量能變化。'
+    else if (hasExit)               assessment = '出現出貨訊號，建議注意停利停損。'
+    else if (majorBuy)              assessment = '法人買超，技術面無異常訊號，可持續追蹤。'
+    else                            assessment = '技術面無明顯訊號，建議觀望等待明確方向。'
+    analysis.push(`💡 綜合評估：${assessment}`)
+
+    res.json({
+      stockNo, stockName, date: targetDate,
+      day: day || null,
+      signals,
+      news,
+      analysis,
+    })
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
 app.post('/api/test/telegram', (req, res) => {
   const now = new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' })
   sendTelegram(

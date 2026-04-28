@@ -277,6 +277,38 @@ function selectTab(t) {
   if (t === 'chart')    nextTick(() => loadChartData())
 }
 
+// ── 日報表 ────────────────────────────────────────
+const reportStockNo = ref('2059')
+const reportDate    = ref('2026-04-28')
+const reportLoading = ref(false)
+const reportData    = ref(null)
+const reportError   = ref('')
+
+async function generateReport() {
+  reportLoading.value = true
+  reportError.value   = ''
+  reportData.value    = null
+  try {
+    const r = await fetch(`${API}/api/daily-report?stockNo=${reportStockNo.value}&date=${reportDate.value}`)
+    const d = await r.json()
+    if (d.error) throw new Error(d.error)
+    reportData.value = d
+  } catch(e) {
+    reportError.value = '報表生成失敗：' + e.message
+  } finally {
+    reportLoading.value = false
+  }
+}
+
+function fmtNum(v) { return v != null ? (+v).toLocaleString() : '—' }
+function fmtShares(v) { return v != null ? Math.floor(Math.abs(+v) / 1000).toLocaleString() + ' 張' : '—' }
+function signShares(v) {
+  if (v == null) return '—'
+  const abs = Math.floor(Math.abs(+v) / 1000).toLocaleString()
+  return +v > 0 ? `▲ ${abs} 張` : +v < 0 ? `▼ ${abs} 張` : `${abs} 張`
+}
+function signColor(v) { return +v > 0 ? 'text-red-400' : +v < 0 ? 'text-green-400' : 'text-gray-400' }
+
 onMounted(() => startAll())
 onUnmounted(() => stopAll())
 
@@ -304,7 +336,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
 
     <!-- 分頁切換 -->
     <div class="border-b border-gray-800 px-6 flex gap-1">
-      <button v-for="t in [{ id:'monitor', label:'即時監控' }, { id:'db', label:'歷史資料' }, { id:'chart', label:'K線圖' }]" :key="t.id"
+      <button v-for="t in [{ id:'monitor', label:'即時監控' }, { id:'db', label:'歷史資料' }, { id:'chart', label:'K線圖' }, { id:'report', label:'日報表' }]" :key="t.id"
               @click="selectTab(t.id)"
               class="px-4 py-3 text-sm font-medium transition border-b-2 -mb-px"
               :class="tab === t.id ? 'border-purple-500 text-purple-400' : 'border-transparent text-gray-500 hover:text-gray-300'">
@@ -772,6 +804,117 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
         <div ref="chartContainer" class="w-full"></div>
       </div>
 
+    </div>
+
+    <!-- ── 日報表 Tab ── -->
+    <div v-if="tab === 'report'" class="max-w-3xl mx-auto px-4 py-6 space-y-4">
+
+      <!-- 選股 / 選日期 -->
+      <div class="flex flex-wrap gap-3 items-end">
+        <div class="flex flex-col gap-1">
+          <span class="text-xs text-gray-500">個股</span>
+          <select v-model="reportStockNo" class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white">
+            <option v-for="s in STOCKS" :key="s.no" :value="s.no">{{ s.name }}（{{ s.no }}）</option>
+          </select>
+        </div>
+        <div class="flex flex-col gap-1">
+          <span class="text-xs text-gray-500">日期</span>
+          <input type="date" v-model="reportDate"
+                 class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white" />
+        </div>
+        <button @click="generateReport"
+                class="px-5 py-2 rounded-lg bg-purple-700 hover:bg-purple-600 text-sm font-medium transition">
+          {{ reportLoading ? '生成中...' : '📋 生成報表' }}
+        </button>
+      </div>
+
+      <p v-if="reportError" class="text-red-400 text-sm">{{ reportError }}</p>
+
+      <!-- 報表內容 -->
+      <div v-if="reportData" class="space-y-4">
+
+        <!-- 標題 -->
+        <div class="rounded-2xl border border-purple-800 bg-gray-900 p-5">
+          <h2 class="text-lg font-bold text-purple-300">
+            {{ reportData.stockName }}（{{ reportData.stockNo }}）日報表
+          </h2>
+          <p class="text-xs text-gray-500 mt-1">{{ reportData.date }}</p>
+        </div>
+
+        <!-- 當日行情 -->
+        <div v-if="reportData.day" class="rounded-2xl border border-gray-800 bg-gray-900 p-5 space-y-3">
+          <h3 class="text-sm font-semibold text-gray-300">📊 當日行情</h3>
+          <div class="grid grid-cols-4 gap-3">
+            <div v-for="item in [
+              { label:'開盤', value: fmtNum(reportData.day.open_price) },
+              { label:'最高', value: fmtNum(reportData.day.high_price), cls:'text-red-400' },
+              { label:'最低', value: fmtNum(reportData.day.low_price),  cls:'text-green-400' },
+              { label:'收盤', value: fmtNum(reportData.day.close_price), cls:'text-white font-bold' },
+            ]" :key="item.label" class="bg-gray-800 rounded-lg p-3 text-center">
+              <div class="text-xs text-gray-500">{{ item.label }}</div>
+              <div :class="['text-sm mt-1', item.cls || 'text-gray-200']">{{ item.value }}</div>
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-3 text-sm">
+            <div class="bg-gray-800 rounded-lg p-3">
+              <span class="text-gray-500 text-xs">成交量</span>
+              <span class="ml-2 text-gray-200">{{ fmtShares(reportData.day.total_volume) }}</span>
+            </div>
+            <div class="bg-gray-800 rounded-lg p-3">
+              <span class="text-gray-500 text-xs">融資餘額</span>
+              <span class="ml-2 text-gray-200">{{ fmtShares(reportData.day.margin_balance) }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 三大法人 -->
+        <div v-if="reportData.day?.inst_foreign != null" class="rounded-2xl border border-gray-800 bg-gray-900 p-5 space-y-3">
+          <h3 class="text-sm font-semibold text-gray-300">🏦 三大法人</h3>
+          <div class="grid grid-cols-3 gap-3 text-sm">
+            <div v-for="item in [
+              { label:'外資', value: reportData.day.inst_foreign },
+              { label:'投信', value: reportData.day.inst_trust   },
+              { label:'自營商', value: reportData.day.inst_dealer },
+            ]" :key="item.label" class="bg-gray-800 rounded-lg p-3 text-center">
+              <div class="text-xs text-gray-500">{{ item.label }}</div>
+              <div :class="['text-sm mt-1', signColor(item.value)]">{{ signShares(item.value) }}</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 訊號紀錄 -->
+        <div class="rounded-2xl border border-gray-800 bg-gray-900 p-5 space-y-2">
+          <h3 class="text-sm font-semibold text-gray-300">🚨 訊號紀錄</h3>
+          <div v-if="reportData.signals.length === 0" class="text-xs text-gray-500">當日無異常訊號</div>
+          <div v-for="s in reportData.signals" :key="s.id"
+               class="flex items-start gap-2 text-xs bg-gray-800 rounded-lg p-2">
+            <span class="text-gray-400 font-mono shrink-0">
+              {{ new Date(s.signal_time).toLocaleTimeString('zh-TW', { timeZone:'Asia/Taipei', hour:'2-digit', minute:'2-digit' }) }}
+            </span>
+            <span class="text-orange-400 shrink-0">{{ s.signal_type }}</span>
+            <span class="text-gray-300">{{ s.message }}</span>
+          </div>
+        </div>
+
+        <!-- 綜合分析 -->
+        <div class="rounded-2xl border border-blue-900 bg-gray-900 p-5 space-y-2">
+          <h3 class="text-sm font-semibold text-blue-300">💡 綜合分析</h3>
+          <p v-for="(line, i) in reportData.analysis" :key="i" class="text-sm text-gray-300 leading-relaxed">
+            {{ line }}
+          </p>
+        </div>
+
+        <!-- 相關新聞 -->
+        <div class="rounded-2xl border border-gray-800 bg-gray-900 p-5 space-y-2">
+          <h3 class="text-sm font-semibold text-gray-300">📰 相關新聞</h3>
+          <div v-if="reportData.news.length === 0" class="text-xs text-gray-500">近期無相關新聞</div>
+          <div v-for="(n, i) in reportData.news" :key="i" class="border-b border-gray-800 pb-2 last:border-0 last:pb-0">
+            <p class="text-sm text-gray-200">{{ n.title }}</p>
+            <p class="text-xs text-gray-600 mt-0.5">{{ n.time }}</p>
+          </div>
+        </div>
+
+      </div>
     </div>
 
   </div>
