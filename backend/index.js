@@ -1162,6 +1162,126 @@ app.post('/api/test/telegram', (req, res) => {
   res.json({ ok: true, message: '測試訊息已發送到 Telegram' })
 })
 
+// ── 上市櫃漲跌家數 ───────────────────────────────────
+;(async () => {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS market_breadth (
+        trade_date      DATE PRIMARY KEY,
+        twse_up         INT DEFAULT 0,
+        twse_up_limit   INT DEFAULT 0,
+        twse_down       INT DEFAULT 0,
+        twse_down_limit INT DEFAULT 0,
+        twse_flat       INT DEFAULT 0,
+        tpex_up         INT DEFAULT 0,
+        tpex_up_limit   INT DEFAULT 0,
+        tpex_down       INT DEFAULT 0,
+        tpex_down_limit INT DEFAULT 0,
+        tpex_flat       INT DEFAULT 0,
+        updated_at      TIMESTAMPTZ DEFAULT NOW()
+      )
+    `)
+    console.log('[market_breadth] 資料表就緒')
+  } catch (e) {
+    console.error('[market_breadth] 建表失敗:', e.message)
+  }
+})()
+
+async function syncMarketBreadth() {
+  console.log('[market_breadth] 開始同步漲跌家數...')
+  try {
+    const parseCount = (s) => {
+      const m = String(s || '').replace(/,/g, '').match(/(\d+)(?:\((\d+)\))?/)
+      return { count: parseInt(m?.[1]) || 0, limit: parseInt(m?.[2]) || 0 }
+    }
+
+    // 1. TWSE 上市（MI_INDEX）
+    const twseData = await fetchUrl('https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX?response=json')
+    const breadthTable = twseData.tables?.find(t => t.title === '漲跌證券數合計')
+    const upRow   = breadthTable?.data?.find(r => r[0]?.includes('上漲'))
+    const downRow = breadthTable?.data?.find(r => r[0]?.includes('下跌'))
+    const flatRow = breadthTable?.data?.find(r => r[0]?.includes('持平'))
+    const twseUp   = parseCount(upRow?.[2])
+    const twseDown = parseCount(downRow?.[2])
+    const twseFlat = parseInt(String(flatRow?.[2] || '0').replace(/,/g,'')) || 0
+
+    // 取得日期（從標題 '115年04月29日 大盤統計資訊'）
+    const dateTitle = twseData.tables?.find(t => t.title?.includes('大盤統計資訊'))?.title || ''
+    const dm = dateTitle.match(/(\d+)年(\d+)月(\d+)日/)
+    const tradeDate = dm
+      ? `${parseInt(dm[1]) + 1911}-${dm[2].padStart(2,'0')}-${dm[3].padStart(2,'0')}`
+      : new Date(Date.now() + 8*3600000).toISOString().slice(0,10)
+
+    // 2. TPEX 上櫃（計算漲跌）
+    const tpexData = await fetchUrl(
+      'https://www.tpex.org.tw/web/stock/aftertrading/otc_quotes_no1430/stk_wn1430_result.php?l=zh-tw&o=json&d=' +
+      tradeDate.slice(0,4).replace(/.*/, y => (parseInt(y)-1911)) + '/' +
+      tradeDate.slice(5,7) + '/' + tradeDate.slice(8,10) +
+      '&se=EW'
+    )
+    let tpexUp=0, tpexUpLimit=0, tpexDown=0, tpexDownLimit=0, tpexFlat=0
+    for (const table of tpexData.tables || []) {
+      for (const row of table.data || []) {
+        if (!/^\d{4}$/.test(row[0]?.trim())) continue
+        const chg = row[3]?.trim() || ''
+        if (chg.startsWith('+')) {
+          try {
+            const val = parseFloat(chg.replace('+','').replace(/,/g,''))
+            const close = parseFloat(row[2]?.replace(/,/g,''))
+            if ((close - val) > 0 && val/(close-val)*100 >= 9.5) tpexUpLimit++
+          } catch {}
+          tpexUp++
+        } else if (chg.startsWith('-')) {
+          try {
+            const val = parseFloat(chg.replace('-','').replace(/,/g,''))
+            const close = parseFloat(row[2]?.replace(/,/g,''))
+            if ((close + val) > 0 && val/(close+val)*100 >= 9.5) tpexDownLimit++
+          } catch {}
+          tpexDown++
+        } else if (row[2] !== '----') {
+          tpexFlat++
+        }
+      }
+    }
+
+    await pool.query(`
+      INSERT INTO market_breadth (
+        trade_date,
+        twse_up, twse_up_limit, twse_down, twse_down_limit, twse_flat,
+        tpex_up, tpex_up_limit, tpex_down, tpex_down_limit, tpex_flat,
+        updated_at
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NOW())
+      ON CONFLICT (trade_date) DO UPDATE SET
+        twse_up=$2, twse_up_limit=$3, twse_down=$4, twse_down_limit=$5, twse_flat=$6,
+        tpex_up=$7, tpex_up_limit=$8, tpex_down=$9, tpex_down_limit=$10, tpex_flat=$11,
+        updated_at=NOW()
+    `, [
+      tradeDate,
+      twseUp.count, twseUp.limit, twseDown.count, twseDown.limit, twseFlat,
+      tpexUp, tpexUpLimit, tpexDown, tpexDownLimit, tpexFlat,
+    ])
+    console.log(`[market_breadth] ${tradeDate} 上市:↑${twseUp.count}(${twseUp.limit})↓${twseDown.count}(${twseDown.limit}) 上櫃:↑${tpexUp}(${tpexUpLimit})↓${tpexDown}(${tpexDownLimit})`)
+  } catch (e) {
+    console.error('[market_breadth] 同步失敗:', e.message)
+  }
+}
+
+app.get('/api/market-breadth', async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT * FROM market_breadth ORDER BY trade_date DESC LIMIT 30
+    `)
+    res.json({ rows })
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+app.post('/api/sync/market-breadth', async (req, res) => {
+  res.json({ ok: true, message: '同步已開始' })
+  syncMarketBreadth()
+})
+
 // ── 台指期籌碼快訊 ───────────────────────────────────
 const TAIFEX_BASE = 'https://openapi.taifex.com.tw/v1'
 
@@ -1367,11 +1487,12 @@ setInterval(serverMonitorAll, 30 * 1000)
 console.log('[monitor] 伺服器端背景監控已啟動（開盤時每 30 秒自動執行）')
 
 cron.schedule('30 15 * * 1-5', () => {
-  console.log('[cron] 15:30 台指期籌碼自動同步')
+  console.log('[cron] 15:30 台指期籌碼 + 漲跌家數自動同步')
   syncFuturesChips()
+  syncMarketBreadth()
 }, { timezone: 'Asia/Taipei' })
 
-console.log('[cron] 已設定每日 15:00 自動存檔、15:30 台指期籌碼同步（週一至週五）')
+console.log('[cron] 已設定每日 15:00 自動存檔、15:30 台指期籌碼 + 漲跌家數同步（週一至週五）')
 
 const PORT = process.env.PORT || 3000
 app.listen(PORT, () => {

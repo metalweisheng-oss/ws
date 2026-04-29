@@ -277,8 +277,9 @@ function renderChart({ bars, signals }) {
 
 function selectTab(t) {
   tab.value = t
-  if (t === 'db')       loadSignals()
-  if (t === 'chart')    nextTick(() => loadChartData())
+  if (t === 'db')      loadSignals()
+  if (t === 'chart')   nextTick(() => loadChartData())
+  if (t === 'breadth') loadMarketBreadth()
 }
 
 // ── 日報表 ────────────────────────────────────────
@@ -322,6 +323,38 @@ async function manualSyncChips() {
 
 function chipsNetColor(v) { return +v > 0 ? 'text-red-400' : +v < 0 ? 'text-green-400' : 'text-gray-500' }
 function chipsNetSign(v)  { return +v > 0 ? `▲ ${(+v).toLocaleString()}` : +v < 0 ? `▼ ${Math.abs(+v).toLocaleString()}` : '0' }
+
+// ── 上市櫃漲跌家數 ────────────────────────────────
+const breadthLoading = ref(false)
+const breadthRows    = ref([])
+const breadthError   = ref('')
+
+async function loadMarketBreadth() {
+  breadthLoading.value = true
+  breadthError.value   = ''
+  try {
+    const r = await fetch(`${API}/api/market-breadth`)
+    const d = await r.json()
+    if (d.error) throw new Error(d.error)
+    breadthRows.value = d.rows || []
+  } catch(e) {
+    breadthError.value = '載入失敗：' + e.message
+  } finally {
+    breadthLoading.value = false
+  }
+}
+
+async function manualSyncBreadth() {
+  breadthLoading.value = true
+  try {
+    await fetch(`${API}/api/sync/market-breadth`, { method: 'POST' })
+    await new Promise(r => setTimeout(r, 3000))
+    await loadMarketBreadth()
+  } catch(e) {
+    breadthError.value = '同步失敗：' + e.message
+    breadthLoading.value = false
+  }
+}
 
 // ── 強勢族群 ──────────────────────────────────────
 const sectorLoading = ref(false)
@@ -401,7 +434,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
 
     <!-- 分頁切換 -->
     <div class="border-b border-gray-800 px-6 flex gap-1">
-      <button v-for="t in [{ id:'monitor', label:'即時監控' }, { id:'db', label:'歷史資料' }, { id:'chart', label:'K線圖' }, { id:'report', label:'日報表' }, { id:'chips', label:'台指期籌碼' }, { id:'sector', label:'強勢族群' }]" :key="t.id"
+      <button v-for="t in [{ id:'monitor', label:'即時監控' }, { id:'db', label:'歷史資料' }, { id:'chart', label:'K線圖' }, { id:'report', label:'日報表' }, { id:'breadth', label:'漲跌家數' }, { id:'chips', label:'台指期籌碼' }, { id:'sector', label:'強勢族群' }]" :key="t.id"
               @click="selectTab(t.id)"
               class="px-4 py-3 text-sm font-medium transition border-b-2 -mb-px"
               :class="tab === t.id ? 'border-purple-500 text-purple-400' : 'border-transparent text-gray-500 hover:text-gray-300'">
@@ -976,6 +1009,157 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
           <div v-for="(n, i) in reportData.news" :key="i" class="border-b border-gray-800 pb-2 last:border-0 last:pb-0">
             <p class="text-sm text-gray-200">{{ n.title }}</p>
             <p class="text-xs text-gray-600 mt-0.5">{{ n.time }}</p>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ── 上市櫃漲跌家數 Tab ── -->
+    <div v-if="tab === 'breadth'" class="max-w-3xl mx-auto px-4 py-6 space-y-4">
+
+      <!-- 標題列 -->
+      <div class="flex items-center justify-between">
+        <div>
+          <h2 class="text-base font-bold text-white">📈 上市櫃漲跌家數</h2>
+          <p class="text-xs text-gray-600 mt-0.5">TWSE 上市 + TPEX 上櫃漲跌統計　每日 15:30 自動更新</p>
+        </div>
+        <div class="flex gap-2">
+          <button @click="loadMarketBreadth"
+                  class="px-3 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-sm text-gray-300 transition">
+            {{ breadthLoading ? '載入中...' : '重新整理' }}
+          </button>
+          <button @click="manualSyncBreadth"
+                  class="px-3 py-2 rounded-lg bg-purple-700 hover:bg-purple-600 text-sm font-medium transition">
+            手動同步
+          </button>
+        </div>
+      </div>
+
+      <p v-if="breadthError" class="text-red-400 text-sm">{{ breadthError }}</p>
+
+      <div v-if="!breadthRows.length && !breadthLoading" class="text-center text-gray-600 text-sm py-12">
+        點擊「重新整理」載入資料，或「手動同步」從 TWSE/TPEX 抓取最新漲跌家數
+      </div>
+
+      <div v-if="breadthRows.length" class="space-y-4">
+
+        <!-- 最新一天大卡 -->
+        <div class="rounded-2xl border border-blue-900 bg-gray-900 p-5">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="text-sm font-semibold text-blue-300">最新統計</h3>
+            <span class="text-xs text-gray-500 font-mono">{{ breadthRows[0].trade_date?.slice(0,10) }}</span>
+          </div>
+
+          <div class="grid grid-cols-2 gap-4">
+            <!-- 上市 -->
+            <div class="bg-gray-800 rounded-xl p-4 space-y-3">
+              <div class="text-xs text-gray-500 font-semibold uppercase tracking-wide">TWSE 上市</div>
+              <div class="grid grid-cols-3 gap-2 text-center">
+                <div>
+                  <div class="text-xs text-gray-500 mb-1">上漲</div>
+                  <div class="text-xl font-bold text-red-400">{{ breadthRows[0].twse_up }}</div>
+                  <div v-if="breadthRows[0].twse_up_limit" class="text-xs text-red-600 mt-0.5">
+                    含漲停 {{ breadthRows[0].twse_up_limit }}
+                  </div>
+                </div>
+                <div>
+                  <div class="text-xs text-gray-500 mb-1">持平</div>
+                  <div class="text-xl font-bold text-gray-400">{{ breadthRows[0].twse_flat }}</div>
+                </div>
+                <div>
+                  <div class="text-xs text-gray-500 mb-1">下跌</div>
+                  <div class="text-xl font-bold text-green-400">{{ breadthRows[0].twse_down }}</div>
+                  <div v-if="breadthRows[0].twse_down_limit" class="text-xs text-green-700 mt-0.5">
+                    含跌停 {{ breadthRows[0].twse_down_limit }}
+                  </div>
+                </div>
+              </div>
+              <div class="text-center text-xs font-mono font-bold pt-1 border-t border-gray-700"
+                   :class="breadthRows[0].twse_up > breadthRows[0].twse_down ? 'text-red-400' : breadthRows[0].twse_up < breadthRows[0].twse_down ? 'text-green-400' : 'text-gray-400'">
+                淨差 {{ breadthRows[0].twse_up - breadthRows[0].twse_down > 0 ? '+' : '' }}{{ breadthRows[0].twse_up - breadthRows[0].twse_down }}
+              </div>
+            </div>
+
+            <!-- 上櫃 -->
+            <div class="bg-gray-800 rounded-xl p-4 space-y-3">
+              <div class="text-xs text-gray-500 font-semibold uppercase tracking-wide">TPEX 上櫃</div>
+              <div class="grid grid-cols-3 gap-2 text-center">
+                <div>
+                  <div class="text-xs text-gray-500 mb-1">上漲</div>
+                  <div class="text-xl font-bold text-red-400">{{ breadthRows[0].tpex_up }}</div>
+                  <div v-if="breadthRows[0].tpex_up_limit" class="text-xs text-red-600 mt-0.5">
+                    含漲停 {{ breadthRows[0].tpex_up_limit }}
+                  </div>
+                </div>
+                <div>
+                  <div class="text-xs text-gray-500 mb-1">持平</div>
+                  <div class="text-xl font-bold text-gray-400">{{ breadthRows[0].tpex_flat }}</div>
+                </div>
+                <div>
+                  <div class="text-xs text-gray-500 mb-1">下跌</div>
+                  <div class="text-xl font-bold text-green-400">{{ breadthRows[0].tpex_down }}</div>
+                  <div v-if="breadthRows[0].tpex_down_limit" class="text-xs text-green-700 mt-0.5">
+                    含跌停 {{ breadthRows[0].tpex_down_limit }}
+                  </div>
+                </div>
+              </div>
+              <div class="text-center text-xs font-mono font-bold pt-1 border-t border-gray-700"
+                   :class="breadthRows[0].tpex_up > breadthRows[0].tpex_down ? 'text-red-400' : breadthRows[0].tpex_up < breadthRows[0].tpex_down ? 'text-green-400' : 'text-gray-400'">
+                淨差 {{ breadthRows[0].tpex_up - breadthRows[0].tpex_down > 0 ? '+' : '' }}{{ breadthRows[0].tpex_up - breadthRows[0].tpex_down }}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 歷史趨勢表 -->
+        <div class="rounded-2xl border border-gray-800 bg-gray-900 overflow-hidden">
+          <div class="px-5 py-3 border-b border-gray-800">
+            <h3 class="text-sm font-semibold text-gray-300">歷史記錄（最近 {{ breadthRows.length }} 天）</h3>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-xs">
+              <thead class="text-gray-500 border-b border-gray-800 bg-gray-900/80">
+                <tr>
+                  <th class="px-4 py-3 text-left">日期</th>
+                  <th class="px-4 py-3 text-right text-red-400">上市↑</th>
+                  <th class="px-4 py-3 text-center text-gray-500">—</th>
+                  <th class="px-4 py-3 text-right text-green-400">上市↓</th>
+                  <th class="px-4 py-3 text-right font-bold">上市淨差</th>
+                  <th class="px-4 py-3 text-right text-red-400">上櫃↑</th>
+                  <th class="px-4 py-3 text-center text-gray-500">—</th>
+                  <th class="px-4 py-3 text-right text-green-400">上櫃↓</th>
+                  <th class="px-4 py-3 text-right font-bold">上櫃淨差</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-gray-800">
+                <tr v-for="row in breadthRows" :key="row.trade_date" class="hover:bg-gray-800/40 transition">
+                  <td class="px-4 py-2 font-mono text-gray-400">{{ row.trade_date?.slice(0,10) }}</td>
+                  <td class="px-4 py-2 text-right text-red-400 font-mono">
+                    {{ row.twse_up }}<span v-if="row.twse_up_limit" class="text-red-700 text-xs">（{{ row.twse_up_limit }}）</span>
+                  </td>
+                  <td class="px-4 py-2 text-center text-gray-500 font-mono">{{ row.twse_flat }}</td>
+                  <td class="px-4 py-2 text-right text-green-400 font-mono">
+                    {{ row.twse_down }}<span v-if="row.twse_down_limit" class="text-green-700 text-xs">（{{ row.twse_down_limit }}）</span>
+                  </td>
+                  <td class="px-4 py-2 text-right font-mono font-bold"
+                      :class="row.twse_up - row.twse_down > 0 ? 'text-red-400' : row.twse_up - row.twse_down < 0 ? 'text-green-400' : 'text-gray-500'">
+                    {{ row.twse_up - row.twse_down > 0 ? '+' : '' }}{{ row.twse_up - row.twse_down }}
+                  </td>
+                  <td class="px-4 py-2 text-right text-red-400 font-mono">
+                    {{ row.tpex_up }}<span v-if="row.tpex_up_limit" class="text-red-700 text-xs">（{{ row.tpex_up_limit }}）</span>
+                  </td>
+                  <td class="px-4 py-2 text-center text-gray-500 font-mono">{{ row.tpex_flat }}</td>
+                  <td class="px-4 py-2 text-right text-green-400 font-mono">
+                    {{ row.tpex_down }}<span v-if="row.tpex_down_limit" class="text-green-700 text-xs">（{{ row.tpex_down_limit }}）</span>
+                  </td>
+                  <td class="px-4 py-2 text-right font-mono font-bold"
+                      :class="row.tpex_up - row.tpex_down > 0 ? 'text-red-400' : row.tpex_up - row.tpex_down < 0 ? 'text-green-400' : 'text-gray-500'">
+                    {{ row.tpex_up - row.tpex_down > 0 ? '+' : '' }}{{ row.tpex_up - row.tpex_down }}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
           </div>
         </div>
 
