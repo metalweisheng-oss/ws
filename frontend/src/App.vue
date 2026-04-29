@@ -284,6 +284,41 @@ const reportLoading = ref(false)
 const reportData    = ref(null)
 const reportError   = ref('')
 
+// ── 台指期籌碼 ────────────────────────────────────
+const chipsLoading = ref(false)
+const chipsRows    = ref([])
+const chipsError   = ref('')
+
+async function loadFuturesChips() {
+  chipsLoading.value = true
+  chipsError.value   = ''
+  try {
+    const r = await fetch(`${API}/api/futures-chips`)
+    const d = await r.json()
+    if (d.error) throw new Error(d.error)
+    chipsRows.value = d.rows || []
+  } catch(e) {
+    chipsError.value = '載入失敗：' + e.message
+  } finally {
+    chipsLoading.value = false
+  }
+}
+
+async function manualSyncChips() {
+  chipsLoading.value = true
+  try {
+    await fetch(`${API}/api/sync/futures-chips`, { method: 'POST' })
+    await new Promise(r => setTimeout(r, 3000))
+    await loadFuturesChips()
+  } catch(e) {
+    chipsError.value = '同步失敗：' + e.message
+    chipsLoading.value = false
+  }
+}
+
+function chipsNetColor(v) { return +v > 0 ? 'text-red-400' : +v < 0 ? 'text-green-400' : 'text-gray-500' }
+function chipsNetSign(v)  { return +v > 0 ? `▲ ${(+v).toLocaleString()}` : +v < 0 ? `▼ ${Math.abs(+v).toLocaleString()}` : '0' }
+
 // ── 強勢族群 ──────────────────────────────────────
 const sectorLoading = ref(false)
 const sectorData    = ref(null)
@@ -362,7 +397,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
 
     <!-- 分頁切換 -->
     <div class="border-b border-gray-800 px-6 flex gap-1">
-      <button v-for="t in [{ id:'monitor', label:'即時監控' }, { id:'db', label:'歷史資料' }, { id:'chart', label:'K線圖' }, { id:'report', label:'日報表' }, { id:'sector', label:'強勢族群' }]" :key="t.id"
+      <button v-for="t in [{ id:'monitor', label:'即時監控' }, { id:'db', label:'歷史資料' }, { id:'chart', label:'K線圖' }, { id:'report', label:'日報表' }, { id:'chips', label:'台指期籌碼' }, { id:'sector', label:'強勢族群' }]" :key="t.id"
               @click="selectTab(t.id)"
               class="px-4 py-3 text-sm font-medium transition border-b-2 -mb-px"
               :class="tab === t.id ? 'border-purple-500 text-purple-400' : 'border-transparent text-gray-500 hover:text-gray-300'">
@@ -937,6 +972,153 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
           <div v-for="(n, i) in reportData.news" :key="i" class="border-b border-gray-800 pb-2 last:border-0 last:pb-0">
             <p class="text-sm text-gray-200">{{ n.title }}</p>
             <p class="text-xs text-gray-600 mt-0.5">{{ n.time }}</p>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ── 台指期籌碼 Tab ── -->
+    <div v-if="tab === 'chips'" class="max-w-4xl mx-auto px-4 py-6 space-y-4">
+
+      <!-- 標題列 -->
+      <div class="flex items-center justify-between">
+        <div>
+          <h2 class="text-base font-bold text-white">📊 台指期籌碼快訊</h2>
+          <p class="text-xs text-gray-600 mt-0.5">三大法人台指期未平倉　每日 15:30 自動更新</p>
+        </div>
+        <div class="flex gap-2">
+          <button @click="loadFuturesChips"
+                  class="px-3 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-sm text-gray-300 transition">
+            {{ chipsLoading ? '載入中...' : '重新整理' }}
+          </button>
+          <button @click="manualSyncChips"
+                  class="px-3 py-2 rounded-lg bg-purple-700 hover:bg-purple-600 text-sm font-medium transition">
+            手動同步
+          </button>
+        </div>
+      </div>
+
+      <p v-if="chipsError" class="text-red-400 text-sm">{{ chipsError }}</p>
+
+      <div v-if="!chipsRows.length && !chipsLoading" class="text-center text-gray-600 text-sm py-12">
+        點擊「重新整理」載入資料，或「手動同步」從 TAIFEX 抓取最新籌碼
+      </div>
+
+      <!-- 最新一天大卡 -->
+      <div v-if="chipsRows.length" class="space-y-4">
+        <div class="rounded-2xl border border-blue-900 bg-gray-900 p-5">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="text-sm font-semibold text-blue-300">最新籌碼</h3>
+            <span class="text-xs text-gray-500 font-mono">{{ chipsRows[0].trade_date?.slice(0,10) }}</span>
+          </div>
+
+          <!-- 三大法人未平倉 -->
+          <div class="grid grid-cols-3 gap-3 mb-4">
+            <div v-for="item in [
+              { label:'外資未平倉', net: chipsRows[0].foreign_tx_net, long: chipsRows[0].foreign_tx_long, short: chipsRows[0].foreign_tx_short },
+              { label:'投信未平倉', net: chipsRows[0].trust_tx_net,   long: chipsRows[0].trust_tx_long,   short: chipsRows[0].trust_tx_short },
+              { label:'自營商未平倉', net: chipsRows[0].dealer_tx_net, long: chipsRows[0].dealer_tx_long, short: chipsRows[0].dealer_tx_short },
+            ]" :key="item.label" class="bg-gray-800 rounded-xl p-4 text-center space-y-1">
+              <div class="text-xs text-gray-500">{{ item.label }}</div>
+              <div class="text-xl font-bold font-mono" :class="chipsNetColor(item.net)">
+                {{ chipsNetSign(item.net) }}
+              </div>
+              <div class="text-xs text-gray-600 font-mono">
+                多 {{ (+item.long).toLocaleString() }}　空 {{ (+item.short).toLocaleString() }}
+              </div>
+            </div>
+          </div>
+
+          <!-- 大額交易人 + OI -->
+          <div class="grid grid-cols-3 gap-3">
+            <div class="bg-gray-800 rounded-xl p-3 text-center">
+              <div class="text-xs text-gray-500 mb-1">大額前5名集中度</div>
+              <div class="text-sm font-mono text-white">
+                多 {{ (+chipsRows[0].large_top5_long).toLocaleString() }}
+                <span class="text-gray-600 mx-1">/</span>
+                空 {{ (+chipsRows[0].large_top5_short).toLocaleString() }}
+              </div>
+            </div>
+            <div class="bg-gray-800 rounded-xl p-3 text-center">
+              <div class="text-xs text-gray-500 mb-1">大額前10名集中度</div>
+              <div class="text-sm font-mono text-white">
+                多 {{ (+chipsRows[0].large_top10_long).toLocaleString() }}
+                <span class="text-gray-600 mx-1">/</span>
+                空 {{ (+chipsRows[0].large_top10_short).toLocaleString() }}
+              </div>
+            </div>
+            <div class="bg-gray-800 rounded-xl p-3 text-center">
+              <div class="text-xs text-gray-500 mb-1">全市場未平倉</div>
+              <div class="text-sm font-mono text-yellow-400 font-bold">
+                {{ (+chipsRows[0].oi_market).toLocaleString() }} 口
+              </div>
+            </div>
+          </div>
+
+          <!-- P/C Ratio -->
+          <div v-if="chipsRows[0].pc_volume_ratio" class="mt-3 flex gap-3">
+            <div class="flex-1 bg-gray-800 rounded-xl p-3 text-center">
+              <div class="text-xs text-gray-500 mb-1">P/C 成交比</div>
+              <div class="text-base font-mono font-bold"
+                   :class="+chipsRows[0].pc_volume_ratio > 100 ? 'text-green-400' : 'text-red-400'">
+                {{ chipsRows[0].pc_volume_ratio }}%
+              </div>
+            </div>
+            <div class="flex-1 bg-gray-800 rounded-xl p-3 text-center">
+              <div class="text-xs text-gray-500 mb-1">P/C 未平倉比</div>
+              <div class="text-base font-mono font-bold"
+                   :class="+chipsRows[0].pc_oi_ratio > 100 ? 'text-green-400' : 'text-red-400'">
+                {{ chipsRows[0].pc_oi_ratio }}%
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 歷史趨勢表 -->
+        <div class="rounded-2xl border border-gray-800 bg-gray-900 overflow-hidden">
+          <div class="px-5 py-3 border-b border-gray-800">
+            <h3 class="text-sm font-semibold text-gray-300">歷史籌碼趨勢（最近 {{ chipsRows.length }} 天）</h3>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-xs">
+              <thead class="text-gray-500 border-b border-gray-800 bg-gray-900/80">
+                <tr>
+                  <th class="px-4 py-3 text-left">日期</th>
+                  <th class="px-4 py-3 text-right">外資淨口</th>
+                  <th class="px-4 py-3 text-right">投信淨口</th>
+                  <th class="px-4 py-3 text-right">自營淨口</th>
+                  <th class="px-4 py-3 text-right">三大合計</th>
+                  <th class="px-4 py-3 text-right">OI市場</th>
+                  <th class="px-4 py-3 text-right">P/C成交</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-gray-800">
+                <tr v-for="row in chipsRows" :key="row.trade_date" class="hover:bg-gray-800/40 transition">
+                  <td class="px-4 py-2 font-mono text-gray-400">{{ row.trade_date?.slice(0,10) }}</td>
+                  <td class="px-4 py-2 text-right font-mono font-semibold" :class="chipsNetColor(row.foreign_tx_net)">
+                    {{ chipsNetSign(row.foreign_tx_net) }}
+                  </td>
+                  <td class="px-4 py-2 text-right font-mono font-semibold" :class="chipsNetColor(row.trust_tx_net)">
+                    {{ chipsNetSign(row.trust_tx_net) }}
+                  </td>
+                  <td class="px-4 py-2 text-right font-mono font-semibold" :class="chipsNetColor(row.dealer_tx_net)">
+                    {{ chipsNetSign(row.dealer_tx_net) }}
+                  </td>
+                  <td class="px-4 py-2 text-right font-mono font-bold"
+                      :class="chipsNetColor(+row.foreign_tx_net + +row.trust_tx_net + +row.dealer_tx_net)">
+                    {{ chipsNetSign(+row.foreign_tx_net + +row.trust_tx_net + +row.dealer_tx_net) }}
+                  </td>
+                  <td class="px-4 py-2 text-right font-mono text-yellow-400">
+                    {{ (+row.oi_market).toLocaleString() }}
+                  </td>
+                  <td class="px-4 py-2 text-right font-mono"
+                      :class="row.pc_volume_ratio ? (+row.pc_volume_ratio > 100 ? 'text-green-400' : 'text-red-400') : 'text-gray-600'">
+                    {{ row.pc_volume_ratio ? row.pc_volume_ratio + '%' : '—' }}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
           </div>
         </div>
 

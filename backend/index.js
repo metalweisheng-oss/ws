@@ -1154,6 +1154,124 @@ app.post('/api/test/telegram', (req, res) => {
   res.json({ ok: true, message: '測試訊息已發送到 Telegram' })
 })
 
+// ── 台指期籌碼快訊 ───────────────────────────────────
+const TAIFEX_BASE = 'https://openapi.taifex.com.tw/v1'
+
+;(async () => {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS futures_chips (
+        trade_date      DATE PRIMARY KEY,
+        foreign_tx_long  BIGINT DEFAULT 0,
+        foreign_tx_short BIGINT DEFAULT 0,
+        foreign_tx_net   BIGINT DEFAULT 0,
+        trust_tx_long    BIGINT DEFAULT 0,
+        trust_tx_short   BIGINT DEFAULT 0,
+        trust_tx_net     BIGINT DEFAULT 0,
+        dealer_tx_long   BIGINT DEFAULT 0,
+        dealer_tx_short  BIGINT DEFAULT 0,
+        dealer_tx_net    BIGINT DEFAULT 0,
+        large_top5_long  BIGINT DEFAULT 0,
+        large_top5_short BIGINT DEFAULT 0,
+        large_top10_long BIGINT DEFAULT 0,
+        large_top10_short BIGINT DEFAULT 0,
+        oi_market        BIGINT DEFAULT 0,
+        pc_volume_ratio  NUMERIC(6,2),
+        pc_oi_ratio      NUMERIC(6,2),
+        put_oi           BIGINT DEFAULT 0,
+        call_oi          BIGINT DEFAULT 0,
+        updated_at       TIMESTAMPTZ DEFAULT NOW()
+      )
+    `)
+    console.log('[futures_chips] 資料表就緒')
+  } catch (e) {
+    console.error('[futures_chips] 建表失敗:', e.message)
+  }
+})()
+
+async function syncFuturesChips() {
+  console.log('[futures_chips] 開始同步台指期籌碼...')
+  try {
+    const [instData, largeData, pcData] = await Promise.all([
+      fetchUrl(TAIFEX_BASE + '/MarketDataOfMajorInstitutionalTradersDetailsOfFuturesContractsBytheDate'),
+      fetchUrl(TAIFEX_BASE + '/OpenInterestOfLargeTradersFutures'),
+      fetchUrl(TAIFEX_BASE + '/PutCallRatio'),
+    ])
+
+    const tx = instData.filter(r => r.ContractCode === '臺股期貨')
+    if (!tx.length) { console.log('[futures_chips] 無台指期資料（可能休市）'); return }
+
+    const getInst = (item) => {
+      const row = tx.find(r => r.Item === item)
+      if (!row) return { long: 0, short: 0, net: 0 }
+      return {
+        long:  parseInt(row['OpenInterest(Long)'])  || 0,
+        short: parseInt(row['OpenInterest(Short)']) || 0,
+        net:   parseInt(row['OpenInterest(Net)'])   || 0,
+      }
+    }
+    const foreign = getInst('外資及陸資')
+    const trust   = getInst('投信')
+    const dealer  = getInst('自營商')
+
+    const dateStr   = tx[0].Date   // YYYYMMDD
+    const tradeDate = `${dateStr.slice(0,4)}-${dateStr.slice(4,6)}-${dateStr.slice(6,8)}`
+
+    const largeTX = largeData.find(r => r.Contract === 'TX' && r.SettlementMonth === '999912' && r.TypeOfTraders === '0') || {}
+    const latestPC = pcData?.length ? pcData[pcData.length - 1] : null
+
+    await pool.query(`
+      INSERT INTO futures_chips (
+        trade_date,
+        foreign_tx_long, foreign_tx_short, foreign_tx_net,
+        trust_tx_long, trust_tx_short, trust_tx_net,
+        dealer_tx_long, dealer_tx_short, dealer_tx_net,
+        large_top5_long, large_top5_short, large_top10_long, large_top10_short, oi_market,
+        pc_volume_ratio, pc_oi_ratio, put_oi, call_oi, updated_at
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,NOW())
+      ON CONFLICT (trade_date) DO UPDATE SET
+        foreign_tx_long=$2, foreign_tx_short=$3, foreign_tx_net=$4,
+        trust_tx_long=$5,   trust_tx_short=$6,   trust_tx_net=$7,
+        dealer_tx_long=$8,  dealer_tx_short=$9,  dealer_tx_net=$10,
+        large_top5_long=$11, large_top5_short=$12, large_top10_long=$13, large_top10_short=$14, oi_market=$15,
+        pc_volume_ratio=$16, pc_oi_ratio=$17, put_oi=$18, call_oi=$19, updated_at=NOW()
+    `, [
+      tradeDate,
+      foreign.long, foreign.short, foreign.net,
+      trust.long,   trust.short,   trust.net,
+      dealer.long,  dealer.short,  dealer.net,
+      parseInt(largeTX.Top5Buy)    || 0,
+      parseInt(largeTX.Top5Sell)   || 0,
+      parseInt(largeTX.Top10Buy)   || 0,
+      parseInt(largeTX.Top10Sell)  || 0,
+      parseInt(largeTX.OIOfMarket) || 0,
+      latestPC ? parseFloat(latestPC['PutCallVolumeRatio%']) : null,
+      latestPC ? parseFloat(latestPC['PutCallOIRatio%'])     : null,
+      latestPC ? parseInt(latestPC.PutOI)  : 0,
+      latestPC ? parseInt(latestPC.CallOI) : 0,
+    ])
+    console.log(`[futures_chips] ${tradeDate} 同步完成`)
+  } catch (e) {
+    console.error('[futures_chips] 同步失敗:', e.message)
+  }
+}
+
+app.get('/api/futures-chips', async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT * FROM futures_chips ORDER BY trade_date DESC LIMIT 20
+    `)
+    res.json({ rows })
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+app.post('/api/sync/futures-chips', async (req, res) => {
+  res.json({ ok: true, message: '同步已開始' })
+  syncFuturesChips()
+})
+
 // 排程：週一到週五 15:00 自動執行
 cron.schedule('0 15 * * 1-5', () => {
   console.log('[cron] 15:00 自動同步觸發')
@@ -1240,7 +1358,12 @@ async function serverMonitorAll() {
 setInterval(serverMonitorAll, 30 * 1000)
 console.log('[monitor] 伺服器端背景監控已啟動（開盤時每 30 秒自動執行）')
 
-console.log('[cron] 已設定每日 15:00 自動存檔（週一至週五）')
+cron.schedule('30 15 * * 1-5', () => {
+  console.log('[cron] 15:30 台指期籌碼自動同步')
+  syncFuturesChips()
+}, { timezone: 'Asia/Taipei' })
+
+console.log('[cron] 已設定每日 15:00 自動存檔、15:30 台指期籌碼同步（週一至週五）')
 
 const PORT = process.env.PORT || 3000
 app.listen(PORT, () => {
