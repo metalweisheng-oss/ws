@@ -935,6 +935,87 @@ app.post('/api/sync/backfill', async (req, res) => {
   }
 })
 
+// 產業代碼對照表（TWSE 官方分類）
+const TWSE_SECTOR_NAMES = {
+  '01':'水泥工業','02':'食品工業','03':'塑膠工業','04':'紡織纖維','05':'電機機械',
+  '06':'電器電纜','08':'化學工業','09':'生技醫療','10':'玻璃陶瓷','11':'造紙工業',
+  '12':'鋼鐵工業','13':'橡膠工業','14':'汽車工業','15':'電腦週邊','16':'光電業',
+  '17':'通信網路','18':'電子零組件','19':'電子通路','20':'資訊服務','21':'其他電子',
+  '22':'建材營造','23':'航運業','24':'觀光餐旅','25':'金融保險','26':'貿易百貨',
+  '27':'油電燃氣','28':'綜合企業','29':'其他','31':'半導體業',
+}
+
+// 快取（當日有效）
+let sectorCache = { date: '', data: null }
+
+app.get('/api/sector-analysis', async (req, res) => {
+  try {
+    const today = new Date(Date.now() + 8*3600000).toISOString().slice(0,10).replace(/-/g,'')
+
+    // 當日快取
+    if (sectorCache.date === today && sectorCache.data) {
+      return res.json(sectorCache.data)
+    }
+
+    // 1. 取得今日全市場行情（含成交量 + 漲跌）
+    const allDay = await fetchUrl('https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY_ALL?response=json')
+    if (allDay.stat !== 'OK' || !allDay.data?.length) {
+      return res.status(503).json({ error: '今日行情尚未收盤或休市' })
+    }
+
+    // 2. 取得上市公司產業別對照
+    const compList = await fetchUrl('https://openapi.twse.com.tw/v1/opendata/t187ap03_L')
+    const sectorMap = {}
+    for (const c of compList) {
+      if (c['公司代號'] && c['產業別']) sectorMap[c['公司代號'].trim()] = c['產業別'].trim()
+    }
+
+    // 3. 整理股票資料
+    const stocks = []
+    for (const row of allDay.data) {
+      try {
+        const no   = row[0].trim()
+        if (!/^\d{4}$/.test(no)) continue          // 只取一般股票
+        const name = row[1].trim()
+        const vol  = parseInt(row[2].replace(/,/g,''))
+        const close= parseFloat(row[7].replace(/,/g,''))
+        const chg  = parseFloat(row[8].replace(/,/g,'').trim()) || 0
+        const prev = close - chg
+        const pct  = prev !== 0 ? Math.round(chg / prev * 10000) / 100 : 0
+        const sec  = sectorMap[no] || '29'
+        stocks.push({ no, name, vol, close, pct, sector: sec, sectorName: TWSE_SECTOR_NAMES[sec] || '其他' })
+      } catch(e) {}
+    }
+
+    // 4. 成交量前 50
+    const top50 = stocks.sort((a,b) => b.vol - a.vol).slice(0, 50)
+
+    // 5. 按族群計算平均漲跌幅
+    const groups = {}
+    for (const s of top50) {
+      if (!groups[s.sectorName]) groups[s.sectorName] = { stocks: [], totalPct: 0 }
+      groups[s.sectorName].stocks.push(s)
+      groups[s.sectorName].totalPct += s.pct
+    }
+
+    const sectors = Object.entries(groups)
+      .map(([name, g]) => ({
+        name,
+        avgPct:   Math.round(g.totalPct / g.stocks.length * 100) / 100,
+        count:    g.stocks.length,
+        maxPct:   Math.max(...g.stocks.map(s => s.pct)),
+        stocks:   g.stocks.sort((a,b) => b.pct - a.pct),
+      }))
+      .sort((a,b) => b.avgPct - a.avgPct)
+
+    const result = { date: today, top50Count: top50.length, sectors }
+    sectorCache = { date: today, data: result }
+    res.json(result)
+  } catch(e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
 app.get('/api/daily-report', async (req, res) => {
   const { stockNo = '2059', date } = req.query
   const stockName = STOCK_NAMES[stockNo] || stockNo

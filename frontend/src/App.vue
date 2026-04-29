@@ -284,6 +284,27 @@ const reportLoading = ref(false)
 const reportData    = ref(null)
 const reportError   = ref('')
 
+// ── 強勢族群 ──────────────────────────────────────
+const sectorLoading = ref(false)
+const sectorData    = ref(null)
+const sectorError   = ref('')
+
+async function loadSectorAnalysis() {
+  sectorLoading.value = true
+  sectorError.value   = ''
+  sectorData.value    = null
+  try {
+    const r = await fetch(`${API}/api/sector-analysis`)
+    const d = await r.json()
+    if (d.error) throw new Error(d.error)
+    sectorData.value = d
+  } catch(e) {
+    sectorError.value = '載入失敗：' + e.message
+  } finally {
+    sectorLoading.value = false
+  }
+}
+
 async function generateReport() {
   reportLoading.value = true
   reportError.value   = ''
@@ -829,6 +850,67 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
       </div>
 
       <p v-if="reportError" class="text-red-400 text-sm">{{ reportError }}</p>
+
+      <!-- 本日強勢族群 -->
+      <div class="rounded-2xl border border-gray-800 bg-gray-900 p-5 space-y-3">
+        <div class="flex items-center justify-between">
+          <h3 class="text-sm font-semibold text-gray-300">🚀 本日強勢族群</h3>
+          <button @click="loadSectorAnalysis"
+                  class="px-3 py-1.5 rounded-lg bg-gray-700 hover:bg-gray-600 text-xs text-gray-300 transition">
+            {{ sectorLoading ? '載入中...' : '載入分析' }}
+          </button>
+        </div>
+
+        <p v-if="sectorError" class="text-red-400 text-xs">{{ sectorError }}</p>
+
+        <div v-if="sectorData" class="space-y-3">
+          <p class="text-xs text-gray-600">{{ sectorData.date }}　成交量前 50 大個股　共 {{ sectorData.top50Count }} 檔</p>
+
+          <!-- 前三名 -->
+          <div v-for="(sec, idx) in sectorData.sectors.slice(0, 3)" :key="sec.sectorName"
+               class="rounded-xl border p-4 space-y-2"
+               :class="idx===0 ? 'border-yellow-700 bg-yellow-950/20' : idx===1 ? 'border-gray-500 bg-gray-800/40' : 'border-orange-900 bg-orange-950/10'">
+            <div class="flex items-center justify-between">
+              <span class="font-bold text-sm" :class="idx===0 ? 'text-yellow-400' : idx===1 ? 'text-gray-300' : 'text-orange-400'">
+                {{ ['🥇','🥈','🥉'][idx] }} {{ sec.sectorName }}
+              </span>
+              <span class="text-sm font-mono font-bold" :class="sec.avgPct >= 0 ? 'text-red-400' : 'text-green-400'">
+                {{ sec.avgPct >= 0 ? '▲' : '▼' }}{{ Math.abs(sec.avgPct).toFixed(2) }}%
+              </span>
+            </div>
+            <div class="flex flex-wrap gap-2">
+              <span v-for="s in sec.stocks" :key="s.no"
+                    class="flex items-center gap-1 px-2 py-0.5 rounded-full bg-gray-900 text-xs">
+                <span class="text-gray-400 font-mono">{{ s.no }}</span>
+                <span class="text-gray-300">{{ s.name }}</span>
+                <span :class="s.pct >= 0 ? 'text-red-400' : 'text-green-400'">
+                  {{ s.pct >= 0 ? '+' : '' }}{{ s.pct.toFixed(2) }}%
+                </span>
+              </span>
+            </div>
+          </div>
+
+          <!-- 完整排行 -->
+          <details class="mt-1">
+            <summary class="text-xs text-gray-500 cursor-pointer hover:text-gray-300 transition">所有族群排行（{{ sectorData.sectors.length }} 個族群）</summary>
+            <div class="mt-2 space-y-1">
+              <div v-for="(sec, idx) in sectorData.sectors" :key="sec.sectorName"
+                   class="flex items-center gap-3 text-xs px-3 py-1.5 rounded-lg bg-gray-800/50">
+                <span class="text-gray-600 w-5 text-right">{{ idx + 1 }}</span>
+                <span class="text-gray-300 flex-1">{{ sec.sectorName }}</span>
+                <span class="text-gray-500">{{ sec.count }} 檔</span>
+                <span class="font-mono font-bold w-20 text-right" :class="sec.avgPct >= 0 ? 'text-red-400' : 'text-green-400'">
+                  {{ sec.avgPct >= 0 ? '▲' : '▼' }}{{ Math.abs(sec.avgPct).toFixed(2) }}%
+                </span>
+              </div>
+            </div>
+          </details>
+        </div>
+
+        <div v-else-if="!sectorLoading" class="text-xs text-gray-600 text-center py-2">
+          點擊「載入分析」取得今日強勢族群
+        </div>
+      </div>
 
       <!-- 報表內容 -->
       <div v-if="reportData" class="space-y-4">
