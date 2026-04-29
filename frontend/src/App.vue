@@ -867,12 +867,12 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
           <p class="text-xs text-gray-600">{{ sectorData.date }}　成交量前 50 大個股　共 {{ sectorData.top50Count }} 檔</p>
 
           <!-- 前三名 -->
-          <div v-for="(sec, idx) in sectorData.sectors.slice(0, 3)" :key="sec.sectorName"
+          <div v-for="(sec, idx) in sectorData.sectors.slice(0, 3)" :key="sec.name"
                class="rounded-xl border p-4 space-y-2"
                :class="idx===0 ? 'border-yellow-700 bg-yellow-950/20' : idx===1 ? 'border-gray-500 bg-gray-800/40' : 'border-orange-900 bg-orange-950/10'">
             <div class="flex items-center justify-between">
               <span class="font-bold text-sm" :class="idx===0 ? 'text-yellow-400' : idx===1 ? 'text-gray-300' : 'text-orange-400'">
-                {{ ['🥇','🥈','🥉'][idx] }} {{ sec.sectorName }}
+                {{ ['🥇','🥈','🥉'][idx] }} {{ sec.name }}
               </span>
               <span class="text-sm font-mono font-bold" :class="sec.avgPct >= 0 ? 'text-red-400' : 'text-green-400'">
                 {{ sec.avgPct >= 0 ? '▲' : '▼' }}{{ Math.abs(sec.avgPct).toFixed(2) }}%
@@ -894,10 +894,10 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
           <details class="mt-1">
             <summary class="text-xs text-gray-500 cursor-pointer hover:text-gray-300 transition">所有族群排行（{{ sectorData.sectors.length }} 個族群）</summary>
             <div class="mt-2 space-y-1">
-              <div v-for="(sec, idx) in sectorData.sectors" :key="sec.sectorName"
+              <div v-for="(sec, idx) in sectorData.sectors" :key="sec.name"
                    class="flex items-center gap-3 text-xs px-3 py-1.5 rounded-lg bg-gray-800/50">
                 <span class="text-gray-600 w-5 text-right">{{ idx + 1 }}</span>
-                <span class="text-gray-300 flex-1">{{ sec.sectorName }}</span>
+                <span class="text-gray-300 flex-1">{{ sec.name }}</span>
                 <span class="text-gray-500">{{ sec.count }} 檔</span>
                 <span class="font-mono font-bold w-20 text-right" :class="sec.avgPct >= 0 ? 'text-red-400' : 'text-green-400'">
                   {{ sec.avgPct >= 0 ? '▲' : '▼' }}{{ Math.abs(sec.avgPct).toFixed(2) }}%
