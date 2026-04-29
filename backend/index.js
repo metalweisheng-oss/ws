@@ -897,6 +897,72 @@ app.post('/api/sync/run', (req, res) => {
   runDailySync()
 })
 
+// 補抓指定個股的近 N 日分時明細 + 日線
+app.post('/api/sync/intraday-range', async (req, res) => {
+  const { stockNos, range = '7d' } = req.body
+  const targets = stockNos?.length
+    ? STOCKS_LIST.filter(s => stockNos.includes(s.no))
+    : STOCKS_LIST
+  res.json({ message: `開始補抓 ${targets.map(s=>s.no).join(',')} 近 ${range} 分時明細...` })
+
+  for (const { no, name } of targets) {
+    try {
+      const json = await fetchUrl(
+        `https://query1.finance.yahoo.com/v8/finance/chart/${getSymbol(no)}?interval=1m&range=${range}`
+      )
+      const result = json.chart.result?.[0]
+      if (!result?.timestamp) { console.log(`[intraday-range] ${name} 無資料`); continue }
+      const q = result.indicators.quote[0]
+      const rows = result.timestamp
+        .map((ts, i) => ({ ts, open: q.open[i], high: q.high[i], low: q.low[i], close: q.close[i], volume: q.volume[i] }))
+        .filter(r => r.close != null && r.volume > 0)
+      let saved = 0
+      for (const row of rows) {
+        try {
+          await pool.query(
+            `INSERT INTO intraday (stock_no,stock_name,bar_time,open_price,high_price,low_price,close_price,volume)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+             ON CONFLICT (stock_no,bar_time) DO UPDATE SET
+               open_price=EXCLUDED.open_price, high_price=EXCLUDED.high_price,
+               low_price=EXCLUDED.low_price, close_price=EXCLUDED.close_price,
+               volume=EXCLUDED.volume`,
+            [no, name, new Date(row.ts * 1000),
+             row.open ?? null, row.high ?? null, row.low ?? null, row.close ?? null, row.volume ?? null]
+          )
+          saved++
+        } catch(e) { /* skip duplicate */ }
+      }
+      console.log(`[intraday-range] ${name} 分時補抓 ${saved} 根 ✓`)
+    } catch(e) { console.error(`[intraday-range] ${name} 失敗:`, e.message) }
+  }
+
+  // 同時補日線摘要（近 7 日）
+  for (const { no, name } of targets) {
+    try {
+      const json = await fetchUrl(
+        `https://query1.finance.yahoo.com/v8/finance/chart/${getSymbol(no)}?interval=1d&range=10d`
+      )
+      const result = json.chart.result?.[0]
+      if (!result?.timestamp) continue
+      const q = result.indicators.quote[0]
+      const rows = result.timestamp
+        .map((ts, i) => ({ ts, open: q.open[i], high: q.high[i], low: q.low[i], close: q.close[i], volume: q.volume[i] }))
+        .filter(r => r.close != null && r.volume > 0)
+      for (const row of rows) {
+        const dt = new Date(row.ts * 1000)
+        await saveDailySummary({
+          stockNo: no, stockName: name,
+          tradeDate: new Date(Date.UTC(dt.getUTCFullYear(), dt.getUTCMonth(), dt.getUTCDate())),
+          open: row.open, high: row.high, low: row.low, close: row.close, volume: row.volume,
+          instForeign: null, instTrust: null, instDealer: null, marginBalance: null,
+        })
+      }
+      console.log(`[intraday-range] ${name} 日線補抓 ${rows.length} 筆 ✓`)
+    } catch(e) { console.error(`[intraday-range] ${name} 日線失敗:`, e.message) }
+  }
+  console.log('[intraday-range] 補抓完成')
+})
+
 app.post('/api/sync/backfill', async (req, res) => {
   const { date } = req.body  // 格式: "20260428"
   if (!date) return res.status(400).json({ error: '需要提供 date 參數（格式：YYYYMMDD）' })
