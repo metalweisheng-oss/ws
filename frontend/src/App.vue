@@ -357,7 +357,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
 
     <!-- 分頁切換 -->
     <div class="border-b border-gray-800 px-6 flex gap-1">
-      <button v-for="t in [{ id:'monitor', label:'即時監控' }, { id:'db', label:'歷史資料' }, { id:'chart', label:'K線圖' }, { id:'report', label:'日報表' }]" :key="t.id"
+      <button v-for="t in [{ id:'monitor', label:'即時監控' }, { id:'db', label:'歷史資料' }, { id:'chart', label:'K線圖' }, { id:'report', label:'日報表' }, { id:'sector', label:'強勢族群' }]" :key="t.id"
               @click="selectTab(t.id)"
               class="px-4 py-3 text-sm font-medium transition border-b-2 -mb-px"
               :class="tab === t.id ? 'border-purple-500 text-purple-400' : 'border-transparent text-gray-500 hover:text-gray-300'">
@@ -851,67 +851,6 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
 
       <p v-if="reportError" class="text-red-400 text-sm">{{ reportError }}</p>
 
-      <!-- 本日強勢族群 -->
-      <div class="rounded-2xl border border-gray-800 bg-gray-900 p-5 space-y-3">
-        <div class="flex items-center justify-between">
-          <h3 class="text-sm font-semibold text-gray-300">🚀 本日強勢族群</h3>
-          <button @click="loadSectorAnalysis"
-                  class="px-3 py-1.5 rounded-lg bg-gray-700 hover:bg-gray-600 text-xs text-gray-300 transition">
-            {{ sectorLoading ? '載入中...' : '載入分析' }}
-          </button>
-        </div>
-
-        <p v-if="sectorError" class="text-red-400 text-xs">{{ sectorError }}</p>
-
-        <div v-if="sectorData" class="space-y-3">
-          <p class="text-xs text-gray-600">{{ sectorData.date }}　成交量前 50 大個股　共 {{ sectorData.top50Count }} 檔</p>
-
-          <!-- 前三名 -->
-          <div v-for="(sec, idx) in sectorData.sectors.slice(0, 3)" :key="sec.name"
-               class="rounded-xl border p-4 space-y-2"
-               :class="idx===0 ? 'border-yellow-700 bg-yellow-950/20' : idx===1 ? 'border-gray-500 bg-gray-800/40' : 'border-orange-900 bg-orange-950/10'">
-            <div class="flex items-center justify-between">
-              <span class="font-bold text-sm" :class="idx===0 ? 'text-yellow-400' : idx===1 ? 'text-gray-300' : 'text-orange-400'">
-                {{ ['🥇','🥈','🥉'][idx] }} {{ sec.name }}
-              </span>
-              <span class="text-sm font-mono font-bold" :class="sec.avgPct >= 0 ? 'text-red-400' : 'text-green-400'">
-                {{ sec.avgPct >= 0 ? '▲' : '▼' }}{{ Math.abs(sec.avgPct).toFixed(2) }}%
-              </span>
-            </div>
-            <div class="flex flex-wrap gap-2">
-              <span v-for="s in sec.stocks" :key="s.no"
-                    class="flex items-center gap-1 px-2 py-0.5 rounded-full bg-gray-900 text-xs">
-                <span class="text-gray-400 font-mono">{{ s.no }}</span>
-                <span class="text-gray-300">{{ s.name }}</span>
-                <span :class="s.pct >= 0 ? 'text-red-400' : 'text-green-400'">
-                  {{ s.pct >= 0 ? '+' : '' }}{{ s.pct.toFixed(2) }}%
-                </span>
-              </span>
-            </div>
-          </div>
-
-          <!-- 完整排行 -->
-          <details class="mt-1">
-            <summary class="text-xs text-gray-500 cursor-pointer hover:text-gray-300 transition">所有族群排行（{{ sectorData.sectors.length }} 個族群）</summary>
-            <div class="mt-2 space-y-1">
-              <div v-for="(sec, idx) in sectorData.sectors" :key="sec.name"
-                   class="flex items-center gap-3 text-xs px-3 py-1.5 rounded-lg bg-gray-800/50">
-                <span class="text-gray-600 w-5 text-right">{{ idx + 1 }}</span>
-                <span class="text-gray-300 flex-1">{{ sec.name }}</span>
-                <span class="text-gray-500">{{ sec.count }} 檔</span>
-                <span class="font-mono font-bold w-20 text-right" :class="sec.avgPct >= 0 ? 'text-red-400' : 'text-green-400'">
-                  {{ sec.avgPct >= 0 ? '▲' : '▼' }}{{ Math.abs(sec.avgPct).toFixed(2) }}%
-                </span>
-              </div>
-            </div>
-          </details>
-        </div>
-
-        <div v-else-if="!sectorLoading" class="text-xs text-gray-600 text-center py-2">
-          點擊「載入分析」取得今日強勢族群
-        </div>
-      </div>
-
       <!-- 報表內容 -->
       <div v-if="reportData" class="space-y-4">
 
@@ -993,6 +932,75 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
           <div v-for="(n, i) in reportData.news" :key="i" class="border-b border-gray-800 pb-2 last:border-0 last:pb-0">
             <p class="text-sm text-gray-200">{{ n.title }}</p>
             <p class="text-xs text-gray-600 mt-0.5">{{ n.time }}</p>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ── 強勢族群 Tab ── -->
+    <div v-if="tab === 'sector'" class="max-w-3xl mx-auto px-4 py-6 space-y-4">
+
+      <!-- 標題列 -->
+      <div class="flex items-center justify-between">
+        <div>
+          <h2 class="text-base font-bold text-white">🚀 本日強勢族群</h2>
+          <p v-if="sectorData" class="text-xs text-gray-600 mt-0.5">{{ sectorData.date }}　成交量前 50 大個股</p>
+        </div>
+        <button @click="loadSectorAnalysis"
+                class="px-4 py-2 rounded-lg bg-purple-700 hover:bg-purple-600 text-sm font-medium transition">
+          {{ sectorLoading ? '載入中...' : '載入分析' }}
+        </button>
+      </div>
+
+      <p v-if="sectorError" class="text-red-400 text-sm">{{ sectorError }}</p>
+
+      <div v-if="!sectorData && !sectorLoading" class="text-center text-gray-600 text-sm py-12">
+        點擊「載入分析」取得今日強勢族群排行
+      </div>
+
+      <div v-if="sectorData" class="space-y-3">
+
+        <!-- 前三名 -->
+        <div v-for="(sec, idx) in sectorData.sectors.slice(0, 3)" :key="sec.name"
+             class="rounded-2xl border p-5 space-y-3"
+             :class="idx===0 ? 'border-yellow-700 bg-yellow-950/20' : idx===1 ? 'border-gray-500 bg-gray-800/40' : 'border-orange-800 bg-orange-950/10'">
+          <div class="flex items-center justify-between">
+            <span class="font-bold text-base" :class="idx===0 ? 'text-yellow-400' : idx===1 ? 'text-gray-200' : 'text-orange-400'">
+              {{ ['🥇','🥈','🥉'][idx] }} {{ sec.name }}
+            </span>
+            <span class="text-lg font-mono font-bold" :class="sec.avgPct >= 0 ? 'text-red-400' : 'text-green-400'">
+              {{ sec.avgPct >= 0 ? '▲' : '▼' }}{{ Math.abs(sec.avgPct).toFixed(2) }}%
+            </span>
+          </div>
+          <div class="flex flex-wrap gap-2">
+            <span v-for="s in sec.stocks" :key="s.no"
+                  class="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-gray-900/80 border border-gray-800 text-xs">
+              <span class="text-gray-500 font-mono">{{ s.no }}</span>
+              <span class="text-gray-200">{{ s.name }}</span>
+              <span class="font-mono" :class="s.pct >= 0 ? 'text-red-400' : 'text-green-400'">
+                {{ s.pct >= 0 ? '+' : '' }}{{ s.pct.toFixed(2) }}%
+              </span>
+            </span>
+          </div>
+        </div>
+
+        <!-- 完整排行 -->
+        <div class="rounded-2xl border border-gray-800 bg-gray-900 overflow-hidden">
+          <div class="px-5 py-3 border-b border-gray-800">
+            <h3 class="text-sm font-semibold text-gray-300">所有族群排行（{{ sectorData.sectors.length }} 個族群）</h3>
+          </div>
+          <div class="divide-y divide-gray-800">
+            <div v-for="(sec, idx) in sectorData.sectors" :key="sec.name"
+                 class="flex items-center gap-3 px-5 py-2.5 hover:bg-gray-800/40 transition">
+              <span class="text-gray-600 text-xs w-5 text-right shrink-0">{{ idx + 1 }}</span>
+              <span class="text-gray-300 text-sm flex-1">{{ sec.name }}</span>
+              <span class="text-gray-500 text-xs shrink-0">{{ sec.count }} 檔</span>
+              <span class="font-mono text-sm font-bold w-20 text-right shrink-0"
+                    :class="sec.avgPct >= 0 ? 'text-red-400' : 'text-green-400'">
+                {{ sec.avgPct >= 0 ? '▲' : '▼' }}{{ Math.abs(sec.avgPct).toFixed(2) }}%
+              </span>
+            </div>
           </div>
         </div>
 
