@@ -947,7 +947,7 @@ const TWSE_SECTOR_NAMES = {
 }
 
 // 快取（當日有效）
-let sectorCache = { date: '', data: null } // 對照表更新後自動失效
+let sectorCache = { date: '', data: null }
 
 app.get('/api/sector-analysis', async (req, res) => {
   try {
