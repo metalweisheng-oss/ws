@@ -11,6 +11,10 @@ const STOCKS = [
   { no: '3293', name: '鈊象'     },
   { no: '3008', name: '大立光'   },
   { no: '9105', name: '泰金寶'   },
+  { no: '6274', name: '台燿'     },
+  { no: '3017', name: '奇鋐'     },
+  { no: '3037', name: '欣興'     },
+  { no: '8046', name: '南電'     },
 ]
 
 const SIGNAL_META = {

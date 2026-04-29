@@ -288,6 +288,10 @@ const STOCK_NAMES = {
   '3293': '鈊象',
   '3008': '大立光',
   '9105': '泰金寶',
+  '6274': '台燿',
+  '3017': '奇鋐',
+  '3037': '欣興',
+  '8046': '南電',
 }
 // 部分個股在興櫃/上櫃市場，Yahoo Finance 需用 .TWO 後綴
 const STOCK_SYMBOLS = {
@@ -295,6 +299,10 @@ const STOCK_SYMBOLS = {
   '3293': '3293.TWO',
   '3008': '3008.TW',
   '9105': '9105.TW',
+  '6274': '6274.TW',
+  '3017': '3017.TW',
+  '3037': '3037.TW',
+  '8046': '8046.TW',
 }
 function getSymbol(stockNo) { return STOCK_SYMBOLS[stockNo] || `${stockNo}.TW` }
 
