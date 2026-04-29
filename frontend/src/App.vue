@@ -289,6 +289,11 @@ const sectorLoading = ref(false)
 const sectorData    = ref(null)
 const sectorError   = ref('')
 
+const sectorExpanded = ref({})
+function toggleSector(name) {
+  sectorExpanded.value[name] = !sectorExpanded.value[name]
+}
+
 async function loadSectorAnalysis() {
   sectorLoading.value = true
   sectorError.value   = ''
@@ -991,15 +996,30 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
             <h3 class="text-sm font-semibold text-gray-300">所有族群排行（{{ sectorData.sectors.length }} 個族群）</h3>
           </div>
           <div class="divide-y divide-gray-800">
-            <div v-for="(sec, idx) in sectorData.sectors" :key="sec.name"
-                 class="flex items-center gap-3 px-5 py-2.5 hover:bg-gray-800/40 transition">
-              <span class="text-gray-600 text-xs w-5 text-right shrink-0">{{ idx + 1 }}</span>
-              <span class="text-gray-300 text-sm flex-1">{{ sec.name }}</span>
-              <span class="text-gray-500 text-xs shrink-0">{{ sec.count }} 檔</span>
-              <span class="font-mono text-sm font-bold w-20 text-right shrink-0"
-                    :class="sec.avgPct >= 0 ? 'text-red-400' : 'text-green-400'">
-                {{ sec.avgPct >= 0 ? '▲' : '▼' }}{{ Math.abs(sec.avgPct).toFixed(2) }}%
-              </span>
+            <div v-for="(sec, idx) in sectorData.sectors" :key="sec.name">
+              <!-- 族群列（可點擊展開） -->
+              <div class="flex items-center gap-3 px-5 py-2.5 hover:bg-gray-800/40 transition cursor-pointer select-none"
+                   @click="toggleSector(sec.name)">
+                <span class="text-gray-600 text-xs w-5 text-right shrink-0">{{ idx + 1 }}</span>
+                <span class="text-gray-300 text-sm flex-1">{{ sec.name }}</span>
+                <span class="text-gray-500 text-xs shrink-0">{{ sec.count }} 檔</span>
+                <span class="font-mono text-sm font-bold w-20 text-right shrink-0"
+                      :class="sec.avgPct >= 0 ? 'text-red-400' : 'text-green-400'">
+                  {{ sec.avgPct >= 0 ? '▲' : '▼' }}{{ Math.abs(sec.avgPct).toFixed(2) }}%
+                </span>
+                <span class="text-gray-600 text-xs shrink-0">{{ sectorExpanded[sec.name] ? '▲' : '▼' }}</span>
+              </div>
+              <!-- 展開個股 -->
+              <div v-if="sectorExpanded[sec.name]" class="px-5 pb-3 flex flex-wrap gap-2 bg-gray-800/20">
+                <span v-for="s in sec.stocks" :key="s.no"
+                      class="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-gray-900 border border-gray-700 text-xs">
+                  <span class="text-gray-500 font-mono">{{ s.no }}</span>
+                  <span class="text-gray-200">{{ s.name }}</span>
+                  <span class="font-mono" :class="s.pct >= 0 ? 'text-red-400' : 'text-green-400'">
+                    {{ s.pct >= 0 ? '+' : '' }}{{ s.pct.toFixed(2) }}%
+                  </span>
+                </span>
+              </div>
             </div>
           </div>
         </div>
