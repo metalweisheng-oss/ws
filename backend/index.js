@@ -257,16 +257,13 @@ async function saveDailySummary({ stockNo, stockName, tradeDate, open, high, low
   }
 }
 
-// 共用抓 URL（支援 gzip / redirect / 詳細錯誤日誌）
+// 共用抓 URL（支援 redirect / 詳細錯誤日誌；不送 Accept-Encoding 避免壓縮）
 const fetchUrl = (url, _depth = 0) => new Promise((resolve, reject) => {
   if (_depth > 5) return reject(new Error('Too many redirects'))
   const lib = url.startsWith('https') ? https : http
   const headers = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-    'Accept': 'application/json, text/plain, */*',
-    'Accept-Language': 'zh-TW,zh;q=0.9,en;q=0.8',
-    'Accept-Encoding': 'gzip, deflate',
-    'Referer': 'https://www.taifex.com.tw/',
+    'Accept': 'application/json',
   }
   lib.get(url, { headers }, (r) => {
     // 跟隨跳轉
@@ -281,21 +278,14 @@ const fetchUrl = (url, _depth = 0) => new Promise((resolve, reject) => {
     r.on('data', c => chunks.push(c))
     r.on('end', () => {
       const raw = Buffer.concat(chunks)
-      const parse = (buf) => {
-        try {
-          const text = buf.toString('utf8').trim()
-          if (!text) return reject(new Error(`Empty response (HTTP ${r.statusCode}) from ${url.slice(-60)}`))
-          resolve(JSON.parse(text))
-        } catch(e) {
-          const preview = raw.slice(0, 120).toString('utf8').replace(/\n/g, ' ')
-          console.error(`[fetchUrl] JSON 解析失敗 status=${r.statusCode} bytes=${raw.length} preview="${preview}" url=${url.slice(-60)}`)
-          reject(e)
-        }
+      try {
+        const text = raw.toString('utf8').trim()
+        if (!text) return reject(new Error(`Empty response HTTP ${r.statusCode} from ${url.slice(-60)}`))
+        resolve(JSON.parse(text))
+      } catch(e) {
+        console.error(`[fetchUrl] 解析失敗 status=${r.statusCode} bytes=${raw.length} preview="${raw.slice(0,100).toString('utf8').replace(/\n/g,' ')}" url=${url.slice(-60)}`)
+        reject(e)
       }
-      const enc = r.headers['content-encoding']
-      if (enc === 'gzip')    zlib.gunzip(raw, (e, d) => e ? reject(e) : parse(d))
-      else if (enc === 'br') zlib.brotliDecompress(raw, (e, d) => e ? reject(e) : parse(d))
-      else                   parse(raw)
     })
   }).on('error', reject)
 })
