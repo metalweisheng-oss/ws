@@ -256,9 +256,15 @@ async function saveDailySummary({ stockNo, stockName, tradeDate, open, high, low
   }
 }
 
-// 共用抓 URL（自動處理 gzip 壓縮）
-const fetchUrl = (url) => new Promise((resolve, reject) => {
-  https.get(url, { headers: { 'User-Agent': 'Mozilla/5.0', 'Accept-Encoding': 'gzip, deflate' } }, (r) => {
+// 共用抓 URL（自動跟隨 redirect + 解壓縮 gzip）
+const fetchUrl = (url, _redirects = 0) => new Promise((resolve, reject) => {
+  if (_redirects > 5) return reject(new Error('Too many redirects'))
+  const lib = url.startsWith('https') ? https : require('http')
+  lib.get(url, { headers: { 'User-Agent': 'Mozilla/5.0', 'Accept-Encoding': 'gzip, deflate' } }, (r) => {
+    if (r.statusCode >= 300 && r.statusCode < 400 && r.headers.location) {
+      r.resume()
+      return resolve(fetchUrl(r.headers.location, _redirects + 1))
+    }
     const chunks = []
     const enc = r.headers['content-encoding']
     const stream = (enc === 'gzip') ? r.pipe(zlib.createGunzip())
@@ -1476,18 +1482,9 @@ app.post('/api/sync/futures-chips', async (req, res) => {
 })
 
 app.get('/api/debug/futures-chips', async (req, res) => {
-  const rawFetch = (url) => new Promise((resolve, reject) => {
-    https.get(url, { headers: { 'User-Agent': 'Mozilla/5.0' } }, (r) => {
-      const chunks = []
-      r.on('data', c => chunks.push(c))
-      r.on('end', () => resolve({ status: r.statusCode, enc: r.headers['content-encoding'], ct: r.headers['content-type'], raw: Buffer.concat(chunks) }))
-    }).on('error', reject)
-  })
   try {
-    const r = await rawFetch(TAIFEX_BASE + '/PutCallRatio')
-    const preview = r.raw.slice(0, 200).toString('utf8')
-    const isGzip = r.raw[0] === 0x1f && r.raw[1] === 0x8b
-    res.json({ status: r.status, enc: r.enc, ct: r.ct, isGzip, rawLen: r.raw.length, preview })
+    const data = await fetchUrl(TAIFEX_BASE + '/PutCallRatio')
+    res.json({ ok: true, count: data.length, sample: data.slice(-1) })
   } catch(e) {
     res.status(500).json({ error: e.message })
   }
