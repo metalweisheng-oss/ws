@@ -1,6 +1,7 @@
 const express = require('express')
 const cors = require('cors')
 const https = require('https')
+const zlib  = require('zlib')
 const cron  = require('node-cron')
 require('dotenv').config()
 const { pool } = require('./db')
@@ -255,12 +256,20 @@ async function saveDailySummary({ stockNo, stockName, tradeDate, open, high, low
   }
 }
 
-// 共用抓 URL
+// 共用抓 URL（自動處理 gzip 壓縮）
 const fetchUrl = (url) => new Promise((resolve, reject) => {
-  https.get(url, { headers: { 'User-Agent': 'Mozilla/5.0' } }, (r) => {
-    let raw = ''
-    r.on('data', c => raw += c)
-    r.on('end', () => { try { resolve(JSON.parse(raw)) } catch(e) { reject(e) } })
+  https.get(url, { headers: { 'User-Agent': 'Mozilla/5.0', 'Accept-Encoding': 'gzip, deflate' } }, (r) => {
+    const chunks = []
+    const enc = r.headers['content-encoding']
+    const stream = (enc === 'gzip') ? r.pipe(zlib.createGunzip())
+                 : (enc === 'deflate') ? r.pipe(zlib.createInflate())
+                 : r
+    stream.on('data', c => chunks.push(c))
+    stream.on('end', () => {
+      try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf8'))) }
+      catch(e) { reject(e) }
+    })
+    stream.on('error', reject)
   }).on('error', reject)
 })
 
