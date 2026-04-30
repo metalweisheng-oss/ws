@@ -1,7 +1,6 @@
 const express = require('express')
 const cors = require('cors')
 const https = require('https')
-const zlib  = require('zlib')
 const cron  = require('node-cron')
 require('dotenv').config()
 const { pool } = require('./db')
@@ -256,26 +255,12 @@ async function saveDailySummary({ stockNo, stockName, tradeDate, open, high, low
   }
 }
 
-// 共用抓 URL（自動跟隨 redirect + 解壓縮 gzip）
-const fetchUrl = (url, _redirects = 0) => new Promise((resolve, reject) => {
-  if (_redirects > 5) return reject(new Error('Too many redirects'))
-  const lib = url.startsWith('https') ? https : require('http')
-  lib.get(url, { headers: { 'User-Agent': 'Mozilla/5.0', 'Accept-Encoding': 'gzip, deflate' } }, (r) => {
-    if (r.statusCode >= 300 && r.statusCode < 400 && r.headers.location) {
-      r.resume()
-      return resolve(fetchUrl(r.headers.location, _redirects + 1))
-    }
-    const chunks = []
-    const enc = r.headers['content-encoding']
-    const stream = (enc === 'gzip') ? r.pipe(zlib.createGunzip())
-                 : (enc === 'deflate') ? r.pipe(zlib.createInflate())
-                 : r
-    stream.on('data', c => chunks.push(c))
-    stream.on('end', () => {
-      try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf8'))) }
-      catch(e) { reject(e) }
-    })
-    stream.on('error', reject)
+// 共用抓 URL
+const fetchUrl = (url) => new Promise((resolve, reject) => {
+  https.get(url, { headers: { 'User-Agent': 'Mozilla/5.0' } }, (r) => {
+    let raw = ''
+    r.on('data', c => raw += c)
+    r.on('end', () => { try { resolve(JSON.parse(raw)) } catch(e) { reject(e) } })
   }).on('error', reject)
 })
 
@@ -1479,15 +1464,6 @@ app.get('/api/futures-chips', async (req, res) => {
 app.post('/api/sync/futures-chips', async (req, res) => {
   res.json({ ok: true, message: '同步已開始' })
   syncFuturesChips()
-})
-
-app.get('/api/debug/futures-chips', async (req, res) => {
-  try {
-    const data = await fetchUrl(TAIFEX_BASE + '/PutCallRatio')
-    res.json({ ok: true, count: data.length, sample: data.slice(-1) })
-  } catch(e) {
-    res.status(500).json({ error: e.message })
-  }
 })
 
 // 排程：週一到週五 15:00 自動執行
