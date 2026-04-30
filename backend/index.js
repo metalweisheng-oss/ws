@@ -1466,6 +1466,69 @@ app.post('/api/sync/futures-chips', async (req, res) => {
   syncFuturesChips()
 })
 
+app.get('/api/debug/futures-chips', async (req, res) => {
+  try {
+    const TAIFEX_BASE = 'https://openapi.taifex.com.tw/v1'
+    const [instData, largeData, pcData] = await Promise.all([
+      fetchUrl(TAIFEX_BASE + '/MarketDataOfMajorInstitutionalTradersDetailsOfFuturesContractsBytheDate'),
+      fetchUrl(TAIFEX_BASE + '/OpenInterestOfLargeTradersFutures'),
+      fetchUrl(TAIFEX_BASE + '/PutCallRatio'),
+    ])
+    const tx = instData.filter(r => r.ContractCode === '臺股期貨')
+    const dateStr = tx[0]?.Date
+    const tradeDate = dateStr ? `${dateStr.slice(0,4)}-${dateStr.slice(4,6)}-${dateStr.slice(6,8)}` : null
+    const getInst = (item) => {
+      const row = tx.find(r => r.Item === item)
+      return row ? { long: parseInt(row['OpenInterest(Long)']), short: parseInt(row['OpenInterest(Short)']), net: parseInt(row['OpenInterest(Net)']) } : null
+    }
+    const largeTX = largeData.find(r => r.Contract === 'TX' && r.SettlementMonth === '999912' && r.TypeOfTraders === '0')
+    const latestPC = pcData?.length ? pcData[pcData.length-1] : null
+
+    // 試寫入 DB
+    let dbResult = null, dbError = null
+    if (tx.length && tradeDate) {
+      const foreign = getInst('外資及陸資') || { long:0, short:0, net:0 }
+      const trust   = getInst('投信')       || { long:0, short:0, net:0 }
+      const dealer  = getInst('自營商')     || { long:0, short:0, net:0 }
+      try {
+        await pool.query(`
+          INSERT INTO futures_chips (
+            trade_date,
+            foreign_tx_long, foreign_tx_short, foreign_tx_net,
+            trust_tx_long, trust_tx_short, trust_tx_net,
+            dealer_tx_long, dealer_tx_short, dealer_tx_net,
+            large_top5_long, large_top5_short, large_top10_long, large_top10_short, oi_market,
+            pc_volume_ratio, pc_oi_ratio, put_oi, call_oi, updated_at
+          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,NOW())
+          ON CONFLICT (trade_date) DO UPDATE SET
+            foreign_tx_long=$2, foreign_tx_short=$3, foreign_tx_net=$4,
+            trust_tx_long=$5,   trust_tx_short=$6,   trust_tx_net=$7,
+            dealer_tx_long=$8,  dealer_tx_short=$9,  dealer_tx_net=$10,
+            large_top5_long=$11, large_top5_short=$12, large_top10_long=$13, large_top10_short=$14, oi_market=$15,
+            pc_volume_ratio=$16, pc_oi_ratio=$17, put_oi=$18, call_oi=$19, updated_at=NOW()
+        `, [
+          tradeDate,
+          foreign.long, foreign.short, foreign.net,
+          trust.long,   trust.short,   trust.net,
+          dealer.long,  dealer.short,  dealer.net,
+          parseInt(largeTX?.Top5Buy)||0, parseInt(largeTX?.Top5Sell)||0,
+          parseInt(largeTX?.Top10Buy)||0, parseInt(largeTX?.Top10Sell)||0,
+          parseInt(largeTX?.OIOfMarket)||0,
+          latestPC ? parseFloat(latestPC['PutCallVolumeRatio%']) : null,
+          latestPC ? parseFloat(latestPC['PutCallOIRatio%'])     : null,
+          latestPC ? parseInt(latestPC.PutOI)  : 0,
+          latestPC ? parseInt(latestPC.CallOI) : 0,
+        ])
+        dbResult = 'inserted/updated ok'
+      } catch(e) { dbError = e.message }
+    }
+
+    res.json({ tx: tx.length, tradeDate, foreign: getInst('外資及陸資'), trust: getInst('投信'), dealer: getInst('自營商'), largeTX, latestPC, dbResult, dbError })
+  } catch(e) {
+    res.status(500).json({ error: e.message, stack: e.stack?.slice(0,300) })
+  }
+})
+
 // 排程：週一到週五 15:00 自動執行
 cron.schedule('0 15 * * 1-5', () => {
   console.log('[cron] 15:00 自動同步觸發')
