@@ -1023,69 +1023,108 @@ const TWSE_SECTOR_NAMES = {
 // 快取（當日有效）
 let sectorCache = { date: '', data: null }
 
+// sector_snapshots 資料表
+;(async () => {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS sector_snapshots (
+        trade_date DATE PRIMARY KEY,
+        data       JSONB NOT NULL,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `)
+    console.log('[sector_snapshots] 資料表就緒')
+  } catch(e) { console.error('[sector_snapshots] 建表失敗:', e.message) }
+})()
+
+async function computeSectorData() {
+  const today  = new Date(Date.now() + 8*3600000).toISOString().slice(0,10).replace(/-/g,'')
+  const allDay = await fetchUrl('https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY_ALL?response=json')
+  if (allDay.stat !== 'OK' || !allDay.data?.length) throw new Error('今日行情尚未收盤或休市')
+
+  const compList = await fetchUrl('https://openapi.twse.com.tw/v1/opendata/t187ap03_L')
+  const sectorMap = {}
+  for (const c of compList) {
+    if (c['公司代號'] && c['產業別']) sectorMap[c['公司代號'].trim()] = c['產業別'].trim()
+  }
+
+  const stocks = []
+  for (const row of allDay.data) {
+    try {
+      const no   = row[0].trim()
+      if (!/^\d{4}$/.test(no)) continue
+      const name = row[1].trim()
+      const vol  = parseInt(row[2].replace(/,/g,''))
+      const close= parseFloat(row[7].replace(/,/g,''))
+      const chg  = parseFloat(row[8].replace(/,/g,'').trim()) || 0
+      const prev = close - chg
+      const pct  = prev !== 0 ? Math.round(chg / prev * 10000) / 100 : 0
+      const sec  = sectorMap[no] || '29'
+      stocks.push({ no, name, vol, close, pct, sector: sec, sectorName: TWSE_SECTOR_NAMES[sec] || '其他' })
+    } catch(e) {}
+  }
+
+  const top50 = stocks.sort((a,b) => b.vol - a.vol).slice(0, 50)
+  const groups = {}
+  for (const s of top50) {
+    if (!groups[s.sectorName]) groups[s.sectorName] = { stocks: [], totalPct: 0 }
+    groups[s.sectorName].stocks.push(s)
+    groups[s.sectorName].totalPct += s.pct
+  }
+  const sectors = Object.entries(groups)
+    .map(([name, g]) => ({
+      name,
+      avgPct: Math.round(g.totalPct / g.stocks.length * 100) / 100,
+      count:  g.stocks.length,
+      maxPct: Math.max(...g.stocks.map(s => s.pct)),
+      stocks: g.stocks.sort((a,b) => b.pct - a.pct),
+    }))
+    .sort((a,b) => b.avgPct - a.avgPct)
+
+  return { date: today, top50Count: top50.length, sectors }
+}
+
+async function saveSectorSnapshot(result) {
+  const d = result.date  // YYYYMMDD
+  const dbDate = `${d.slice(0,4)}-${d.slice(4,6)}-${d.slice(6,8)}`
+  await pool.query(
+    `INSERT INTO sector_snapshots (trade_date, data) VALUES ($1, $2)
+     ON CONFLICT (trade_date) DO UPDATE SET data=$2, created_at=NOW()`,
+    [dbDate, JSON.stringify(result)]
+  )
+}
+
 app.get('/api/sector-analysis', async (req, res) => {
   try {
-    const today = new Date(Date.now() + 8*3600000).toISOString().slice(0,10).replace(/-/g,'')
+    const today     = new Date(Date.now() + 8*3600000).toISOString().slice(0,10).replace(/-/g,'')
+    const dateParam = (req.query.date || '').replace(/-/g,'') || today
 
-    // 當日快取
-    if (sectorCache.date === today && sectorCache.data) {
-      return res.json(sectorCache.data)
+    // 歷史日期 → 從 DB 取
+    if (dateParam !== today) {
+      const dbDate = `${dateParam.slice(0,4)}-${dateParam.slice(4,6)}-${dateParam.slice(6,8)}`
+      const { rows } = await pool.query('SELECT data FROM sector_snapshots WHERE trade_date=$1', [dbDate])
+      if (!rows.length) return res.status(404).json({ error: `無 ${dateParam} 的資料` })
+      return res.json(rows[0].data)
     }
 
-    // 1. 取得今日全市場行情（含成交量 + 漲跌）
-    const allDay = await fetchUrl('https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY_ALL?response=json')
-    if (allDay.stat !== 'OK' || !allDay.data?.length) {
-      return res.status(503).json({ error: '今日行情尚未收盤或休市' })
-    }
+    // 今日 → 記憶體快取
+    if (sectorCache.date === today && sectorCache.data) return res.json(sectorCache.data)
 
-    // 2. 取得上市公司產業別對照
-    const compList = await fetchUrl('https://openapi.twse.com.tw/v1/opendata/t187ap03_L')
-    const sectorMap = {}
-    for (const c of compList) {
-      if (c['公司代號'] && c['產業別']) sectorMap[c['公司代號'].trim()] = c['產業別'].trim()
-    }
-
-    // 3. 整理股票資料
-    const stocks = []
-    for (const row of allDay.data) {
-      try {
-        const no   = row[0].trim()
-        if (!/^\d{4}$/.test(no)) continue          // 只取一般股票
-        const name = row[1].trim()
-        const vol  = parseInt(row[2].replace(/,/g,''))
-        const close= parseFloat(row[7].replace(/,/g,''))
-        const chg  = parseFloat(row[8].replace(/,/g,'').trim()) || 0
-        const prev = close - chg
-        const pct  = prev !== 0 ? Math.round(chg / prev * 10000) / 100 : 0
-        const sec  = sectorMap[no] || '29'
-        stocks.push({ no, name, vol, close, pct, sector: sec, sectorName: TWSE_SECTOR_NAMES[sec] || '其他' })
-      } catch(e) {}
-    }
-
-    // 4. 成交量前 50
-    const top50 = stocks.sort((a,b) => b.vol - a.vol).slice(0, 50)
-
-    // 5. 按族群計算平均漲跌幅
-    const groups = {}
-    for (const s of top50) {
-      if (!groups[s.sectorName]) groups[s.sectorName] = { stocks: [], totalPct: 0 }
-      groups[s.sectorName].stocks.push(s)
-      groups[s.sectorName].totalPct += s.pct
-    }
-
-    const sectors = Object.entries(groups)
-      .map(([name, g]) => ({
-        name,
-        avgPct:   Math.round(g.totalPct / g.stocks.length * 100) / 100,
-        count:    g.stocks.length,
-        maxPct:   Math.max(...g.stocks.map(s => s.pct)),
-        stocks:   g.stocks.sort((a,b) => b.pct - a.pct),
-      }))
-      .sort((a,b) => b.avgPct - a.avgPct)
-
-    const result = { date: today, top50Count: top50.length, sectors }
+    const result = await computeSectorData()
     sectorCache = { date: today, data: result }
+    saveSectorSnapshot(result).catch(e => console.error('[sector_snapshots] 儲存失敗:', e.message))
     res.json(result)
+  } catch(e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+app.get('/api/sector-snapshots/dates', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      'SELECT trade_date FROM sector_snapshots ORDER BY trade_date DESC LIMIT 60'
+    )
+    res.json({ dates: rows.map(r => r.trade_date.toISOString().slice(0,10).replace(/-/g,'')) })
   } catch(e) {
     res.status(500).json({ error: e.message })
   }
@@ -1722,7 +1761,18 @@ cron.schedule('30 15 * * 1-5', () => {
   syncMarketBreadth()
 }, { timezone: 'Asia/Taipei' })
 
-console.log('[cron] 已設定每日 15:00 自動存檔、15:30 台指期籌碼 + 漲跌家數同步（週一至週五）')
+cron.schedule('35 15 * * 1-5', async () => {
+  console.log('[cron] 15:35 強勢族群快照')
+  try {
+    const today = new Date(Date.now() + 8*3600000).toISOString().slice(0,10).replace(/-/g,'')
+    const result = await computeSectorData()
+    sectorCache = { date: today, data: result }
+    await saveSectorSnapshot(result)
+    console.log(`[sector_snapshots] ${today} 快照儲存完成`)
+  } catch(e) { console.error('[sector_snapshots] 快照儲存失敗:', e.message) }
+}, { timezone: 'Asia/Taipei' })
+
+console.log('[cron] 已設定每日 15:00 自動存檔、15:30 台指期籌碼 + 漲跌家數同步、15:35 強勢族群快照（週一至週五）')
 
 const PORT = process.env.PORT || 3000
 app.listen(PORT, () => {

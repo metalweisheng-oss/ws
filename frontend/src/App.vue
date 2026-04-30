@@ -280,6 +280,7 @@ function selectTab(t) {
   if (t === 'db')      loadSignals()
   if (t === 'chart')   nextTick(() => loadChartData())
   if (t === 'breadth') { loadMarketBreadth(); loadMarketDist() }
+  if (t === 'sector')  { loadSectorDates(); loadSectorAnalysis() }
 }
 
 // ── 日報表 ────────────────────────────────────────
@@ -382,24 +383,39 @@ async function manualSyncBreadth() {
 }
 
 // ── 強勢族群 ──────────────────────────────────────
-const sectorLoading = ref(false)
-const sectorData    = ref(null)
-const sectorError   = ref('')
+const sectorLoading  = ref(false)
+const sectorData     = ref(null)
+const sectorError    = ref('')
+const sectorDates    = ref([])
+const sectorDateSel  = ref('')
 
 const sectorExpanded = ref({})
 function toggleSector(name) {
   sectorExpanded.value[name] = !sectorExpanded.value[name]
 }
 
+async function loadSectorDates() {
+  try {
+    const r = await fetch(`${API}/api/sector-snapshots/dates`)
+    const d = await r.json()
+    sectorDates.value = d.dates || []
+  } catch(e) { /* 靜默，不影響主流程 */ }
+}
+
 async function loadSectorAnalysis() {
   sectorLoading.value = true
   sectorError.value   = ''
   sectorData.value    = null
+  sectorExpanded.value = {}
   try {
-    const r = await fetch(`${API}/api/sector-analysis`)
-    const d = await r.json()
+    const qs = sectorDateSel.value ? `?date=${sectorDateSel.value}` : ''
+    const r  = await fetch(`${API}/api/sector-analysis${qs}`)
+    const d  = await r.json()
     if (d.error) throw new Error(d.error)
     sectorData.value = d
+    // 把今日加進日期清單（若還沒存入 DB 則不在清單內）
+    if (d.date && !sectorDates.value.includes(d.date))
+      sectorDates.value = [d.date, ...sectorDates.value]
   } catch(e) {
     sectorError.value = '載入失敗：' + e.message
   } finally {
@@ -1433,15 +1449,27 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
     <div v-if="tab === 'sector'" class="max-w-3xl mx-auto px-4 py-6 space-y-4">
 
       <!-- 標題列 -->
-      <div class="flex items-center justify-between">
+      <div class="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h2 class="text-base font-bold text-white">🚀 本日強勢族群</h2>
-          <p v-if="sectorData" class="text-xs text-gray-600 mt-0.5">{{ sectorData.date }}　成交量前 50 大個股</p>
+          <h2 class="text-base font-bold text-white">🚀 強勢族群</h2>
+          <p v-if="sectorData" class="text-xs text-gray-600 mt-0.5">
+            {{ sectorData.date.slice(0,4) }}/{{ sectorData.date.slice(4,6) }}/{{ sectorData.date.slice(6,8) }}　成交量前 50 大個股
+          </p>
         </div>
-        <button @click="loadSectorAnalysis"
-                class="px-4 py-2 rounded-lg bg-purple-700 hover:bg-purple-600 text-sm font-medium transition">
-          {{ sectorLoading ? '載入中...' : '載入分析' }}
-        </button>
+        <div class="flex items-center gap-2">
+          <!-- 日期選單 -->
+          <select v-model="sectorDateSel" @change="loadSectorAnalysis()"
+                  class="bg-gray-800 text-white text-sm rounded-lg px-3 py-2 border border-gray-700 min-w-[130px]">
+            <option value="">今日（即時）</option>
+            <option v-for="d in sectorDates" :key="d" :value="d">
+              {{ d.slice(0,4) }}/{{ d.slice(4,6) }}/{{ d.slice(6,8) }}
+            </option>
+          </select>
+          <button @click="loadSectorAnalysis()"
+                  class="px-4 py-2 rounded-lg bg-purple-700 hover:bg-purple-600 text-sm font-medium transition">
+            {{ sectorLoading ? '載入中...' : '重新整理' }}
+          </button>
+        </div>
       </div>
 
       <p v-if="sectorError" class="text-red-400 text-sm">{{ sectorError }}</p>
