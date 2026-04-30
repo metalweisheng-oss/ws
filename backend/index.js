@@ -1642,6 +1642,28 @@ app.post('/api/sync/futures-chips', async (req, res) => {
   syncFuturesChips()
 })
 
+app.get('/api/debug/taifex-raw', (req, res) => {
+  const url = 'https://openapi.taifex.com.tw/v1/PutCallRatio'
+  const headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    'Accept': 'application/json',
+  }
+  https.get(url, { headers }, (r) => {
+    const chunks = []
+    r.on('data', c => chunks.push(c))
+    r.on('end', () => {
+      const raw = Buffer.concat(chunks)
+      res.json({
+        status: r.statusCode,
+        headers: r.headers,
+        bytes: raw.length,
+        preview: raw.slice(0, 200).toString('utf8'),
+        encoding: r.headers['content-encoding'] || 'none',
+      })
+    })
+  }).on('error', e => res.json({ error: e.message }))
+})
+
 app.get('/api/debug/futures-chips', async (req, res) => {
   try {
     const TAIFEX_BASE = 'https://openapi.taifex.com.tw/v1'
