@@ -1476,16 +1476,18 @@ app.post('/api/sync/futures-chips', async (req, res) => {
 })
 
 app.get('/api/debug/futures-chips', async (req, res) => {
+  const rawFetch = (url) => new Promise((resolve, reject) => {
+    https.get(url, { headers: { 'User-Agent': 'Mozilla/5.0' } }, (r) => {
+      const chunks = []
+      r.on('data', c => chunks.push(c))
+      r.on('end', () => resolve({ status: r.statusCode, enc: r.headers['content-encoding'], ct: r.headers['content-type'], raw: Buffer.concat(chunks) }))
+    }).on('error', reject)
+  })
   try {
-    const [instData, largeData, pcData] = await Promise.all([
-      fetchUrl(TAIFEX_BASE + '/MarketDataOfMajorInstitutionalTradersDetailsOfFuturesContractsBytheDate'),
-      fetchUrl(TAIFEX_BASE + '/OpenInterestOfLargeTradersFutures'),
-      fetchUrl(TAIFEX_BASE + '/PutCallRatio'),
-    ])
-    const tx = instData.filter(r => r.ContractCode === '臺股期貨')
-    const largeTX = largeData.find(r => r.Contract === 'TX' && r.SettlementMonth === '999912' && r.TypeOfTraders === '0') || {}
-    const latestPC = pcData?.length ? pcData[pcData.length - 1] : null
-    res.json({ tx, largeTX, latestPC, instCount: instData.length, largeCount: largeData.length, pcCount: pcData.length })
+    const r = await rawFetch(TAIFEX_BASE + '/PutCallRatio')
+    const preview = r.raw.slice(0, 200).toString('utf8')
+    const isGzip = r.raw[0] === 0x1f && r.raw[1] === 0x8b
+    res.json({ status: r.status, enc: r.enc, ct: r.ct, isGzip, rawLen: r.raw.length, preview })
   } catch(e) {
     res.status(500).json({ error: e.message })
   }
