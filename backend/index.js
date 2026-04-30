@@ -404,36 +404,55 @@ function detectTopDivergence(rows, macdResult) {
   return p2.price >= p1.price && p2.hist < p1.hist
 }
 
-// 統一訊號判斷（進場 + 出貨）
-function classifySignal({ volRatio, nearLow, nearHigh, reversal, macdDiv, macdTopDiv, dayLow, dayHigh, periodLow, periodHigh }) {
+// 長下影線：下影線 > 總波動 35% 且 > 實體 1.5 倍
+function hasLongLowerShadow(bar) {
+  if (!bar) return false
+  const lowerShadow = Math.min(bar.open, bar.close) - bar.low
+  const totalRange  = bar.high - bar.low
+  const body        = Math.abs(bar.close - bar.open)
+  return totalRange > 0 && lowerShadow > totalRange * 0.35 && (body === 0 || lowerShadow > body * 1.5)
+}
+
+// 現價是否站回 5 根 K 棒收盤均線
+function isAboveMa5(rows) {
+  if (rows.length < 6) return false
+  const ma5 = rows.slice(-6, -1).reduce((s, r) => s + r.close, 0) / 5
+  return rows[rows.length - 1].close > ma5
+}
+
+// ── 四級訊號判斷 ──────────────────────────────────────
+// L1 主力抄底  → signal: 'entry'
+// L2 趨勢轉折  → signal: 'warning'
+// L3 量能警戒  → signal: 'watch'
+// L4 異動提醒  → signal: 'exit_warning'
+function classifySignal({ volRatio, nearLow, nearHigh, reversal, macdDiv, macdTopDiv,
+                          dayLow, dayHigh, periodLow, periodHigh, longLowerShadow, aboveMa5 }) {
   const refLow  = periodLow  ?? dayLow
   const refHigh = periodHigh ?? dayHigh
 
-  // 進場偵測（優先）
-  if (volRatio >= 3 && nearLow && reversal) {
-    return { signal: 'entry', message: `主力疑似進場！接近日低 ${+refLow.toFixed(0)}，量比 ${volRatio}x，出現反彈` + (macdDiv ? ' + MACD底背離' : '') }
+  // 【一級：主力抄底】量比 ≥ 3x + 接近日低 + 長下影線
+  if (volRatio >= 3 && nearLow && longLowerShadow) {
+    const extras = [reversal ? '出現反彈' : null, macdDiv ? 'MACD底背離' : null].filter(Boolean)
+    return { signal: 'entry', message: `【一級】主力抄底！量比 ${volRatio}x + 接近日低 ${+refLow.toFixed(0)} + 長下影線` + (extras.length ? `（${extras.join('、')}）` : '') }
+  }
+
+  // 【二級：趨勢轉折】MACD 底背離 + 站回 5MA，或 底背離 + 接近日低
+  if (macdDiv && aboveMa5) {
+    return { signal: 'warning', message: `【二級】趨勢轉折！MACD底背離 + 站上5MA，可分批布局` }
   }
   if (macdDiv && nearLow) {
-    return { signal: 'warning', message: `MACD底背離 + 接近日低 ${+refLow.toFixed(0)}，留意反彈機會` }
+    return { signal: 'warning', message: `【二級】趨勢轉折！MACD底背離 + 接近日低 ${+refLow.toFixed(0)}，觀察族群連動` }
   }
+
+  // 【三級：量能警戒】量比 ≥ 2x + 接近日低（放入追蹤清單）
   if (volRatio >= 2 && nearLow) {
-    return { signal: 'warning', message: `量能異常 + 接近日低，量比 ${volRatio}x，留意` }
+    return { signal: 'watch', message: `【三級】量能警戒！量比 ${volRatio}x + 接近日低 ${+refLow.toFixed(0)}，等待反彈訊號` }
   }
 
-  // 出貨偵測
-  if (volRatio >= 3 && nearHigh && !reversal) {
-    return { signal: 'exit', message: `主力疑似出貨！接近日高 ${+refHigh.toFixed(0)}，量比 ${volRatio}x，出現下跌` + (macdTopDiv ? ' + MACD頂背離' : '') }
-  }
-  if (macdTopDiv && nearHigh) {
-    return { signal: 'exit_warning', message: `MACD頂背離 + 接近日高 ${+refHigh.toFixed(0)}，留意出貨風險` }
-  }
-  if (volRatio >= 2 && nearHigh && !reversal) {
-    return { signal: 'exit_warning', message: `量能異常 + 接近日高反轉下跌，量比 ${volRatio}x` }
-  }
-
-  // 一般量能觀察
-  if (volRatio >= 2) {
-    return { signal: 'watch', message: `量能偏高，量比 ${volRatio}x` }
+  // 【四級：異動提醒】量比 ≥ 2x + 接近日高（警惕高檔換手）
+  if (volRatio >= 2 && nearHigh) {
+    const extras = [macdTopDiv ? 'MACD頂背離' : null, !reversal ? '下跌走勢' : null].filter(Boolean)
+    return { signal: 'exit_warning', message: `【四級】異動提醒！量比 ${volRatio}x + 高位換手 ${+refHigh.toFixed(0)}，警惕出貨` + (extras.length ? `（${extras.join('、')}）` : '') }
   }
 
   return { signal: 'normal', message: '正常，無異常量能' }
@@ -499,7 +518,9 @@ app.get('/api/stock/monitor/stream', (req, res) => {
         divergence: macdDiv, topDivergence: macdTopDiv,
       } : null
 
-      const { signal, message } = classifySignal({ volRatio, nearLow, nearHigh, reversal, macdDiv, macdTopDiv, dayLow, dayHigh })
+      const longLowerShadow = hasLongLowerShadow(last)
+      const aboveMa5        = isAboveMa5(rows)
+      const { signal, message } = classifySignal({ volRatio, nearLow, nearHigh, reversal, macdDiv, macdTopDiv, dayLow, dayHigh, longLowerShadow, aboveMa5 })
 
       const payload = { type: 'check', checkTime, dataTime, signal, message,
                         price: last.close, dayHigh, dayLow,
@@ -508,12 +529,12 @@ app.get('/api/stock/monitor/stream', (req, res) => {
       send(payload)
 
       // Telegram 通知 + DB 寫入（同小時同訊號不重複）
-      const notifySignals = ['entry', 'warning', 'exit', 'exit_warning']
+      const notifySignals = ['entry', 'warning', 'exit_warning']
       if (notifySignals.includes(signal)) {
         const notifyKey = `${new Date().getUTCHours()}-${signal}`
         if (notifyKey !== lastNotifyKey) {
           lastNotifyKey = notifyKey
-          const emoji = { entry: '🚨', warning: '⚠️', exit: '🔴', exit_warning: '🟠' }[signal] || '📢'
+          const emoji = { entry: '🚨', warning: '⚠️', exit_warning: '🟠' }[signal] || '📢'
           sendTelegram(
             `${emoji} <b>${stockName} ${stockNo} 訊號</b>\n` +
             `${message}\n\n` +
@@ -566,7 +587,9 @@ function simulateDay(rows) {
       ? { line: macdResult.line, sig: macdResult.sig, hist: macdResult.hist, divergence: macdDiv, topDivergence: macdTopDiv }
       : null
 
-    const { signal, message } = classifySignal({ volRatio, nearLow, nearHigh, reversal, macdDiv, macdTopDiv, dayLow, dayHigh })
+    const longLowerShadow = hasLongLowerShadow(last)
+    const aboveMa5        = isAboveMa5(win)
+    const { signal, message } = classifySignal({ volRatio, nearLow, nearHigh, reversal, macdDiv, macdTopDiv, dayLow, dayHigh, longLowerShadow, aboveMa5 })
 
     if (signal !== 'normal' && signal !== prevSignal) {
       const dt   = new Date(last.ts * 1000)

@@ -18,15 +18,14 @@ const STOCKS = [
 ]
 
 const SIGNAL_META = {
-  entry:        { label: '主力進場', cls: 'bg-red-500',    text: 'text-red-400',    border: 'border-red-700'    },
-  warning:      { label: '進場警戒', cls: 'bg-orange-500', text: 'text-orange-400', border: 'border-orange-700' },
-  exit:         { label: '主力出貨', cls: 'bg-emerald-500',text: 'text-emerald-400',border: 'border-emerald-700'},
-  exit_warning: { label: '出貨警戒', cls: 'bg-teal-500',   text: 'text-teal-400',   border: 'border-teal-700'   },
-  watch:        { label: '注意量能', cls: 'bg-yellow-500', text: 'text-yellow-400', border: 'border-yellow-700' },
-  normal:       { label: '正常',     cls: 'bg-gray-500',   text: 'text-gray-400',   border: 'border-gray-700'   },
-  closed:       { label: '休市',     cls: 'bg-gray-700',   text: 'text-gray-500',   border: 'border-gray-800'   },
-  no_data:      { label: '無資料',   cls: 'bg-gray-700',   text: 'text-gray-500',   border: 'border-gray-800'   },
-  error:        { label: '錯誤',     cls: 'bg-gray-700',   text: 'text-red-500',    border: 'border-gray-800'   },
+  entry:        { label: '一級：主力抄底', cls: 'bg-red-500',    text: 'text-red-400',    border: 'border-red-700'    },
+  warning:      { label: '二級：趨勢轉折', cls: 'bg-orange-500', text: 'text-orange-400', border: 'border-orange-700' },
+  watch:        { label: '三級：量能警戒', cls: 'bg-yellow-500', text: 'text-yellow-400', border: 'border-yellow-700' },
+  exit_warning: { label: '四級：異動提醒', cls: 'bg-teal-500',   text: 'text-teal-400',   border: 'border-teal-700'   },
+  normal:       { label: '正常',           cls: 'bg-gray-500',   text: 'text-gray-400',   border: 'border-gray-700'   },
+  closed:       { label: '休市',           cls: 'bg-gray-700',   text: 'text-gray-500',   border: 'border-gray-800'   },
+  no_data:      { label: '無資料',         cls: 'bg-gray-700',   text: 'text-gray-500',   border: 'border-gray-800'   },
+  error:        { label: '錯誤',           cls: 'bg-gray-700',   text: 'text-red-500',    border: 'border-gray-800'   },
 }
 
 // 每檔股票各自的狀態
@@ -172,8 +171,8 @@ function onDbStockChange() {
   else if (dbTab.value === 'intraday') loadIntradayDates()
 }
 
-const signalBadge = { entry: 'bg-red-500', warning: 'bg-orange-500', exit: 'bg-emerald-500', exit_warning: 'bg-teal-500', watch: 'bg-yellow-500' }
-const signalLabel = { entry: '主力進場', warning: '進場警戒', exit: '主力出貨', exit_warning: '出貨警戒', watch: '注意量能' }
+const signalBadge = { entry: 'bg-red-500', warning: 'bg-orange-500', watch: 'bg-yellow-500', exit_warning: 'bg-teal-500' }
+const signalLabel = { entry: '一級：主力抄底', warning: '二級：趨勢轉折', watch: '三級：量能警戒', exit_warning: '四級：異動提醒' }
 const sourceLabel = { realtime: '即時', backtest: '回測', monthly: '月回測', daily_full: '日線全量', intraday_full: '分時全量' }
 
 // ── K線圖 ────────────────────────────────────────
@@ -254,10 +253,10 @@ function renderChart({ bars, signals }) {
 
   // 訊號標記
   const mDef = {
-    entry:        { position: 'belowBar', shape: 'arrowUp',   color: '#ef4444', text: '進場' },
-    warning:      { position: 'belowBar', shape: 'circle',    color: '#f97316', text: '警戒' },
-    exit:         { position: 'aboveBar', shape: 'arrowDown', color: '#10b981', text: '出貨' },
-    exit_warning: { position: 'aboveBar', shape: 'circle',    color: '#14b8a6', text: '出貨⚠' },
+    entry:        { position: 'belowBar', shape: 'arrowUp',   color: '#ef4444', text: '一級' },
+    warning:      { position: 'belowBar', shape: 'circle',    color: '#f97316', text: '二級' },
+    watch:        { position: 'belowBar', shape: 'circle',    color: '#eab308', text: '三級' },
+    exit_warning: { position: 'aboveBar', shape: 'circle',    color: '#14b8a6', text: '四級' },
   }
   const markers = signals
     .filter(s => mDef[s.type])
@@ -598,29 +597,36 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
           <div class="flex items-start gap-3">
             <span class="w-2 h-2 rounded-full bg-red-500 mt-1.5 flex-shrink-0"></span>
             <div>
-              <span class="text-red-400 font-semibold">主力進場</span>
-              <span class="text-gray-500 ml-2">量比 ≥ 3x　＋　接近日低 5% 內　＋　當下反彈收高</span>
+              <span class="text-red-400 font-semibold">一級：主力抄底</span>
+              <span class="text-gray-500 ml-2">量比 ≥ 3x ＋ 接近日低 ＋ 長下影線　→ 重點監控，準備進場</span>
             </div>
           </div>
           <div class="flex items-start gap-3">
             <span class="w-2 h-2 rounded-full bg-orange-500 mt-1.5 flex-shrink-0"></span>
             <div>
-              <span class="text-orange-400 font-semibold">量能警戒</span>
-              <span class="text-gray-500 ml-2">量比 ≥ 2x ＋ 接近日低　或　MACD底背離 ＋ 接近日低</span>
+              <span class="text-orange-400 font-semibold">二級：趨勢轉折</span>
+              <span class="text-gray-500 ml-2">MACD底背離 ＋ 站回5分鐘均線　或　MACD底背離 ＋ 接近日低　→ 分批布局</span>
             </div>
           </div>
           <div class="flex items-start gap-3">
             <span class="w-2 h-2 rounded-full bg-yellow-500 mt-1.5 flex-shrink-0"></span>
             <div>
-              <span class="text-yellow-400 font-semibold">注意量能</span>
-              <span class="text-gray-500 ml-2">量比 ≥ 2x（未接近日低）</span>
+              <span class="text-yellow-400 font-semibold">三級：量能警戒</span>
+              <span class="text-gray-500 ml-2">量比 ≥ 2x ＋ 接近日低　→ 放入追蹤清單，等待反彈訊號</span>
+            </div>
+          </div>
+          <div class="flex items-start gap-3">
+            <span class="w-2 h-2 rounded-full bg-teal-500 mt-1.5 flex-shrink-0"></span>
+            <div>
+              <span class="text-teal-400 font-semibold">四級：異動提醒</span>
+              <span class="text-gray-500 ml-2">量比 ≥ 2x ＋ 高位換手　→ 警惕高檔出貨訊號</span>
             </div>
           </div>
           <div class="border-t border-gray-800 pt-3 flex items-start gap-3">
             <span class="w-2 h-2 rounded-full bg-cyan-400 mt-1.5 flex-shrink-0"></span>
             <div>
               <span class="text-cyan-400 font-semibold">MACD 底背離</span>
-              <span class="text-gray-500 ml-2">股價波段低點持續走低，但 MACD 柱狀體低點墊高 → 賣壓遞減，潛在反轉</span>
+              <span class="text-gray-500 ml-2">股價低點持續走低，但 MACD 柱狀體低點墊高 → 賣壓遞減，潛在反轉</span>
             </div>
           </div>
           <div class="bg-gray-800/50 rounded-lg px-4 py-3 mt-2 text-xs text-gray-500 space-y-1 font-mono">
@@ -686,7 +692,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
             <tbody class="divide-y divide-gray-800">
               <tr v-for="row in signalRows" :key="row.id"
                   class="hover:bg-gray-800/40 transition"
-                  :class="row.signal_type==='entry' ? 'bg-red-950/10' : row.signal_type==='warning' ? 'bg-orange-950/10' : ''">
+                  :class="row.signal_type==='entry' ? 'bg-red-950/10' : row.signal_type==='warning' ? 'bg-orange-950/10' : row.signal_type==='watch' ? 'bg-yellow-950/10' : row.signal_type==='exit_warning' ? 'bg-teal-950/10' : ''">
                 <td class="px-4 py-2.5 font-mono text-xs text-gray-400 whitespace-nowrap">
                   {{ new Date(row.signal_time).toLocaleString('zh-TW', { month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' }) }}
                 </td>
@@ -880,11 +886,10 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                                 :class="signalBadge[intradaySignalMap[barTimeKey(row.bar_time)].signal_type] || 'bg-gray-500'">
                           </span>
                           <span class="font-medium" :class="{
-                            'text-red-400':     intradaySignalMap[barTimeKey(row.bar_time)].signal_type === 'entry',
-                            'text-orange-400':  intradaySignalMap[barTimeKey(row.bar_time)].signal_type === 'warning',
-                            'text-emerald-400': intradaySignalMap[barTimeKey(row.bar_time)].signal_type === 'exit',
-                            'text-teal-400':    intradaySignalMap[barTimeKey(row.bar_time)].signal_type === 'exit_warning',
-                            'text-yellow-400':  intradaySignalMap[barTimeKey(row.bar_time)].signal_type === 'watch',
+                            'text-red-400':    intradaySignalMap[barTimeKey(row.bar_time)].signal_type === 'entry',
+                            'text-orange-400': intradaySignalMap[barTimeKey(row.bar_time)].signal_type === 'warning',
+                            'text-yellow-400': intradaySignalMap[barTimeKey(row.bar_time)].signal_type === 'watch',
+                            'text-teal-400':   intradaySignalMap[barTimeKey(row.bar_time)].signal_type === 'exit_warning',
                           }">{{ signalLabel[intradaySignalMap[barTimeKey(row.bar_time)].signal_type] }}</span>
                         </span>
                         <div class="text-gray-500 mt-0.5 leading-tight">
@@ -924,10 +929,10 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
 
         <!-- 圖例 -->
         <div class="ml-auto flex flex-wrap gap-3 text-xs">
-          <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-full bg-red-500"></span>進場</span>
-          <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-full bg-orange-500"></span>警戒</span>
-          <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-full bg-emerald-500"></span>出貨</span>
-          <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-full bg-teal-500"></span>出貨⚠</span>
+          <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-full bg-red-500"></span>一級抄底</span>
+          <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-full bg-orange-500"></span>二級轉折</span>
+          <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-full bg-yellow-500"></span>三級警戒</span>
+          <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-full bg-teal-500"></span>四級提醒</span>
         </div>
       </div>
 
