@@ -1466,6 +1466,22 @@ app.post('/api/sync/futures-chips', async (req, res) => {
   syncFuturesChips()
 })
 
+app.get('/api/debug/futures-chips', async (req, res) => {
+  try {
+    const [instData, largeData, pcData] = await Promise.all([
+      fetchUrl(TAIFEX_BASE + '/MarketDataOfMajorInstitutionalTradersDetailsOfFuturesContractsBytheDate'),
+      fetchUrl(TAIFEX_BASE + '/OpenInterestOfLargeTradersFutures'),
+      fetchUrl(TAIFEX_BASE + '/PutCallRatio'),
+    ])
+    const tx = instData.filter(r => r.ContractCode === '臺股期貨')
+    const largeTX = largeData.find(r => r.Contract === 'TX' && r.SettlementMonth === '999912' && r.TypeOfTraders === '0') || {}
+    const latestPC = pcData?.length ? pcData[pcData.length - 1] : null
+    res.json({ tx, largeTX, latestPC, instCount: instData.length, largeCount: largeData.length, pcCount: pcData.length })
+  } catch(e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
 // 排程：週一到週五 15:00 自動執行
 cron.schedule('0 15 * * 1-5', () => {
   console.log('[cron] 15:00 自動同步觸發')
