@@ -1,6 +1,8 @@
 const express = require('express')
 const cors = require('cors')
 const https = require('https')
+const http  = require('http')
+const zlib  = require('zlib')
 const cron  = require('node-cron')
 require('dotenv').config()
 const { pool } = require('./db')
@@ -255,12 +257,46 @@ async function saveDailySummary({ stockNo, stockName, tradeDate, open, high, low
   }
 }
 
-// 共用抓 URL
-const fetchUrl = (url) => new Promise((resolve, reject) => {
-  https.get(url, { headers: { 'User-Agent': 'Mozilla/5.0' } }, (r) => {
+// 共用抓 URL（支援 gzip / redirect / 詳細錯誤日誌）
+const fetchUrl = (url, _depth = 0) => new Promise((resolve, reject) => {
+  if (_depth > 5) return reject(new Error('Too many redirects'))
+  const lib = url.startsWith('https') ? https : http
+  const headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    'Accept': 'application/json, text/plain, */*',
+    'Accept-Language': 'zh-TW,zh;q=0.9,en;q=0.8',
+    'Accept-Encoding': 'gzip, deflate',
+    'Referer': 'https://www.taifex.com.tw/',
+  }
+  lib.get(url, { headers }, (r) => {
+    // 跟隨跳轉
+    if (r.statusCode >= 300 && r.statusCode < 400 && r.headers.location) {
+      r.resume()
+      const next = r.headers.location.startsWith('http')
+        ? r.headers.location
+        : new URL(r.headers.location, url).href
+      return fetchUrl(next, _depth + 1).then(resolve).catch(reject)
+    }
     const chunks = []
     r.on('data', c => chunks.push(c))
-    r.on('end', () => { try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf8'))) } catch(e) { reject(e) } })
+    r.on('end', () => {
+      const raw = Buffer.concat(chunks)
+      const parse = (buf) => {
+        try {
+          const text = buf.toString('utf8').trim()
+          if (!text) return reject(new Error(`Empty response (HTTP ${r.statusCode}) from ${url.slice(-60)}`))
+          resolve(JSON.parse(text))
+        } catch(e) {
+          const preview = raw.slice(0, 120).toString('utf8').replace(/\n/g, ' ')
+          console.error(`[fetchUrl] JSON 解析失敗 status=${r.statusCode} bytes=${raw.length} preview="${preview}" url=${url.slice(-60)}`)
+          reject(e)
+        }
+      }
+      const enc = r.headers['content-encoding']
+      if (enc === 'gzip')    zlib.gunzip(raw, (e, d) => e ? reject(e) : parse(d))
+      else if (enc === 'br') zlib.brotliDecompress(raw, (e, d) => e ? reject(e) : parse(d))
+      else                   parse(raw)
+    })
   }).on('error', reject)
 })
 
@@ -1757,8 +1793,11 @@ console.log('[monitor] 伺服器端背景監控已啟動（開盤時每 30 秒�
 
 cron.schedule('30 15 * * 1-5', () => {
   console.log('[cron] 15:30 台指期籌碼 + 漲跌家數自動同步')
-  syncFuturesChips()
   syncMarketBreadth()
+  syncFuturesChips().catch(() => {
+    console.log('[cron] 15:30 台指期籌碼失敗，5 分鐘後重試')
+    setTimeout(() => syncFuturesChips(), 5 * 60 * 1000)
+  })
 }, { timezone: 'Asia/Taipei' })
 
 cron.schedule('35 15 * * 1-5', async () => {
