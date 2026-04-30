@@ -1228,6 +1228,107 @@ app.post('/api/test/telegram', (req, res) => {
   res.json({ ok: true, message: '測試訊息已發送到 Telegram' })
 })
 
+// ── 漲跌幅分布 ───────────────────────────────────────
+const DIST_BUCKETS = [
+  { key: 'limit_up',   label: '漲停',   side: 'up' },
+  { key: 'b_u7_u9',   label: '+7~+9%', side: 'up' },
+  { key: 'b_u5_u7',   label: '+5~+7%', side: 'up' },
+  { key: 'b_u3_u5',   label: '+3~+5%', side: 'up' },
+  { key: 'b_u1_u3',   label: '+1~+3%', side: 'up' },
+  { key: 'b_u0_u1',   label: '0~+1%',  side: 'up' },
+  { key: 'flat',      label: '持平',   side: 'flat' },
+  { key: 'b_d0_d1',   label: '-1~0%',  side: 'down' },
+  { key: 'b_d1_d3',   label: '-3~-1%', side: 'down' },
+  { key: 'b_d3_d5',   label: '-5~-3%', side: 'down' },
+  { key: 'b_d5_d7',   label: '-7~-5%', side: 'down' },
+  { key: 'b_d7_d9',   label: '-9~-7%', side: 'down' },
+  { key: 'limit_down', label: '跌停',  side: 'down' },
+]
+
+function assignBucket(pct) {
+  if (pct >= 9.5) return 'limit_up'
+  if (pct <= -9.5) return 'limit_down'
+  if (Math.abs(pct) < 0.005) return 'flat'
+  if (pct > 0) {
+    if (pct <= 1) return 'b_u0_u1'
+    if (pct <= 3) return 'b_u1_u3'
+    if (pct <= 5) return 'b_u3_u5'
+    if (pct <= 7) return 'b_u5_u7'
+    return 'b_u7_u9'
+  } else {
+    if (pct >= -1) return 'b_d0_d1'
+    if (pct >= -3) return 'b_d1_d3'
+    if (pct >= -5) return 'b_d3_d5'
+    if (pct >= -7) return 'b_d5_d7'
+    return 'b_d7_d9'
+  }
+}
+
+let distCache = { key: '', data: null }
+
+app.get('/api/market-distribution', async (req, res) => {
+  try {
+    const cacheKey = Math.floor(Date.now() / (5 * 60 * 1000)).toString()
+    if (distCache.key === cacheKey && distCache.data) return res.json(distCache.data)
+
+    const twse = {}, tpex = {}
+    for (const b of DIST_BUCKETS) { twse[b.key] = 0; tpex[b.key] = 0 }
+
+    // TWSE
+    try {
+      const twseDay = await fetchUrl('https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY_ALL?response=json')
+      if (twseDay.stat === 'OK') {
+        for (const row of twseDay.data || []) {
+          const no = row[0]?.trim()
+          if (!/^\d{4}$/.test(no)) continue
+          const close = parseFloat(String(row[7] || '').replace(/,/g,''))
+          const chg   = parseFloat(String(row[8] || '').replace(/,/g,'').trim()) || 0
+          const prev  = close - chg
+          if (!prev || !isFinite(prev)) continue
+          twse[assignBucket(chg / prev * 100)]++
+        }
+      }
+    } catch(e) { console.error('[dist] TWSE 失敗:', e.message) }
+
+    // TPEX
+    try {
+      const now = new Date(Date.now() + 8*3600000)
+      const minguo = now.getUTCFullYear() - 1911
+      const mm = String(now.getUTCMonth()+1).padStart(2,'0')
+      const dd = String(now.getUTCDate()).padStart(2,'0')
+      const tpexDay = await fetchUrl(
+        `https://www.tpex.org.tw/web/stock/aftertrading/otc_quotes_no1430/stk_wn1430_result.php?l=zh-tw&o=json&d=${minguo}/${mm}/${dd}&se=EW`
+      )
+      for (const table of tpexDay.tables || []) {
+        for (const row of table.data || []) {
+          const no = row[0]?.trim()
+          if (!/^\d{4,5}$/.test(no)) continue
+          const chgStr = String(row[3] || '').trim()
+          if (!chgStr || chgStr === '----') continue
+          const close = parseFloat(String(row[2] || '').replace(/,/g,''))
+          const chg   = parseFloat(chgStr.replace(/,/g,''))
+          const prev  = close - chg
+          if (!prev || !isFinite(prev)) continue
+          tpex[assignBucket(chg / prev * 100)]++
+        }
+      }
+    } catch(e) { console.error('[dist] TPEX 失敗:', e.message) }
+
+    const result = {
+      buckets: DIST_BUCKETS.map(b => ({ key: b.key, label: b.label, side: b.side, twse: twse[b.key], tpex: tpex[b.key] })),
+      total: {
+        twse: Object.values(twse).reduce((a,b) => a+b, 0),
+        tpex: Object.values(tpex).reduce((a,b) => a+b, 0),
+      },
+      updatedAt: new Date(Date.now() + 8*3600000).toISOString().slice(0,16).replace('T',' '),
+    }
+    distCache = { key: cacheKey, data: result }
+    res.json(result)
+  } catch(e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
 // ── 上市櫃漲跌家數 ───────────────────────────────────
 ;(async () => {
   try {

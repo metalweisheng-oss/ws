@@ -279,7 +279,7 @@ function selectTab(t) {
   tab.value = t
   if (t === 'db')      loadSignals()
   if (t === 'chart')   nextTick(() => loadChartData())
-  if (t === 'breadth') loadMarketBreadth()
+  if (t === 'breadth') { loadMarketBreadth(); loadMarketDist() }
 }
 
 // ── 日報表 ────────────────────────────────────────
@@ -328,6 +328,31 @@ function chipsNetSign(v)  { return +v > 0 ? `▲ ${(+v).toLocaleString()}` : +v 
 const breadthLoading = ref(false)
 const breadthRows    = ref([])
 const breadthError   = ref('')
+
+// ── 漲跌幅分布 ────────────────────────────────────
+const distLoading = ref(false)
+const distData    = ref(null)
+const distError   = ref('')
+
+const distMaxCount = computed(() => {
+  if (!distData.value?.buckets) return 1
+  return Math.max(...distData.value.buckets.flatMap(b => [b.twse, b.tpex]), 1)
+})
+
+async function loadMarketDist() {
+  distLoading.value = true
+  distError.value   = ''
+  try {
+    const r = await fetch(`${API}/api/market-distribution`)
+    const d = await r.json()
+    if (d.error) throw new Error(d.error)
+    distData.value = d
+  } catch(e) {
+    distError.value = '載入失敗：' + e.message
+  } finally {
+    distLoading.value = false
+  }
+}
 
 async function loadMarketBreadth() {
   breadthLoading.value = true
@@ -1021,25 +1046,116 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
       <!-- 標題列 -->
       <div class="flex items-center justify-between">
         <div>
-          <h2 class="text-base font-bold text-white">📈 上市櫃漲跌家數</h2>
-          <p class="text-xs text-gray-600 mt-0.5">TWSE 上市 + TPEX 上櫃漲跌統計　每日 15:30 自動更新</p>
+          <h2 class="text-base font-bold text-white">📊 漲跌幅分布</h2>
+          <p class="text-xs text-gray-600 mt-0.5">TWSE 上市 + TPEX 上櫃　每 5 分鐘更新</p>
         </div>
         <div class="flex gap-2">
-          <button @click="loadMarketBreadth"
+          <button @click="loadMarketDist(); loadMarketBreadth()"
                   class="px-3 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-sm text-gray-300 transition">
-            {{ breadthLoading ? '載入中...' : '重新整理' }}
+            {{ distLoading ? '載入中...' : '重新整理' }}
           </button>
           <button @click="manualSyncBreadth"
                   class="px-3 py-2 rounded-lg bg-purple-700 hover:bg-purple-600 text-sm font-medium transition">
-            手動同步
+            手動存檔
           </button>
         </div>
       </div>
 
+      <p v-if="distError" class="text-red-400 text-sm">{{ distError }}</p>
       <p v-if="breadthError" class="text-red-400 text-sm">{{ breadthError }}</p>
 
-      <div v-if="!breadthRows.length && !breadthLoading" class="text-center text-gray-600 text-sm py-12">
-        點擊「重新整理」載入資料，或「手動同步」從 TWSE/TPEX 抓取最新漲跌家數
+      <!-- ── 漲跌幅分布圖 ── -->
+      <div v-if="distData" class="rounded-2xl border border-gray-800 bg-gray-900 p-5">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="text-sm font-semibold text-gray-300">漲跌幅分布圖</h3>
+          <div class="flex items-center gap-4 text-xs text-gray-500">
+            <span>上市 <span class="text-gray-300 font-mono">{{ distData.total.twse }}</span> 檔</span>
+            <span>上櫃 <span class="text-gray-300 font-mono">{{ distData.total.tpex }}</span> 檔</span>
+            <span class="text-gray-600">{{ distData.updatedAt }}</span>
+          </div>
+        </div>
+
+        <!-- 欄位標題 -->
+        <div class="grid items-center gap-x-2 mb-2 px-1 text-xs text-gray-600"
+             style="grid-template-columns: 56px 1fr 36px 1fr 36px">
+          <span class="text-right">漲跌幅</span>
+          <span class="text-center">上市</span>
+          <span></span>
+          <span class="text-center">上櫃</span>
+          <span></span>
+        </div>
+
+        <!-- 每個區間 -->
+        <div class="space-y-1">
+          <div v-for="b in distData.buckets" :key="b.key"
+               class="grid items-center gap-x-2"
+               style="grid-template-columns: 56px 1fr 36px 1fr 36px">
+            <!-- 標籤 -->
+            <span class="text-xs font-mono text-right pr-1 shrink-0"
+                  :class="b.key === 'limit_up'   ? 'text-red-400 font-bold' :
+                          b.key === 'limit_down'  ? 'text-emerald-400 font-bold' :
+                          b.key === 'flat'        ? 'text-gray-500' :
+                          b.side === 'up'         ? 'text-red-300' : 'text-green-400'">
+              {{ b.label }}
+            </span>
+            <!-- TWSE 條 -->
+            <div class="h-5 bg-gray-800 rounded-sm overflow-hidden relative">
+              <div class="h-full rounded-sm"
+                   :style="{ width: distMaxCount > 0 ? `${(b.twse / distMaxCount * 100).toFixed(1)}%` : '0%' }"
+                   :class="b.key === 'limit_up'   ? 'bg-red-500' :
+                           b.key === 'limit_down'  ? 'bg-emerald-600' :
+                           b.key === 'flat'        ? 'bg-gray-600' :
+                           b.side === 'up'         ? 'bg-red-500/65' : 'bg-emerald-500/65'">
+              </div>
+            </div>
+            <span class="text-xs font-mono text-right text-gray-400">{{ b.twse }}</span>
+            <!-- TPEX 條 -->
+            <div class="h-5 bg-gray-800 rounded-sm overflow-hidden">
+              <div class="h-full rounded-sm"
+                   :style="{ width: distMaxCount > 0 ? `${(b.tpex / distMaxCount * 100).toFixed(1)}%` : '0%' }"
+                   :class="b.key === 'limit_up'   ? 'bg-red-500' :
+                           b.key === 'limit_down'  ? 'bg-emerald-600' :
+                           b.key === 'flat'        ? 'bg-gray-600' :
+                           b.side === 'up'         ? 'bg-red-500/65' : 'bg-emerald-500/65'">
+              </div>
+            </div>
+            <span class="text-xs font-mono text-right text-gray-400">{{ b.tpex }}</span>
+          </div>
+        </div>
+
+        <!-- 摘要列 -->
+        <div class="mt-4 pt-3 border-t border-gray-800 grid grid-cols-2 gap-3">
+          <div class="text-center">
+            <div class="text-xs text-gray-600 mb-1">上市 漲/跌/停</div>
+            <div class="text-sm font-mono">
+              <span class="text-red-400">{{ distData.buckets.filter(b=>b.side==='up').reduce((s,b)=>s+b.twse,0) }}</span>
+              <span class="text-gray-600 mx-1">/</span>
+              <span class="text-emerald-400">{{ distData.buckets.filter(b=>b.side==='down').reduce((s,b)=>s+b.twse,0) }}</span>
+              <span class="text-gray-600 mx-1">/</span>
+              <span class="text-gray-400">{{ distData.buckets.find(b=>b.key==='limit_up')?.twse }}/{{ distData.buckets.find(b=>b.key==='limit_down')?.twse }}</span>
+            </div>
+          </div>
+          <div class="text-center">
+            <div class="text-xs text-gray-600 mb-1">上櫃 漲/跌/停</div>
+            <div class="text-sm font-mono">
+              <span class="text-red-400">{{ distData.buckets.filter(b=>b.side==='up').reduce((s,b)=>s+b.tpex,0) }}</span>
+              <span class="text-gray-600 mx-1">/</span>
+              <span class="text-emerald-400">{{ distData.buckets.filter(b=>b.side==='down').reduce((s,b)=>s+b.tpex,0) }}</span>
+              <span class="text-gray-600 mx-1">/</span>
+              <span class="text-gray-400">{{ distData.buckets.find(b=>b.key==='limit_up')?.tpex }}/{{ distData.buckets.find(b=>b.key==='limit_down')?.tpex }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div v-else-if="!distLoading" class="text-center text-gray-600 text-sm py-8">
+        點擊「重新整理」載入分布圖
+      </div>
+      <div v-else class="text-center text-gray-500 text-sm py-8">載入分布資料中...</div>
+
+      <!-- ── 歷史漲跌家數（DB存檔）── -->
+      <div v-if="!breadthRows.length && !breadthLoading" class="text-center text-gray-700 text-xs py-2">
+        尚無歷史存檔，點「手動存檔」可儲存今日資料
       </div>
 
       <div v-if="breadthRows.length" class="space-y-4">
