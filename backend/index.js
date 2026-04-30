@@ -258,9 +258,9 @@ async function saveDailySummary({ stockNo, stockName, tradeDate, open, high, low
 // 共用抓 URL
 const fetchUrl = (url) => new Promise((resolve, reject) => {
   https.get(url, { headers: { 'User-Agent': 'Mozilla/5.0' } }, (r) => {
-    let raw = ''
-    r.on('data', c => raw += c)
-    r.on('end', () => { try { resolve(JSON.parse(raw)) } catch(e) { reject(e) } })
+    const chunks = []
+    r.on('data', c => chunks.push(c))
+    r.on('end', () => { try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf8'))) } catch(e) { reject(e) } })
   }).on('error', reject)
 })
 
