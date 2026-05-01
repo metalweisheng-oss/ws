@@ -2163,6 +2163,29 @@ app.get('/api/debug/futures-chips', async (req, res) => {
   }
 })
 
+// Debug: 查 market_daily 狀況 + 測試 STOCK_DAY_ALL date 參數
+app.get('/api/debug/screener-check', async (req, res) => {
+  try {
+    const { rows: countRows } = await pool.query(`SELECT COUNT(*) AS cnt, MAX(trade_date) AS latest FROM market_daily`)
+    const { rows: srRows }    = await pool.query(`SELECT COUNT(*) AS cnt, MAX(run_date) AS latest FROM screener_results`)
+
+    // 測試 STOCK_DAY_ALL 帶日期
+    const dateStr8 = req.query.date || new Date(Date.now()+8*3600000).toISOString().slice(0,10).replace(/-/g,'')
+    let apiTest = {}
+    try {
+      const data = await fetchUrl(`https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY_ALL?date=${dateStr8}&response=json`)
+      apiTest = { stat: data?.stat, rowCount: data?.data?.length, sample: data?.data?.slice(0,2) }
+    } catch(e) { apiTest = { error: e.message } }
+
+    res.json({
+      market_daily: countRows[0],
+      screener_results: srRows[0],
+      apiTest_date: dateStr8,
+      apiTest,
+    })
+  } catch(e) { res.status(500).json({ error: e.message }) }
+})
+
 // ── 台股選股系統 ─────────────────────────────────────
 ;(async () => {
   try {
