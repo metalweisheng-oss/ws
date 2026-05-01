@@ -190,6 +190,215 @@ function sendTelegram(text) {
   req.end()
 }
 
+// ── 集保大戶持股（全市場） ────────────────────────────
+async function ensureConcentrationTable() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS concentration (
+      stock_no     VARCHAR(10),
+      data_date    DATE,
+      stock_name   VARCHAR(50),
+      large_pct    NUMERIC(8,4),
+      large_count  INT,
+      total_shares BIGINT,
+      PRIMARY KEY (stock_no, data_date)
+    )
+  `)
+  // 補欄位（舊表相容）
+  await pool.query(`ALTER TABLE concentration ADD COLUMN IF NOT EXISTS stock_name VARCHAR(50)`).catch(()=>{})
+}
+ensureConcentrationTable().catch(e => console.error('[concentration] 建表失敗:', e.message))
+
+async function syncConcentration() {
+  console.log('[concentration] 開始抓取全市場集保大戶持股...')
+  try {
+    // 同時抓 TDCC CSV + TWSE 個股名稱
+    const [csvText, twseDay] = await Promise.all([
+      new Promise((resolve, reject) => {
+        https.get('https://smart.tdcc.com.tw/opendata/getOD.ashx?id=1-5',
+          { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' } },
+          (r) => { const c=[]; r.on('data',d=>c.push(d)); r.on('end',()=>resolve(Buffer.concat(c).toString('utf8'))); r.on('error',reject) }
+        ).on('error', reject)
+      }),
+      fetchUrl('https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY_ALL?response=json').catch(()=>null),
+    ])
+
+    // 建立股票名稱 map（TWSE 上市）
+    const nameMap = {}
+    for (const row of twseDay?.data || []) {
+      const no = row[0]?.trim()
+      const nm = row[1]?.trim()
+      if (/^\d{4}$/.test(no) && nm) nameMap[no] = nm
+    }
+
+    // 解析 TDCC CSV：只保留 4 位數字代號（一般股票）
+    const byStock = {}
+    for (const line of csvText.split('\n').slice(1)) {
+      const parts = line.split(',')
+      if (parts.length < 6) continue
+      const dateStr = parts[0].trim()
+      const stockNo = parts[1].trim()
+      if (!/^\d{4,6}$/.test(stockNo)) continue   // 只要數字代號
+      if (stockNo.length !== 4) continue           // 只要 4 位一般股
+      const level  = parseInt(parts[2])
+      const pct    = parseFloat(parts[5]) || 0
+      const count  = parseInt(parts[3])   || 0
+      const shares = parseInt(parts[4])   || 0
+      if (!byStock[stockNo]) byStock[stockNo] = { dateStr, levels: {} }
+      byStock[stockNo].levels[level] = { pct, count, shares }
+    }
+
+    console.log(`[concentration] 解析完成，共 ${Object.keys(byStock).length} 檔個股`)
+
+    // 批次寫入（每批 100 檔，用 VALUES 批次 INSERT 避免逐筆慢）
+    const stockNos = Object.keys(byStock)
+    let saved = 0
+    for (let i = 0; i < stockNos.length; i += 100) {
+      const batch = stockNos.slice(i, i + 100)
+      const vals = [], params = []
+      let p = 1
+      for (const stockNo of batch) {
+        const { dateStr, levels } = byStock[stockNo]
+        const largePct   = [12,13,14,15].reduce((s,l)=>s+(levels[l]?.pct  ||0),0)
+        const largeCount = [12,13,14,15].reduce((s,l)=>s+(levels[l]?.count||0),0)
+        const totalShares = levels[17]?.shares || 0
+        const dataDate   = `${dateStr.slice(0,4)}-${dateStr.slice(4,6)}-${dateStr.slice(6,8)}`
+        const stockName  = nameMap[stockNo] || STOCK_NAMES[stockNo] || null
+        vals.push(`($${p},$${p+1},$${p+2},$${p+3},$${p+4},$${p+5})`)
+        params.push(stockNo, dataDate, stockName, +largePct.toFixed(4), largeCount, totalShares)
+        p += 6
+      }
+      await pool.query(`
+        INSERT INTO concentration (stock_no,data_date,stock_name,large_pct,large_count,total_shares)
+        VALUES ${vals.join(',')}
+        ON CONFLICT (stock_no,data_date) DO UPDATE SET
+          stock_name=EXCLUDED.stock_name,
+          large_pct=EXCLUDED.large_pct,
+          large_count=EXCLUDED.large_count,
+          total_shares=EXCLUDED.total_shares
+      `, params)
+      saved += batch.length
+    }
+    console.log(`[concentration] 寫入 ${saved} 筆完成`)
+  } catch(e) {
+    console.error('[concentration] 同步失敗:', e.message)
+  }
+}
+
+// 大戶持股連續增加排行榜
+app.get('/api/concentration/ranking', async (req, res) => {
+  try {
+    const minStreak = parseInt(req.query.minStreak) || 2
+    const limit     = Math.min(parseInt(req.query.limit) || 50, 200)
+
+    // 取最近 40 個交易日資料（算連續天數用）
+    const { rows } = await pool.query(`
+      SELECT stock_no, stock_name, data_date, large_pct, large_count
+      FROM concentration
+      WHERE data_date >= CURRENT_DATE - 60
+      ORDER BY stock_no, data_date ASC
+    `)
+
+    // 按股票分組，計算連續增加天數
+    const grouped = {}
+    for (const r of rows) {
+      if (!grouped[r.stock_no]) grouped[r.stock_no] = []
+      grouped[r.stock_no].push(r)
+    }
+
+    const result = []
+    for (const [stockNo, days] of Object.entries(grouped)) {
+      if (days.length < 2) continue
+      // days 已按日期升序
+      let streak = 0, totalChange = 0
+      let latestChange = null
+
+      // 從最後一天往前算連續增加
+      for (let i = days.length - 1; i >= 1; i--) {
+        const change = +(days[i].large_pct - days[i-1].large_pct).toFixed(4)
+        if (i === days.length - 1) latestChange = change
+        if (change > 0) {
+          streak++
+          totalChange += change
+        } else {
+          break
+        }
+      }
+
+      if (streak < minStreak) continue
+      const latest = days[days.length - 1]
+      result.push({
+        stock_no:    stockNo,
+        stock_name:  latest.stock_name || stockNo,
+        streak_days: streak,
+        latest_pct:  +latest.large_pct,
+        latest_change: latestChange != null ? +latestChange.toFixed(4) : null,
+        total_change:  +totalChange.toFixed(4),
+        large_count:   latest.large_count,
+        data_date:     latest.data_date,
+      })
+    }
+
+    // 排序：連續天數 → 總累計增加幅度
+    result.sort((a,b) => b.streak_days - a.streak_days || b.total_change - a.total_change)
+
+    res.json({ total: result.length, rows: result.slice(0, limit) })
+  } catch(e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+// 保留舊 /api/concentration 給監控個股頁（8 檔）
+app.get('/api/concentration', async (req, res) => {
+  try {
+    const { rows: concRows } = await pool.query(`
+      SELECT c.*, LAG(c.large_pct) OVER (PARTITION BY c.stock_no ORDER BY c.data_date) AS prev_pct
+      FROM concentration c
+      WHERE c.stock_no = ANY($1::text[])
+      ORDER BY c.stock_no, c.data_date DESC
+    `, [Object.keys(STOCK_NAMES)])
+
+    const { rows: priceRows } = await pool.query(`
+      SELECT DISTINCT ON (stock_no)
+        stock_no, close_price, open_price,
+        close_price - open_price AS change_price,
+        ROUND((close_price - open_price) / NULLIF(open_price,0) * 100, 2) AS change_pct_price
+      FROM daily_summary
+      WHERE stock_no = ANY($1::text[])
+      ORDER BY stock_no, trade_date DESC
+    `, [Object.keys(STOCK_NAMES)])
+    const priceMap = Object.fromEntries(priceRows.map(r => [r.stock_no, r]))
+
+    const seen = {}
+    const result = []
+    for (const row of concRows) {
+      if (seen[row.stock_no]) continue
+      seen[row.stock_no] = true
+      const price = priceMap[row.stock_no] || {}
+      result.push({
+        stock_no:       row.stock_no,
+        stock_name:     STOCK_NAMES[row.stock_no],
+        data_date:      row.data_date,
+        large_pct:      +row.large_pct,
+        prev_pct:       row.prev_pct != null ? +row.prev_pct : null,
+        change_pct:     row.prev_pct != null ? +(row.large_pct - row.prev_pct).toFixed(4) : null,
+        large_count:    row.large_count,
+        total_shares:   row.total_shares,
+        close_price:    price.close_price != null ? +price.close_price : null,
+        change_price:   price.change_price != null ? +price.change_price : null,
+        change_pct_price: price.change_pct_price != null ? +price.change_pct_price : null,
+      })
+    }
+    res.json({ rows: result })
+  } catch(e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+app.post('/api/sync/concentration', async (req, res) => {
+  res.json({ ok: true, message: '集保大戶持股同步已開始' })
+  syncConcentration()
+})
+
 // ── DB 寫入 ───────────────────────────────────────
 async function saveSignal({ stockNo, stockName, signalTime, signalType, price, volRatio, dayLow, dayHigh, message, macd, source = 'realtime' }) {
   try {
@@ -1655,6 +1864,220 @@ app.post('/api/sync/futures-chips', async (req, res) => {
   syncFuturesChips()
 })
 
+// PC 比率歷史回填（TAIFEX PutCallRatio 約 21 個交易日）
+async function backfillPCRatio() {
+  console.log('[backfill_pc] 開始 PC 比率回填...')
+  try {
+    const pcData = await fetchUrl(TAIFEX_BASE + '/PutCallRatio')
+    if (!pcData?.length) { console.log('[backfill_pc] 無資料'); return }
+
+    let inserted = 0, updated = 0
+    for (const r of pcData) {
+      const d = r.Date  // YYYYMMDD
+      const tradeDate = `${d.slice(0,4)}-${d.slice(4,6)}-${d.slice(6,8)}`
+      const pcVol = parseFloat(r['PutCallVolumeRatio%']) || null
+      const pcOI  = parseFloat(r['PutCallOIRatio%'])     || null
+      const putOI  = parseInt(r.PutOI)  || 0
+      const callOI = parseInt(r.CallOI) || 0
+
+      const existing = await pool.query(
+        `SELECT trade_date FROM futures_chips WHERE trade_date=$1`, [tradeDate]
+      )
+      if (existing.rows.length) {
+        await pool.query(
+          `UPDATE futures_chips SET pc_volume_ratio=$2, pc_oi_ratio=$3, put_oi=$4, call_oi=$5
+           WHERE trade_date=$1`,
+          [tradeDate, pcVol, pcOI, putOI, callOI]
+        )
+        updated++
+      } else {
+        await pool.query(
+          `INSERT INTO futures_chips (trade_date,
+             foreign_tx_long, foreign_tx_short, foreign_tx_net,
+             trust_tx_long, trust_tx_short, trust_tx_net,
+             dealer_tx_long, dealer_tx_short, dealer_tx_net,
+             pc_volume_ratio, pc_oi_ratio, put_oi, call_oi, updated_at)
+           VALUES ($1,0,0,0,0,0,0,0,0,0,$2,$3,$4,$5,NOW())
+           ON CONFLICT (trade_date) DO NOTHING`,
+          [tradeDate, pcVol, pcOI, putOI, callOI]
+        )
+        inserted++
+      }
+    }
+    console.log(`[backfill_pc] 完成：新增 ${inserted} 筆，更新 ${updated} 筆`)
+  } catch(e) {
+    console.error('[backfill_pc] 失敗:', e.message)
+  }
+}
+
+app.post('/api/sync/backfill-pc', async (req, res) => {
+  res.json({ ok: true, message: 'PC 比率回填已開始' })
+  backfillPCRatio()
+})
+
+// 回填 daily_summary 三大法人 + 融資（補抓 inst_foreign IS NULL 的日期）
+async function backfillDailyInst() {
+  console.log('[backfill_inst] 開始補抓三大法人 + 融資...')
+  // 找出缺 inst_foreign 的所有日期
+  const { rows: missingRows } = await pool.query(`
+    SELECT DISTINCT trade_date::DATE::TEXT AS td
+    FROM daily_summary
+    WHERE inst_foreign IS NULL AND trade_date < NOW()
+    ORDER BY td DESC
+    LIMIT 30
+  `)
+  if (!missingRows.length) { console.log('[backfill_inst] 無缺漏日期'); return }
+
+  const n = s => +(s?.replace(/,/g, '') || 0)
+
+  for (const { td } of missingRows) {
+    const dateStr = td.replace(/-/g, '')  // YYYYMMDD
+    console.log(`[backfill_inst] 補抓 ${td}...`)
+
+    // 三大法人
+    const instMap = {}
+    try {
+      const twse = await fetchUrl(
+        `https://www.twse.com.tw/rwd/zh/fund/T86?date=${dateStr}&selectType=ALLBUT0999&response=json`
+      )
+      for (const row of twse.data || []) {
+        instMap[row[0]] = { foreign: n(row[4]), trust: n(row[10]), dealer: n(row[11]) }
+      }
+      console.log(`  [inst] ${td} T86 ${Object.keys(instMap).length} 檔`)
+    } catch(e) { console.error(`  [inst] ${td} T86 失敗:`, e.message) }
+
+    // 融資餘額
+    const marginMap = {}
+    try {
+      const twseM = await fetchUrl(
+        `https://www.twse.com.tw/rwd/zh/marginTrading/MI_MARGN?date=${dateStr}&selectType=STOCK&response=json`
+      )
+      for (const row of twseM.tables?.[1]?.data || []) marginMap[row[0]] = n(row[6])
+      console.log(`  [margin] ${td} TWSE ${Object.keys(marginMap).length} 檔`)
+    } catch(e) { console.error(`  [margin] ${td} TWSE 失敗:`, e.message) }
+
+    try {
+      const [y, m, d] = td.split('-')
+      const minguo = +y - 1911
+      const tpexDate = `${minguo}/${m}/${d}`
+      const tpex = await fetchUrl(
+        `https://www.tpex.org.tw/web/stock/margin_trading/margin_balance/margin_bal_result.php?l=zh-tw&o=json&d=${tpexDate}`
+      )
+      for (const row of tpex.tables?.[0]?.data || []) marginMap[row[0]] = n(row[6])
+    } catch(e) { /* TPEX 選擇性補充 */ }
+
+    // 更新 DB
+    let updated = 0
+    for (const { no } of STOCKS_LIST) {
+      const inst   = instMap[no]
+      const margin = marginMap[no]
+      if (!inst && !margin) continue
+      await pool.query(`
+        UPDATE daily_summary SET
+          inst_foreign   = COALESCE($2, inst_foreign),
+          inst_trust     = COALESCE($3, inst_trust),
+          inst_dealer    = COALESCE($4, inst_dealer),
+          margin_balance = COALESCE($5, margin_balance)
+        WHERE stock_no=$1 AND trade_date=$6
+      `, [
+        no,
+        inst?.foreign ?? null, inst?.trust ?? null, inst?.dealer ?? null,
+        margin ?? null,
+        td,
+      ])
+      updated++
+    }
+    console.log(`  [backfill_inst] ${td} 更新 ${updated} 檔`)
+    await new Promise(r => setTimeout(r, 500))  // 避免 API rate limit
+  }
+  console.log('[backfill_inst] 完成')
+}
+
+app.post('/api/sync/backfill-daily-inst', async (req, res) => {
+  res.json({ ok: true, message: '三大法人回填已開始' })
+  backfillDailyInst()
+})
+
+// 同步執行 concentration 並回傳結果
+app.get('/api/debug/concentration-sync', async (req, res) => {
+  try {
+    const csvText = await new Promise((resolve, reject) => {
+      https.get('https://smart.tdcc.com.tw/opendata/getOD.ashx?id=1-5',
+        { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' } },
+        (r) => {
+          const chunks = []
+          r.on('data', c => chunks.push(c))
+          r.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')))
+          r.on('error', reject)
+        }
+      ).on('error', reject)
+    })
+
+    const lines = csvText.split('\n').slice(1)
+    const byStock = {}
+    for (const line of lines) {
+      const parts = line.split(',')
+      if (parts.length < 6) continue
+      const dateStr = parts[0].trim()
+      const stockNo = parts[1].trim()
+      const level   = parseInt(parts[2])
+      const pct     = parseFloat(parts[5]) || 0
+      const shares  = parseInt(parts[4])   || 0
+      const count   = parseInt(parts[3])   || 0
+      if (!STOCK_NAMES[stockNo]) continue
+      if (!byStock[stockNo]) byStock[stockNo] = { dateStr, levels: {} }
+      byStock[stockNo].levels[level] = { pct, shares, count }
+    }
+
+    const results = []
+    for (const [stockNo, { dateStr, levels }] of Object.entries(byStock)) {
+      const largePct    = [12,13,14,15].reduce((s,l) => s + (levels[l]?.pct    || 0), 0)
+      const largeShares = [12,13,14,15].reduce((s,l) => s + (levels[l]?.shares || 0), 0)
+      const largeCount  = [12,13,14,15].reduce((s,l) => s + (levels[l]?.count  || 0), 0)
+      const totalShares = levels[17]?.shares || 0
+      const dataDate    = `${dateStr.slice(0,4)}-${dateStr.slice(4,6)}-${dateStr.slice(6,8)}`
+      try {
+        await pool.query(`
+          INSERT INTO concentration (stock_no, data_date, large_pct, large_shares, large_count, total_shares)
+          VALUES ($1,$2,$3,$4,$5,$6)
+          ON CONFLICT (stock_no, data_date) DO UPDATE SET
+            large_pct=$3, large_shares=$4, large_count=$5, total_shares=$6
+        `, [stockNo, dataDate, +largePct.toFixed(4), largeShares, largeCount, totalShares])
+        results.push({ stockNo, dataDate, largePct: +largePct.toFixed(2), ok: true })
+      } catch(e) {
+        results.push({ stockNo, dataDate, error: e.message })
+      }
+    }
+    res.json({ stocksFound: Object.keys(byStock).length, results })
+  } catch(e) {
+    res.status(500).json({ error: e.message, stack: e.stack?.slice(0,500) })
+  }
+})
+
+// 直接測試 TDCC CSV 下載
+app.get('/api/debug/tdcc-test', async (req, res) => {
+  try {
+    const csvText = await new Promise((resolve, reject) => {
+      https.get('https://smart.tdcc.com.tw/opendata/getOD.ashx?id=1-5',
+        { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' } },
+        (r) => {
+          const chunks = []
+          r.on('data', c => chunks.push(c))
+          r.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')))
+          r.on('error', reject)
+        }
+      ).on('error', reject)
+    })
+    const lines = csvText.split('\n')
+    const header = lines[0]
+    const totalLines = lines.length
+    const sample2059 = lines.filter(l => l.split(',')[1]?.trim() === '2059').slice(0, 5)
+    res.json({ ok: true, totalLines, header, sample2059, firstLine: lines[1] })
+  } catch(e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
 app.get('/api/debug/taifex-raw', (req, res) => {
   const url = 'https://openapi.taifex.com.tw/v1/PutCallRatio'
   const headers = {
@@ -1738,6 +2161,382 @@ app.get('/api/debug/futures-chips', async (req, res) => {
   } catch(e) {
     res.status(500).json({ error: e.message, stack: e.stack?.slice(0,300) })
   }
+})
+
+// ── 台股選股系統 ─────────────────────────────────────
+;(async () => {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS market_daily (
+        stock_no     VARCHAR(10),
+        trade_date   DATE,
+        stock_name   VARCHAR(50),
+        close        NUMERIC(10,2),
+        open_p       NUMERIC(10,2),
+        high         NUMERIC(10,2),
+        low          NUMERIC(10,2),
+        volume       BIGINT,
+        inst_foreign BIGINT,
+        inst_trust   BIGINT,
+        inst_dealer  BIGINT,
+        margin_bal   BIGINT,
+        PRIMARY KEY (stock_no, trade_date)
+      )
+    `)
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS screener_results (
+        run_date     DATE,
+        stock_no     VARCHAR(10),
+        stock_name   VARCHAR(50),
+        score        NUMERIC(5,1),
+        phase        VARCHAR(5),
+        is_stealth   BOOLEAN DEFAULT FALSE,
+        trust_streak INT,
+        major_net5   BIGINT,
+        margin_chg5  BIGINT,
+        close        NUMERIC(10,2),
+        change_pct   NUMERIC(6,2),
+        close_rank   NUMERIC(6,4),
+        vol_ratio    NUMERIC(6,2),
+        detail       JSONB,
+        PRIMARY KEY (run_date, stock_no)
+      )
+    `)
+    console.log('[screener] 資料表就緒')
+  } catch(e) { console.error('[screener] 建表失敗:', e.message) }
+})()
+
+function getPastTradingDays(n) {
+  const days = []
+  const now = new Date(Date.now() + 8 * 3600000)
+  let d = new Date(now)
+  d.setUTCHours(0, 0, 0, 0)
+  while (days.length < n) {
+    const dow = d.getUTCDay()
+    if (dow !== 0 && dow !== 6) {
+      const y  = d.getUTCFullYear()
+      const m  = String(d.getUTCMonth() + 1).padStart(2, '0')
+      const dd = String(d.getUTCDate()).padStart(2, '0')
+      days.push(`${y}${m}${dd}`)
+    }
+    d.setUTCDate(d.getUTCDate() - 1)
+  }
+  return days
+}
+
+async function syncMarketDailyOne(dateStr8) {
+  const tradeDate = `${dateStr8.slice(0,4)}-${dateStr8.slice(4,6)}-${dateStr8.slice(6,8)}`
+  const n = s => +(String(s||0).replace(/,/g,'').replace(/\+/g,'')) || 0
+  console.log(`[market_daily] 同步 ${tradeDate}...`)
+
+  let priceRows = []
+  try {
+    const data = await fetchUrl(`https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY_ALL?date=${dateStr8}&response=json`)
+    if (data?.stat === 'OK') {
+      for (const row of data.data || []) {
+        const stockNo = row[0]?.trim()
+        if (!/^\d{4}$/.test(stockNo)) continue
+        try {
+          const vol   = n(row[2])
+          const open  = parseFloat(String(row[4]||'').replace(/,/g,''))
+          const high  = parseFloat(String(row[5]||'').replace(/,/g,''))
+          const low   = parseFloat(String(row[6]||'').replace(/,/g,''))
+          const close = parseFloat(String(row[7]||'').replace(/,/g,''))
+          if (!close || !vol || isNaN(close)) continue
+          priceRows.push({
+            stockNo, stockName: row[1]?.trim() || stockNo, vol,
+            open: isNaN(open) ? null : open,
+            high: isNaN(high) ? null : high,
+            low:  isNaN(low)  ? null : low,
+            close,
+          })
+        } catch {}
+      }
+    }
+    console.log(`[market_daily] ${tradeDate} 行情 ${priceRows.length} 檔`)
+  } catch(e) { console.error(`[market_daily] ${tradeDate} 行情失敗:`, e.message) }
+
+  if (!priceRows.length) { console.log(`[market_daily] ${tradeDate} 無行情（休市？）`); return 0 }
+
+  const instMap = {}
+  try {
+    const twse = await fetchUrl(
+      `https://www.twse.com.tw/rwd/zh/fund/T86?date=${dateStr8}&selectType=ALLBUT0999&response=json`
+    )
+    for (const row of twse.data || []) {
+      const no = row[0]?.trim()
+      if (no) instMap[no] = { foreign: n(row[4]), trust: n(row[10]), dealer: n(row[11]) }
+    }
+    console.log(`[market_daily] ${tradeDate} T86 ${Object.keys(instMap).length} 檔`)
+  } catch(e) { console.error(`[market_daily] ${tradeDate} T86 失敗:`, e.message) }
+
+  const marginMap = {}
+  try {
+    const twseM = await fetchUrl(
+      `https://www.twse.com.tw/rwd/zh/marginTrading/MI_MARGN?date=${dateStr8}&selectType=STOCK&response=json`
+    )
+    for (const row of twseM.tables?.[1]?.data || []) {
+      const no = row[0]?.trim()
+      if (no) marginMap[no] = n(row[6])
+    }
+    console.log(`[market_daily] ${tradeDate} MARGN ${Object.keys(marginMap).length} 檔`)
+  } catch(e) { console.error(`[market_daily] ${tradeDate} MARGN 失敗:`, e.message) }
+
+  let saved = 0
+  for (let i = 0; i < priceRows.length; i += 100) {
+    const batch = priceRows.slice(i, i + 100)
+    const vals = [], params = []
+    let p = 1
+    for (const r of batch) {
+      const inst = instMap[r.stockNo]
+      vals.push(`($${p},$${p+1},$${p+2},$${p+3},$${p+4},$${p+5},$${p+6},$${p+7},$${p+8},$${p+9},$${p+10},$${p+11})`)
+      params.push(
+        r.stockNo, tradeDate, r.stockName,
+        r.close, r.open, r.high, r.low, r.vol,
+        inst ? inst.foreign : null,
+        inst ? inst.trust   : null,
+        inst ? inst.dealer  : null,
+        marginMap[r.stockNo] != null ? marginMap[r.stockNo] : null
+      )
+      p += 12
+    }
+    await pool.query(`
+      INSERT INTO market_daily
+        (stock_no,trade_date,stock_name,close,open_p,high,low,volume,inst_foreign,inst_trust,inst_dealer,margin_bal)
+      VALUES ${vals.join(',')}
+      ON CONFLICT (stock_no,trade_date) DO UPDATE SET
+        stock_name=EXCLUDED.stock_name,
+        close=EXCLUDED.close, open_p=EXCLUDED.open_p, high=EXCLUDED.high, low=EXCLUDED.low, volume=EXCLUDED.volume,
+        inst_foreign=COALESCE(EXCLUDED.inst_foreign, market_daily.inst_foreign),
+        inst_trust=COALESCE(EXCLUDED.inst_trust,   market_daily.inst_trust),
+        inst_dealer=COALESCE(EXCLUDED.inst_dealer,  market_daily.inst_dealer),
+        margin_bal=COALESCE(EXCLUDED.margin_bal,   market_daily.margin_bal)
+    `, params)
+    saved += batch.length
+  }
+  console.log(`[market_daily] ${tradeDate} 寫入 ${saved} 筆`)
+  return saved
+}
+
+async function syncMarketDailyToday() {
+  const now = new Date(Date.now() + 8 * 3600000)
+  const dow = now.getUTCDay()
+  if (dow === 0 || dow === 6) return
+  const y  = String(now.getUTCFullYear())
+  const m  = String(now.getUTCMonth() + 1).padStart(2, '0')
+  const d  = String(now.getUTCDate()).padStart(2, '0')
+  return syncMarketDailyOne(`${y}${m}${d}`)
+}
+
+async function backfillMarketDaily(days = 20) {
+  console.log(`[market_daily] 開始回填最近 ${days} 個交易日...`)
+  const dates = getPastTradingDays(days)
+  for (const dateStr8 of dates) {
+    await syncMarketDailyOne(dateStr8)
+    await new Promise(r => setTimeout(r, 700))
+  }
+  console.log('[market_daily] 回填完成')
+}
+
+async function runScreener() {
+  console.log('[screener] 開始計算選股...')
+  const runDate = new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10)
+
+  const { rows: allRows } = await pool.query(`
+    SELECT stock_no, stock_name, trade_date, close, open_p, high, low, volume,
+           inst_foreign, inst_trust, inst_dealer, margin_bal
+    FROM market_daily
+    WHERE trade_date >= CURRENT_DATE - 35
+    ORDER BY stock_no, trade_date ASC
+  `)
+  if (!allRows.length) { console.log('[screener] 無市場日線資料'); return }
+
+  const grouped = {}
+  for (const r of allRows) {
+    if (!grouped[r.stock_no]) grouped[r.stock_no] = []
+    grouped[r.stock_no].push(r)
+  }
+
+  const candidates = []
+
+  for (const [stockNo, days] of Object.entries(grouped)) {
+    if (days.length < 5) continue
+
+    const latest = days[days.length - 1]
+    const latestDate = new Date(latest.trade_date)
+    const today = new Date(Date.now() + 8 * 3600000)
+    if ((today - latestDate) / (1000*60*60*24) > 4) continue
+
+    const close = parseFloat(latest.close)
+    if (!close) continue
+
+    const last5  = days.slice(-5)
+    const last10 = days.slice(-10)
+    const last20 = days.slice(-20)
+
+    const prevClose = days.length >= 2 ? parseFloat(days[days.length-2].close) : close
+    const changePct = prevClose > 0 ? (close - prevClose) / prevClose * 100 : 0
+    if (Math.abs(changePct) > 7) continue
+
+    const close5dAgo = parseFloat(last5[0].close)
+    const chg5d = close5dAgo > 0 ? (close - close5dAgo) / close5dAgo * 100 : 0
+    if (chg5d > 5) continue
+
+    const close10dAgo = last10.length >= 2 ? parseFloat(last10[0].close) : close
+    const chg10d = close10dAgo > 0 ? (close - close10dAgo) / close10dAgo * 100 : 0
+    if (chg10d > 20) continue
+
+    const highs = last20.map(r => parseFloat(r.high)).filter(v => !isNaN(v) && v > 0)
+    const lows  = last20.map(r => parseFloat(r.low)).filter(v => !isNaN(v) && v > 0)
+    const high20 = highs.length ? Math.max(...highs) : close
+    const low20  = lows.length  ? Math.min(...lows)  : close
+    const closeRank = high20 > low20 ? (close - low20) / (high20 - low20) : 0.5
+    if (closeRank > 0.9) continue
+
+    const vols20 = last20.map(r => parseFloat(r.volume)).filter(v => !isNaN(v) && v > 0)
+    const avgVol20 = vols20.length ? vols20.reduce((a,b)=>a+b,0)/vols20.length : 0
+    const volRatio = avgVol20 > 0 ? parseFloat(latest.volume) / avgVol20 : 1
+    if (volRatio > 3) continue
+
+    let trustStreak = 0
+    for (let i = days.length - 1; i >= 0; i--) {
+      const trust = days[i].inst_trust != null ? parseFloat(days[i].inst_trust) : null
+      if (trust === null || isNaN(trust)) break
+      if (trust > 0) trustStreak++
+      else break
+    }
+    if (trustStreak < 3) continue
+
+    const majorNet5 = last5.reduce((s, r) => {
+      return s + (parseFloat(r.inst_foreign)||0) + (parseFloat(r.inst_trust)||0)
+    }, 0)
+    if (majorNet5 <= 0) continue
+
+    const marginFirst = last5[0].margin_bal != null ? parseFloat(last5[0].margin_bal) : NaN
+    const marginLast  = latest.margin_bal   != null ? parseFloat(latest.margin_bal)   : NaN
+    let marginChg5 = null
+    if (!isNaN(marginFirst) && !isNaN(marginLast) && marginFirst > 0) {
+      marginChg5 = marginLast - marginFirst
+    }
+    if (marginChg5 !== null && marginChg5 > 0) continue
+
+    const trustScore  = Math.min(trustStreak / 7, 1) * 30
+    let   marginScore = 10
+    if (marginChg5 !== null && marginChg5 < 0 && marginFirst > 0) {
+      marginScore = Math.min((-marginChg5 / marginFirst) * 100 / 5, 1) * 20
+    }
+    const posScore = (1 - closeRank) * 10
+
+    const trustNet5   = last5.reduce((s,r) => s + (parseFloat(r.inst_trust)||0), 0)
+    const foreignNet5 = last5.reduce((s,r) => s + (parseFloat(r.inst_foreign)||0), 0)
+
+    candidates.push({
+      stockNo, stockName: latest.stock_name || stockNo,
+      majorNet5, trustStreak, trustNet5, foreignNet5,
+      marginChg5: marginChg5 != null ? Math.round(marginChg5) : null,
+      marginFirst,
+      close, changePct, chg5d, chg10d, closeRank, volRatio,
+      baseScore: trustScore + marginScore + posScore,
+    })
+  }
+
+  if (!candidates.length) { console.log('[screener] 無符合條件個股'); return }
+
+  const majorMax = Math.max(...candidates.map(c => c.majorNet5))
+  const majorMin = Math.min(...candidates.map(c => c.majorNet5))
+
+  let concStreakMap = {}
+  try {
+    const { rows: concRows } = await pool.query(`
+      SELECT stock_no, data_date, large_pct
+      FROM concentration
+      WHERE stock_no = ANY($1::text[]) AND data_date >= CURRENT_DATE - 30
+      ORDER BY stock_no, data_date ASC
+    `, [candidates.map(c => c.stockNo)])
+    const cg = {}
+    for (const r of concRows) {
+      if (!cg[r.stock_no]) cg[r.stock_no] = []
+      cg[r.stock_no].push(r)
+    }
+    for (const [sno, cdays] of Object.entries(cg)) {
+      let streak = 0
+      for (let i = cdays.length - 1; i >= 1; i--) {
+        if (parseFloat(cdays[i].large_pct) > parseFloat(cdays[i-1].large_pct)) streak++
+        else break
+      }
+      concStreakMap[sno] = streak
+    }
+  } catch {}
+
+  for (const c of candidates) {
+    const majorNorm = majorMax > majorMin ? (c.majorNet5 - majorMin) / (majorMax - majorMin) : 0.5
+    const concScore = Math.min((concStreakMap[c.stockNo] || 0) / 5, 1) * 15
+    c.score = +(c.baseScore + majorNorm * 25 + concScore).toFixed(1)
+  }
+  candidates.sort((a, b) => b.score - a.score)
+
+  for (const c of candidates) {
+    const { trustStreak, chg5d, marginChg5, marginFirst, closeRank } = c
+    const marginDeclining  = marginChg5 !== null && marginChg5 < 0
+    const marginFastDecline = marginDeclining && marginFirst > 0 && (-marginChg5/marginFirst*100) > 3
+
+    if      (trustStreak >= 5 && Math.abs(chg5d) < 2 && closeRank < 0.45) c.phase = 'A'
+    else if (marginFastDecline && chg5d <= 0)                               c.phase = 'B'
+    else if (chg5d >= 1.5 && chg5d < 5 && marginDeclining)                 c.phase = 'C'
+    else                                                                     c.phase = 'A'
+
+    c.isStealth = trustStreak >= 3 && Math.abs(chg5d) < 1.5 && marginDeclining
+  }
+
+  let saved = 0
+  for (const c of candidates.slice(0, 100)) {
+    try {
+      await pool.query(`
+        INSERT INTO screener_results
+          (run_date,stock_no,stock_name,score,phase,is_stealth,trust_streak,major_net5,margin_chg5,close,change_pct,close_rank,vol_ratio,detail)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+        ON CONFLICT (run_date,stock_no) DO UPDATE SET
+          stock_name=$3,score=$4,phase=$5,is_stealth=$6,trust_streak=$7,major_net5=$8,
+          margin_chg5=$9,close=$10,change_pct=$11,close_rank=$12,vol_ratio=$13,detail=$14
+      `, [
+        runDate, c.stockNo, c.stockName, c.score, c.phase, c.isStealth,
+        c.trustStreak, Math.round(c.majorNet5), c.marginChg5,
+        c.close, +c.changePct.toFixed(2), +c.closeRank.toFixed(4), +c.volRatio.toFixed(2),
+        JSON.stringify({ chg5d: +c.chg5d.toFixed(2), chg10d: +c.chg10d.toFixed(2), trustNet5: Math.round(c.trustNet5), foreignNet5: Math.round(c.foreignNet5) }),
+      ])
+      saved++
+    } catch(e) { console.error('[screener] 寫入錯誤:', e.message) }
+  }
+  console.log(`[screener] 完成：候選 ${candidates.length} 檔，寫入 ${saved} 筆（${runDate}）`)
+}
+
+app.get('/api/screener/results', async (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit) || 50, 200)
+    const { rows: meta } = await pool.query(`SELECT MAX(run_date) AS run_date FROM screener_results`)
+    const runDate = meta[0]?.run_date
+    if (!runDate) return res.json({ run_date: null, total: 0, rows: [] })
+    const { rows } = await pool.query(
+      `SELECT * FROM screener_results WHERE run_date=$1 ORDER BY score DESC LIMIT $2`,
+      [runDate, limit]
+    )
+    res.json({ run_date: runDate, total: rows.length, rows })
+  } catch(e) { res.status(500).json({ error: e.message }) }
+})
+
+app.post('/api/sync/screener', async (req, res) => {
+  res.json({ ok: true, message: '選股計算已開始（同步今日行情後計算）' })
+  syncMarketDailyToday()
+    .then(() => runScreener())
+    .catch(e => console.error('[screener] sync+run 失敗:', e.message))
+})
+
+app.post('/api/sync/backfill-market', async (req, res) => {
+  const days = Math.min(parseInt(req.query.days) || 20, 30)
+  res.json({ ok: true, message: `市場日線回填已開始（${days} 個交易日）` })
+  backfillMarketDaily(days)
+    .then(() => runScreener())
+    .catch(e => console.error('[backfill-market] 失敗:', e.message))
 })
 
 // 排程：週一到週五 15:00 自動執行
@@ -1846,7 +2645,31 @@ cron.schedule('35 15 * * 1-5', async () => {
   } catch(e) { console.error('[sector_snapshots] 快照儲存失敗:', e.message) }
 }, { timezone: 'Asia/Taipei' })
 
-console.log('[cron] 已設定每日 15:00 自動存檔、15:30 台指期籌碼 + 漲跌家數同步、15:35 強勢族群快照（週一至週五）')
+// 17:00 每日行情摘要（TWSE afterTrading 16:30+ 穩定後補抓三大法人 + 融資）
+cron.schedule('0 17 * * 1-5', async () => {
+  console.log('[cron] 17:00 每日行情摘要 + 三大法人回填')
+  try {
+    await syncDailyData()
+    await backfillDailyInst()
+  } catch(e) { console.error('[cron] 17:00 失敗:', e.message) }
+}, { timezone: 'Asia/Taipei' })
+
+// 18:00 集保大戶持股同步
+cron.schedule('0 18 * * 1-5', () => {
+  console.log('[cron] 18:00 集保大戶持股同步')
+  syncConcentration().catch(e => console.error('[cron] 18:00 concentration 失敗:', e.message))
+}, { timezone: 'Asia/Taipei' })
+
+// 18:30 全市場日線 + 選股計算
+cron.schedule('30 18 * * 1-5', async () => {
+  console.log('[cron] 18:30 全市場日線同步 + 選股計算')
+  try {
+    await syncMarketDailyToday()
+    await runScreener()
+  } catch(e) { console.error('[cron] 18:30 選股失敗:', e.message) }
+}, { timezone: 'Asia/Taipei' })
+
+console.log('[cron] 已設定每日 15:00/17:00/18:00/18:30 自動同步、15:30 台指期籌碼、15:35 強勢族群（週一至週五）')
 
 const PORT = process.env.PORT || 3000
 app.listen(PORT, () => {

@@ -279,7 +279,9 @@ function selectTab(t) {
   if (t === 'db')      loadSignals()
   if (t === 'chart')   nextTick(() => loadChartData())
   if (t === 'breadth') { loadMarketBreadth(); loadMarketDist() }
-  if (t === 'sector')  { loadSectorDates(); loadSectorAnalysis() }
+  if (t === 'sector')   { loadSectorDates(); loadSectorAnalysis() }
+  if (t === 'conc')     loadConcentration()
+  if (t === 'screener') loadScreener()
 }
 
 // ── 日報表 ────────────────────────────────────────
@@ -422,6 +424,122 @@ async function loadSectorAnalysis() {
   }
 }
 
+// ── 大股東吃貨排行榜 ─────────────────────────────────
+const concLoading  = ref(false)
+const concRows     = ref([])
+const concError    = ref('')
+const concTotal    = ref(0)
+const concMinStreak = ref(2)
+const concSyncing  = ref(false)
+
+async function loadConcentration() {
+  concLoading.value = true
+  concError.value   = ''
+  try {
+    const r = await fetch(`${API}/api/concentration/ranking?minStreak=${concMinStreak.value}&limit=100`)
+    const d = await r.json()
+    if (d.error) throw new Error(d.error)
+    concRows.value  = d.rows || []
+    concTotal.value = d.total || 0
+  } catch(e) {
+    concError.value = '載入失敗：' + e.message
+  } finally {
+    concLoading.value = false
+  }
+}
+
+async function manualSyncConc() {
+  concSyncing.value = true
+  concError.value   = ''
+  try {
+    await fetch(`${API}/api/sync/concentration`, { method: 'POST' })
+    // 等候後台同步完成（全市場約 10-15 秒）
+    await new Promise(r => setTimeout(r, 15000))
+    await loadConcentration()
+  } catch(e) {
+    concError.value = '同步失敗：' + e.message
+  } finally {
+    concSyncing.value = false
+  }
+}
+
+// ── 台股選股系統 ─────────────────────────────────────
+const screenerLoading  = ref(false)
+const screenerRows     = ref([])
+const screenerError    = ref('')
+const screenerRunDate  = ref('')
+const screenerTotal    = ref(0)
+const screenerSyncing  = ref(false)
+const screenerBackfilling = ref(false)
+
+async function loadScreener() {
+  screenerLoading.value = true
+  screenerError.value   = ''
+  try {
+    const r = await fetch(`${API}/api/screener/results?limit=100`)
+    const d = await r.json()
+    if (d.error) throw new Error(d.error)
+    screenerRows.value    = d.rows || []
+    screenerTotal.value   = d.total || 0
+    screenerRunDate.value = d.run_date ? String(d.run_date).slice(0, 10) : ''
+  } catch(e) {
+    screenerError.value = '載入失敗：' + e.message
+  } finally {
+    screenerLoading.value = false
+  }
+}
+
+async function manualRunScreener() {
+  screenerSyncing.value = true
+  screenerError.value   = ''
+  try {
+    await fetch(`${API}/api/sync/screener`, { method: 'POST' })
+    await new Promise(r => setTimeout(r, 35000))
+    await loadScreener()
+  } catch(e) {
+    screenerError.value = '計算失敗：' + e.message
+  } finally {
+    screenerSyncing.value = false
+  }
+}
+
+async function backfillMarket() {
+  screenerBackfilling.value = true
+  screenerError.value       = ''
+  try {
+    await fetch(`${API}/api/sync/backfill-market?days=20`, { method: 'POST' })
+    await new Promise(r => setTimeout(r, 90000))
+    await loadScreener()
+  } catch(e) {
+    screenerError.value = '回填失敗：' + e.message
+  } finally {
+    screenerBackfilling.value = false
+  }
+}
+
+const PHASE_META = {
+  A: { label: 'A 吸籌', cls: 'bg-blue-500/20 text-blue-400 border-blue-700' },
+  B: { label: 'B 洗盤', cls: 'bg-purple-500/20 text-purple-400 border-purple-700' },
+  C: { label: 'C 發動', cls: 'bg-orange-500/20 text-orange-400 border-orange-700' },
+  D: { label: 'D 主升', cls: 'bg-red-500/20 text-red-400 border-red-700' },
+}
+
+function screenerChangePctColor(v) {
+  return +v > 0 ? 'text-red-400' : +v < 0 ? 'text-green-400' : 'text-gray-400'
+}
+function fmtShares2(v) {
+  if (v == null) return '—'
+  const abs = Math.abs(+v)
+  return abs >= 1000000 ? (abs/1000000).toFixed(1) + 'M' : abs >= 1000 ? (abs/1000).toFixed(0) + 'K' : String(abs)
+}
+function fmtSignShares2(v) {
+  if (v == null) return '—'
+  const sign = +v > 0 ? '+' : +v < 0 ? '-' : ''
+  const abs = Math.abs(+v)
+  const num = abs >= 1000000 ? (abs/1000000).toFixed(1) + 'M' : abs >= 1000 ? (abs/1000).toFixed(0) + 'K' : String(abs)
+  return sign + num
+}
+
 async function generateReport() {
   reportLoading.value = true
   reportError.value   = ''
@@ -474,7 +592,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
 
     <!-- 分頁切換 -->
     <div class="border-b border-gray-800 px-6 flex gap-1">
-      <button v-for="t in [{ id:'monitor', label:'即時監控' }, { id:'db', label:'歷史資料' }, { id:'chart', label:'K線圖' }, { id:'report', label:'日報表' }, { id:'breadth', label:'漲跌家數' }, { id:'chips', label:'台指期籌碼' }, { id:'sector', label:'強勢族群' }]" :key="t.id"
+      <button v-for="t in [{ id:'monitor', label:'即時監控' }, { id:'db', label:'歷史資料' }, { id:'report', label:'日報表' }, { id:'breadth', label:'漲跌家數' }, { id:'chips', label:'台指期籌碼' }, { id:'sector', label:'強勢族群' }, { id:'conc', label:'大股東吃貨' }, { id:'screener', label:'台股選股' }]" :key="t.id"
               @click="selectTab(t.id)"
               class="px-4 py-3 text-sm font-medium transition border-b-2 -mb-px"
               :class="tab === t.id ? 'border-purple-500 text-purple-400' : 'border-transparent text-gray-500 hover:text-gray-300'">
@@ -907,48 +1025,6 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
 
     </div>
 
-    <!-- ── K線圖 Tab ── -->
-    <div v-if="tab === 'chart'" class="max-w-6xl mx-auto px-4 py-6 space-y-4">
-
-      <!-- 控制列 -->
-      <div class="flex flex-wrap gap-3 items-center">
-        <select v-model="chartStockNo" @change="loadChartData()"
-                class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none">
-          <option v-for="s in STOCKS" :key="s.no" :value="s.no">{{ s.name }} {{ s.no }}</option>
-        </select>
-        <div class="flex gap-1">
-          <button v-for="d in [3,5,7]" :key="d"
-                  @click="chartDays = d; loadChartData()"
-                  class="px-3 py-2 rounded-lg text-sm font-medium transition"
-                  :class="chartDays === d ? 'bg-purple-700 text-white' : 'bg-gray-800 text-gray-400 hover:text-white'">
-            近 {{ d }} 日
-          </button>
-        </div>
-        <span v-if="chartLoading" class="text-xs text-gray-500">載入中...</span>
-        <span v-if="chartError" class="text-xs text-red-400">{{ chartError }}</span>
-
-        <!-- 圖例 -->
-        <div class="ml-auto flex flex-wrap gap-3 text-xs">
-          <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-full bg-red-500"></span>一級抄底</span>
-          <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-full bg-orange-500"></span>二級轉折</span>
-          <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-full bg-yellow-500"></span>三級警戒</span>
-          <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-full bg-teal-500"></span>四級提醒</span>
-        </div>
-      </div>
-
-      <!-- 圖表容器 -->
-      <div class="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
-        <div class="px-5 py-3 border-b border-gray-800 flex items-center justify-between">
-          <h2 class="font-semibold text-white text-sm">
-            {{ STOCKS.find(s => s.no === chartStockNo)?.name }} {{ chartStockNo }}
-            <span class="text-gray-500 font-normal ml-2 text-xs">分時 K 棒（台股時間）</span>
-          </h2>
-          <span class="text-xs text-gray-600">紅漲綠跌</span>
-        </div>
-        <div ref="chartContainer" class="w-full"></div>
-      </div>
-
-    </div>
 
     <!-- ── 日報表 Tab ── -->
     <div v-if="tab === 'report'" class="max-w-3xl mx-auto px-4 py-6 space-y-4">
@@ -1421,18 +1497,18 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               <tbody class="divide-y divide-gray-800">
                 <tr v-for="row in chipsRows" :key="row.trade_date" class="hover:bg-gray-800/40 transition">
                   <td class="px-4 py-2 font-mono text-gray-400">{{ row.trade_date?.slice(0,10) }}</td>
-                  <td class="px-4 py-2 text-right font-mono font-semibold" :class="chipsNetColor(row.foreign_tx_net)">
-                    {{ chipsNetSign(row.foreign_tx_net) }}
+                  <td class="px-4 py-2 text-right font-mono font-semibold" :class="row.foreign_tx_net != 0 ? chipsNetColor(row.foreign_tx_net) : 'text-gray-700'">
+                    {{ row.foreign_tx_net != 0 ? chipsNetSign(row.foreign_tx_net) : '—' }}
                   </td>
-                  <td class="px-4 py-2 text-right font-mono font-semibold" :class="chipsNetColor(row.trust_tx_net)">
-                    {{ chipsNetSign(row.trust_tx_net) }}
+                  <td class="px-4 py-2 text-right font-mono font-semibold" :class="row.trust_tx_net != 0 ? chipsNetColor(row.trust_tx_net) : 'text-gray-700'">
+                    {{ row.trust_tx_net != 0 ? chipsNetSign(row.trust_tx_net) : '—' }}
                   </td>
-                  <td class="px-4 py-2 text-right font-mono font-semibold" :class="chipsNetColor(row.dealer_tx_net)">
-                    {{ chipsNetSign(row.dealer_tx_net) }}
+                  <td class="px-4 py-2 text-right font-mono font-semibold" :class="row.dealer_tx_net != 0 ? chipsNetColor(row.dealer_tx_net) : 'text-gray-700'">
+                    {{ row.dealer_tx_net != 0 ? chipsNetSign(row.dealer_tx_net) : '—' }}
                   </td>
                   <td class="px-4 py-2 text-right font-mono font-bold"
-                      :class="chipsNetColor(+row.foreign_tx_net + +row.trust_tx_net + +row.dealer_tx_net)">
-                    {{ chipsNetSign(+row.foreign_tx_net + +row.trust_tx_net + +row.dealer_tx_net) }}
+                      :class="(row.foreign_tx_net == 0 && row.trust_tx_net == 0 && row.dealer_tx_net == 0) ? 'text-gray-700' : chipsNetColor(+row.foreign_tx_net + +row.trust_tx_net + +row.dealer_tx_net)">
+                    {{ (row.foreign_tx_net == 0 && row.trust_tx_net == 0 && row.dealer_tx_net == 0) ? '—' : chipsNetSign(+row.foreign_tx_net + +row.trust_tx_net + +row.dealer_tx_net) }}
                   </td>
                   <td class="px-4 py-2 text-right font-mono text-yellow-400">
                     {{ (+row.oi_market).toLocaleString() }}
@@ -1544,6 +1620,250 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
         </div>
 
       </div>
+    </div>
+
+    <!-- ── 大股東吃貨 Tab ── -->
+    <div v-if="tab === 'conc'" class="max-w-5xl mx-auto px-4 py-6 space-y-4">
+
+      <!-- 標題列 -->
+      <div class="flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h2 class="text-base font-bold text-white">🐋 大股東持續吃貨排行榜</h2>
+          <p class="text-xs text-gray-600 mt-0.5">
+            全市場上市個股・大戶（≥400張）集保持股連續增加排行・每日 18:00 更新
+            <span v-if="concTotal" class="ml-2 text-gray-500">共 {{ concTotal }} 檔符合</span>
+          </p>
+        </div>
+        <div class="flex items-center gap-2">
+          <label class="text-xs text-gray-500">最少連續天數</label>
+          <select v-model="concMinStreak" @change="loadConcentration()"
+                  class="bg-gray-800 border border-gray-700 text-white text-sm rounded-lg px-2 py-1.5">
+            <option :value="2">2 天+</option>
+            <option :value="3">3 天+</option>
+            <option :value="5">5 天+</option>
+            <option :value="7">7 天+</option>
+          </select>
+          <button @click="loadConcentration()" :disabled="concLoading"
+                  class="px-3 py-1.5 rounded-lg bg-gray-700 hover:bg-gray-600 text-sm transition">
+            {{ concLoading ? '載入中...' : '重新整理' }}
+          </button>
+          <button @click="manualSyncConc()" :disabled="concSyncing"
+                  class="px-3 py-1.5 rounded-lg bg-purple-700 hover:bg-purple-600 text-sm transition">
+            {{ concSyncing ? '同步中...' : '立即同步' }}
+          </button>
+        </div>
+      </div>
+
+      <p v-if="concError" class="text-red-400 text-sm">{{ concError }}</p>
+
+      <div v-if="!concRows.length && !concLoading" class="text-center text-gray-600 text-sm py-12">
+        點擊「重新整理」載入排行榜，或「立即同步」先抓取今日集保資料（約需 15 秒）
+      </div>
+
+      <!-- 排行榜 -->
+      <div v-if="concRows.length" class="rounded-2xl border border-gray-800 bg-gray-900 overflow-hidden">
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead class="text-xs text-gray-500 border-b border-gray-800 bg-gray-900/80 sticky top-0">
+              <tr>
+                <th class="px-3 py-3 text-center w-10">#</th>
+                <th class="px-4 py-3 text-left">個股</th>
+                <th class="px-4 py-3 text-center">連續增加</th>
+                <th class="px-4 py-3 text-right">大戶持股%</th>
+                <th class="px-4 py-3 text-right">前日增減</th>
+                <th class="px-4 py-3 text-right">累計增加</th>
+                <th class="px-4 py-3 text-right">大戶人數</th>
+                <th class="px-4 py-3 text-right">資料日期</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-800">
+              <tr v-for="(row, idx) in concRows" :key="row.stock_no"
+                  class="hover:bg-gray-800/40 transition">
+                <td class="px-3 py-2.5 text-center text-gray-600 text-xs">{{ idx + 1 }}</td>
+                <td class="px-4 py-2.5">
+                  <div class="font-semibold text-white">{{ row.stock_name }}</div>
+                  <div class="text-xs text-gray-500 font-mono">{{ row.stock_no }}</div>
+                </td>
+                <td class="px-4 py-2.5 text-center">
+                  <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold"
+                        :class="row.streak_days >= 7 ? 'bg-red-500/20 text-red-400' :
+                                row.streak_days >= 5 ? 'bg-orange-500/20 text-orange-400' :
+                                row.streak_days >= 3 ? 'bg-yellow-500/20 text-yellow-400' :
+                                'bg-gray-700 text-gray-300'">
+                    🔥 {{ row.streak_days }} 天
+                  </span>
+                </td>
+                <td class="px-4 py-2.5 text-right font-mono font-bold text-yellow-300">
+                  {{ row.latest_pct != null ? row.latest_pct.toFixed(2) + '%' : '—' }}
+                </td>
+                <td class="px-4 py-2.5 text-right font-mono font-semibold text-red-400">
+                  <span v-if="row.latest_change != null">
+                    +{{ row.latest_change.toFixed(2) }}%
+                  </span>
+                  <span v-else class="text-gray-700">—</span>
+                </td>
+                <td class="px-4 py-2.5 text-right font-mono text-orange-400">
+                  +{{ row.total_change?.toFixed(2) ?? '—' }}%
+                </td>
+                <td class="px-4 py-2.5 text-right text-gray-400 text-xs">{{ row.large_count?.toLocaleString() ?? '—' }}</td>
+                <td class="px-4 py-2.5 text-right text-gray-600 text-xs font-mono">
+                  {{ row.data_date ? String(row.data_date).slice(0, 10) : '—' }}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="px-5 py-3 border-t border-gray-800 text-xs text-gray-600">
+          大戶定義：集保持股 ≥ 400,000 股（400 張）。「前日增減」為最新一天vs前一天的差值，「累計增加」為連續天數內的總增幅。資料來源：集保結算所每日庫存統計。
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ── 台股選股系統 Tab ── -->
+    <div v-if="tab === 'screener'" class="max-w-6xl mx-auto px-4 py-6 space-y-4">
+
+      <!-- 標題列 -->
+      <div class="flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h2 class="text-base font-bold text-white">🔍 台股選股系統</h2>
+          <p class="text-xs text-gray-600 mt-0.5">
+            法人籌碼主導選股・投信連買 ≥ 3 天・主力淨買為正・融資下降
+            <span v-if="screenerRunDate" class="ml-2 text-gray-500">計算日期：{{ screenerRunDate }}・共 {{ screenerTotal }} 檔</span>
+          </p>
+        </div>
+        <div class="flex items-center gap-2 flex-wrap">
+          <button @click="loadScreener()" :disabled="screenerLoading"
+                  class="px-3 py-1.5 rounded-lg bg-gray-700 hover:bg-gray-600 text-sm transition">
+            {{ screenerLoading ? '載入中...' : '重新整理' }}
+          </button>
+          <button @click="manualRunScreener()" :disabled="screenerSyncing || screenerBackfilling"
+                  class="px-3 py-1.5 rounded-lg bg-purple-700 hover:bg-purple-600 text-sm transition">
+            {{ screenerSyncing ? '計算中（約35秒）...' : '今日選股' }}
+          </button>
+          <button @click="backfillMarket()" :disabled="screenerBackfilling || screenerSyncing"
+                  class="px-3 py-1.5 rounded-lg bg-blue-800 hover:bg-blue-700 text-sm transition">
+            {{ screenerBackfilling ? '回填中（約90秒）...' : '回填20日歷史' }}
+          </button>
+        </div>
+      </div>
+
+      <p v-if="screenerError" class="text-red-400 text-sm">{{ screenerError }}</p>
+
+      <!-- 階段說明 -->
+      <div class="flex flex-wrap gap-2 text-xs">
+        <template v-for="(meta, key) in PHASE_META" :key="key">
+          <div class="flex items-center gap-1.5 px-2.5 py-1 rounded-full border" :class="meta.cls">
+            {{ meta.label }}
+          </div>
+        </template>
+        <div class="flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-cyan-700 bg-cyan-500/10 text-cyan-400">
+          🕵️ 隱形布局
+        </div>
+      </div>
+
+      <!-- 無資料 -->
+      <div v-if="!screenerRows.length && !screenerLoading" class="text-center text-gray-600 text-sm py-12">
+        點擊「回填20日歷史」建立歷史資料庫，再點擊「今日選股」計算結果。<br>
+        <span class="text-xs text-gray-700">首次回填約需 90 秒，之後每日 18:30 自動更新。</span>
+      </div>
+
+      <!-- 選股結果表格 -->
+      <div v-if="screenerRows.length" class="rounded-2xl border border-gray-800 bg-gray-900 overflow-hidden">
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead class="text-xs text-gray-500 border-b border-gray-800 bg-gray-900/80 sticky top-0">
+              <tr>
+                <th class="px-3 py-3 text-center w-10">#</th>
+                <th class="px-4 py-3 text-left">個股</th>
+                <th class="px-4 py-3 text-center">評分</th>
+                <th class="px-4 py-3 text-center">階段</th>
+                <th class="px-4 py-3 text-right">收盤價</th>
+                <th class="px-4 py-3 text-right">當日漲跌</th>
+                <th class="px-4 py-3 text-right">5日漲幅</th>
+                <th class="px-4 py-3 text-center">投信連買</th>
+                <th class="px-4 py-3 text-right">主力5日淨</th>
+                <th class="px-4 py-3 text-right">融資5日變</th>
+                <th class="px-4 py-3 text-center">位置</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-800">
+              <tr v-for="(row, idx) in screenerRows" :key="row.stock_no"
+                  class="hover:bg-gray-800/40 transition"
+                  :class="row.is_stealth ? 'bg-cyan-950/30' : ''">
+                <td class="px-3 py-2.5 text-center text-gray-600 text-xs">{{ idx + 1 }}</td>
+                <td class="px-4 py-2.5">
+                  <div class="flex items-center gap-1.5">
+                    <span class="font-semibold text-white">{{ row.stock_name }}</span>
+                    <span v-if="row.is_stealth" class="text-xs text-cyan-400">🕵️</span>
+                  </div>
+                  <div class="text-xs text-gray-500 font-mono">{{ row.stock_no }}</div>
+                </td>
+                <td class="px-4 py-2.5 text-center">
+                  <span class="inline-block px-2 py-0.5 rounded font-bold text-xs"
+                        :class="row.score >= 80 ? 'bg-red-500/20 text-red-400' :
+                                row.score >= 65 ? 'bg-orange-500/20 text-orange-400' :
+                                row.score >= 50 ? 'bg-yellow-500/20 text-yellow-400' :
+                                'bg-gray-700 text-gray-400'">
+                    {{ row.score }}
+                  </span>
+                </td>
+                <td class="px-4 py-2.5 text-center">
+                  <span v-if="PHASE_META[row.phase]"
+                        class="inline-block px-2 py-0.5 rounded-full text-xs border"
+                        :class="PHASE_META[row.phase].cls">
+                    {{ PHASE_META[row.phase].label }}
+                  </span>
+                  <span v-else class="text-gray-600 text-xs">—</span>
+                </td>
+                <td class="px-4 py-2.5 text-right font-mono font-semibold text-white">
+                  {{ row.close != null ? (+row.close).toFixed(1) : '—' }}
+                </td>
+                <td class="px-4 py-2.5 text-right font-mono text-sm font-semibold"
+                    :class="screenerChangePctColor(row.change_pct)">
+                  {{ row.change_pct != null ? (row.change_pct > 0 ? '+' : '') + (+row.change_pct).toFixed(2) + '%' : '—' }}
+                </td>
+                <td class="px-4 py-2.5 text-right font-mono text-sm"
+                    :class="screenerChangePctColor(row.detail?.chg5d)">
+                  {{ row.detail?.chg5d != null ? (row.detail.chg5d > 0 ? '+' : '') + (+row.detail.chg5d).toFixed(2) + '%' : '—' }}
+                </td>
+                <td class="px-4 py-2.5 text-center">
+                  <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold"
+                        :class="row.trust_streak >= 7 ? 'bg-red-500/20 text-red-400' :
+                                row.trust_streak >= 5 ? 'bg-orange-500/20 text-orange-400' :
+                                'bg-yellow-500/20 text-yellow-400'">
+                    ▲ {{ row.trust_streak }} 天
+                  </span>
+                </td>
+                <td class="px-4 py-2.5 text-right font-mono text-sm"
+                    :class="row.major_net5 > 0 ? 'text-red-400' : 'text-green-400'">
+                  {{ fmtSignShares2(row.major_net5) }}
+                </td>
+                <td class="px-4 py-2.5 text-right font-mono text-sm"
+                    :class="row.margin_chg5 == null ? 'text-gray-600' : row.margin_chg5 < 0 ? 'text-green-400' : 'text-red-400'">
+                  {{ row.margin_chg5 != null ? fmtSignShares2(row.margin_chg5) : '—' }}
+                </td>
+                <td class="px-4 py-2.5 text-center">
+                  <div class="flex items-center gap-1.5 justify-center">
+                    <div class="w-16 bg-gray-700 rounded-full h-1.5 overflow-hidden">
+                      <div class="h-full rounded-full"
+                           :style="{ width: ((row.close_rank||0) * 100).toFixed(0) + '%' }"
+                           :class="row.close_rank < 0.3 ? 'bg-green-500' : row.close_rank < 0.6 ? 'bg-yellow-500' : 'bg-red-500'">
+                      </div>
+                    </div>
+                    <span class="text-xs text-gray-500">{{ row.close_rank != null ? ((+row.close_rank)*100).toFixed(0) + '%' : '—' }}</span>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="px-5 py-3 border-t border-gray-800 text-xs text-gray-600">
+          條件：投信連買≥3天・主力（外資+投信）近5日淨買>0・融資餘額近5日下降・當日漲跌&lt;7%・5日漲&lt;5%・無爆量。
+          位置欄為近20日高低點中的相對位置（0%=最低・100%=最高）。🕵️=隱形布局（籌碼持續布局但股價未大漲）。每日 18:30 自動計算。
+        </div>
+      </div>
+
     </div>
 
   </div>
