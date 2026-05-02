@@ -2353,17 +2353,32 @@ async function syncMarketDailyOne(dateStr8) {
 
   if (!priceRows.length) { console.log(`[market_daily] ${tradeDate} 無行情（休市？）`); return 0 }
 
+  // 先確認 T86 有無資料（無資料 = 休市日）
   const instMap = {}
+  let t86HasData = false
   try {
     const twse = await fetchUrl(
       `https://www.twse.com.tw/rwd/zh/fund/T86?date=${dateStr8}&selectType=ALLBUT0999&response=json`
     )
-    for (const row of twse.data || []) {
-      const no = row[0]?.trim()
-      if (no) instMap[no] = { foreign: n(row[4]), trust: n(row[10]), dealer: n(row[11]) }
+    if (twse?.stat === 'OK') {
+      for (const row of twse.data || []) {
+        const no = row[0]?.trim()
+        if (no) instMap[no] = { foreign: n(row[4]), trust: n(row[10]), dealer: n(row[11]) }
+      }
+      t86HasData = Object.keys(instMap).length > 0
     }
     console.log(`[market_daily] ${tradeDate} T86 ${Object.keys(instMap).length} 檔`)
   } catch(e) { console.error(`[market_daily] ${tradeDate} T86 失敗:`, e.message) }
+
+  // T86 無資料 → 視為休市日，不寫入（避免休市資料佔據最新日期）
+  // 例外：若是今天，允許寫入（T86 要 17:00 後才發布）
+  const nowDateStr8 = new Date(Date.now()+8*3600000).toISOString().slice(0,10).replace(/-/g,'')
+  if (!t86HasData && dateStr8 !== nowDateStr8) {
+    console.log(`[market_daily] ${tradeDate} T86 無資料，判定為休市日，跳過寫入`)
+    // 順便清除若已寫入的錯誤資料
+    await pool.query(`DELETE FROM market_daily WHERE trade_date=$1`, [tradeDate]).catch(()=>{})
+    return 0
+  }
 
   const marginMap = {}
   try {
@@ -2457,23 +2472,37 @@ async function runScreener() {
   for (const [stockNo, days] of Object.entries(grouped)) {
     if (days.length < 5) continue
 
+    const today = new Date(Date.now() + 8 * 3600000)
+
+    // 最新 price 資料（含今日休市/尚未發佈的 NULL inst 天）
     const latest = days[days.length - 1]
     const latestDate = new Date(latest.trade_date)
-    const today = new Date(Date.now() + 8 * 3600000)
     if ((today - latestDate) / (1000*60*60*24) > 4) continue
 
     const close = parseFloat(latest.close)
     if (!close) continue
 
-    const last5  = days.slice(-5)
-    const last10 = days.slice(-10)
+    // 找最後一個有 inst_trust 資料的日（跳過尾端 NULL = 休市或未發佈）
+    let instEndIdx = days.length - 1
+    while (instEndIdx >= 0 && days[instEndIdx].inst_trust === null) instEndIdx--
+    if (instEndIdx < 0) continue  // 完全沒有任何 inst 資料
+
+    // inst 最新那天不能超過 7 天前（太舊的資料不可靠）
+    const instLatestDate = new Date(days[instEndIdx].trade_date)
+    if ((today - instLatestDate) / (1000*60*60*24) > 7) continue
+
     const last20 = days.slice(-20)
+    const last10 = days.slice(-10)
+    const last5price = days.slice(-5)   // 用於 price 計算
+
+    // 以 instEndIdx 為基準取 inst 相關的 5 天
+    const instLast5 = days.slice(Math.max(0, instEndIdx - 4), instEndIdx + 1)
 
     const prevClose = days.length >= 2 ? parseFloat(days[days.length-2].close) : close
     const changePct = prevClose > 0 ? (close - prevClose) / prevClose * 100 : 0
     if (Math.abs(changePct) > 7) continue
 
-    const close5dAgo = parseFloat(last5[0].close)
+    const close5dAgo = last5price[0].close ? parseFloat(last5price[0].close) : close
     const chg5d = close5dAgo > 0 ? (close - close5dAgo) / close5dAgo * 100 : 0
     if (chg5d > 5) continue
 
@@ -2493,8 +2522,9 @@ async function runScreener() {
     const volRatio = avgVol20 > 0 ? parseFloat(latest.volume) / avgVol20 : 1
     if (volRatio > 3) continue
 
+    // 從 instEndIdx 往前算投信連續買超（跳過中間 NULL = 偶發性無資料）
     let trustStreak = 0
-    for (let i = days.length - 1; i >= 0; i--) {
+    for (let i = instEndIdx; i >= 0; i--) {
       const trust = days[i].inst_trust != null ? parseFloat(days[i].inst_trust) : null
       if (trust === null || isNaN(trust)) break
       if (trust > 0) trustStreak++
@@ -2502,13 +2532,15 @@ async function runScreener() {
     }
     if (trustStreak < 3) continue
 
-    const majorNet5 = last5.reduce((s, r) => {
+    // 主力近 5 日（以 inst 最新5天計算）
+    const majorNet5 = instLast5.reduce((s, r) => {
       return s + (parseFloat(r.inst_foreign)||0) + (parseFloat(r.inst_trust)||0)
     }, 0)
     if (majorNet5 <= 0) continue
 
-    const marginFirst = last5[0].margin_bal != null ? parseFloat(last5[0].margin_bal) : NaN
-    const marginLast  = latest.margin_bal   != null ? parseFloat(latest.margin_bal)   : NaN
+    // 融資（以 inst 最新5天計算）
+    const marginFirst = instLast5[0].margin_bal != null ? parseFloat(instLast5[0].margin_bal) : NaN
+    const marginLast  = days[instEndIdx].margin_bal != null ? parseFloat(days[instEndIdx].margin_bal) : NaN
     let marginChg5 = null
     if (!isNaN(marginFirst) && !isNaN(marginLast) && marginFirst > 0) {
       marginChg5 = marginLast - marginFirst
@@ -2522,8 +2554,8 @@ async function runScreener() {
     }
     const posScore = (1 - closeRank) * 10
 
-    const trustNet5   = last5.reduce((s,r) => s + (parseFloat(r.inst_trust)||0), 0)
-    const foreignNet5 = last5.reduce((s,r) => s + (parseFloat(r.inst_foreign)||0), 0)
+    const trustNet5   = instLast5.reduce((s,r) => s + (parseFloat(r.inst_trust)||0), 0)
+    const foreignNet5 = instLast5.reduce((s,r) => s + (parseFloat(r.inst_foreign)||0), 0)
 
     candidates.push({
       stockNo, stockName: latest.stock_name || stockNo,
