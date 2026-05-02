@@ -287,18 +287,22 @@ async function syncConcentration() {
 // 大戶持股連續增加排行榜
 app.get('/api/concentration/ranking', async (req, res) => {
   try {
-    const minStreak = parseInt(req.query.minStreak) || 2
+    const minStreak = parseInt(req.query.minStreak) || 1
     const limit     = Math.min(parseInt(req.query.limit) || 50, 200)
 
-    // 取最近 40 個交易日資料（算連續天數用）
     const { rows } = await pool.query(`
       SELECT stock_no, stock_name, data_date, large_pct, large_count
       FROM concentration
-      WHERE data_date >= CURRENT_DATE - 60
+      WHERE data_date >= CURRENT_DATE - 90
       ORDER BY stock_no, data_date ASC
     `)
 
-    // 按股票分組，計算連續增加天數
+    // 取得最新資料日期
+    let latestDate = null
+    for (const r of rows) {
+      if (!latestDate || r.data_date > latestDate) latestDate = r.data_date
+    }
+
     const grouped = {}
     for (const r of rows) {
       if (!grouped[r.stock_no]) grouped[r.stock_no] = []
@@ -307,41 +311,52 @@ app.get('/api/concentration/ranking', async (req, res) => {
 
     const result = []
     for (const [stockNo, days] of Object.entries(grouped)) {
-      if (days.length < 2) continue
-      // days 已按日期升序
-      let streak = 0, totalChange = 0
-      let latestChange = null
+      const latest = days[days.length - 1]
+      // 只處理最新日期的股票（排除已下市或資料太舊的）
+      if (latestDate && latest.data_date < latestDate) continue
 
-      // 從最後一天往前算連續增加
-      for (let i = days.length - 1; i >= 1; i--) {
-        const change = +(days[i].large_pct - days[i-1].large_pct).toFixed(4)
-        if (i === days.length - 1) latestChange = change
-        if (change > 0) {
-          streak++
-          totalChange += change
-        } else {
-          break
+      let streak = 0, totalChange = 0, latestChange = null
+
+      if (days.length >= 2) {
+        for (let i = days.length - 1; i >= 1; i--) {
+          const change = +(days[i].large_pct - days[i-1].large_pct).toFixed(4)
+          if (i === days.length - 1) latestChange = change
+          if (change > 0) { streak++; totalChange += change }
+          else break
         }
       }
 
-      if (streak < minStreak) continue
-      const latest = days[days.length - 1]
+      // 若只有 1 週資料，以 large_pct 高者優先；有 streak 才套用 minStreak 過濾
+      const hasHistory = days.length >= 2
+      if (hasHistory && streak < minStreak) continue
+      if (!hasHistory && minStreak > 1) continue  // 嚴格模式下不顯示無歷史股票
+
       result.push({
-        stock_no:    stockNo,
-        stock_name:  latest.stock_name || stockNo,
-        streak_days: streak,
-        latest_pct:  +latest.large_pct,
+        stock_no:      stockNo,
+        stock_name:    latest.stock_name || stockNo,
+        streak_days:   streak,
+        latest_pct:    +latest.large_pct,
         latest_change: latestChange != null ? +latestChange.toFixed(4) : null,
         total_change:  +totalChange.toFixed(4),
         large_count:   latest.large_count,
         data_date:     latest.data_date,
+        has_history:   hasHistory,
       })
     }
 
-    // 排序：連續天數 → 總累計增加幅度
-    result.sort((a,b) => b.streak_days - a.streak_days || b.total_change - a.total_change)
+    // 排序：streak 天數 → 累計增加幅度 → 持股比例
+    result.sort((a,b) =>
+      b.streak_days - a.streak_days ||
+      b.total_change - a.total_change ||
+      b.latest_pct - a.latest_pct
+    )
 
-    res.json({ total: result.length, rows: result.slice(0, limit) })
+    res.json({
+      total: result.length,
+      rows: result.slice(0, limit),
+      latest_date: latestDate,
+      has_multi_week: result.some(r => r.has_history),
+    })
   } catch(e) {
     res.status(500).json({ error: e.message })
   }

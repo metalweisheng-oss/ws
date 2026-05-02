@@ -429,8 +429,10 @@ const concLoading  = ref(false)
 const concRows     = ref([])
 const concError    = ref('')
 const concTotal    = ref(0)
-const concMinStreak = ref(2)
+const concMinStreak = ref(1)
 const concSyncing  = ref(false)
+const concLatestDate = ref('')
+const concHasMultiWeek = ref(false)
 
 async function loadConcentration() {
   concLoading.value = true
@@ -439,8 +441,10 @@ async function loadConcentration() {
     const r = await fetch(`${API}/api/concentration/ranking?minStreak=${concMinStreak.value}&limit=100`)
     const d = await r.json()
     if (d.error) throw new Error(d.error)
-    concRows.value  = d.rows || []
-    concTotal.value = d.total || 0
+    concRows.value       = d.rows || []
+    concTotal.value      = d.total || 0
+    concLatestDate.value = d.latest_date ? d.latest_date.slice(0,10) : ''
+    concHasMultiWeek.value = !!d.has_multi_week
   } catch(e) {
     concError.value = '載入失敗：' + e.message
   } finally {
@@ -1631,18 +1635,19 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
         <div>
           <h2 class="text-base font-bold text-white">🐋 大股東持續吃貨排行榜</h2>
           <p class="text-xs text-gray-600 mt-0.5">
-            全市場上市個股・大戶（≥400張）集保持股連續增加排行・每日 18:00 更新
-            <span v-if="concTotal" class="ml-2 text-gray-500">共 {{ concTotal }} 檔符合</span>
+            全市場上市個股・大戶（≥400張）集保持股排行・每週更新（集保每週公布一次）
+            <span v-if="concLatestDate" class="ml-2 text-gray-500">資料日期：{{ concLatestDate }}</span>
+            <span v-if="concTotal" class="ml-2 text-gray-500">共 {{ concTotal }} 檔</span>
           </p>
         </div>
         <div class="flex items-center gap-2">
-          <label class="text-xs text-gray-500">最少連續天數</label>
+          <label class="text-xs text-gray-500">週增加篩選</label>
           <select v-model="concMinStreak" @change="loadConcentration()"
                   class="bg-gray-800 border border-gray-700 text-white text-sm rounded-lg px-2 py-1.5">
-            <option :value="2">2 天+</option>
-            <option :value="3">3 天+</option>
-            <option :value="5">5 天+</option>
-            <option :value="7">7 天+</option>
+            <option :value="1">顯示全部</option>
+            <option :value="2">2 週+ 連增</option>
+            <option :value="3">3 週+ 連增</option>
+            <option :value="5">5 週+ 連增</option>
           </select>
           <button @click="loadConcentration()" :disabled="concLoading"
                   class="px-3 py-1.5 rounded-lg bg-gray-700 hover:bg-gray-600 text-sm transition">
@@ -1655,10 +1660,16 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
         </div>
       </div>
 
+      <!-- 只有 1 週資料時的提示 -->
+      <div v-if="concRows.length && !concHasMultiWeek"
+           class="rounded-xl bg-yellow-900/20 border border-yellow-800/50 px-4 py-3 text-xs text-yellow-400">
+        ⚠️ 目前只有一週資料，尚無法計算連續增加天數。集保資料每週更新，下週同步後將顯示週增加趨勢。
+      </div>
+
       <p v-if="concError" class="text-red-400 text-sm">{{ concError }}</p>
 
       <div v-if="!concRows.length && !concLoading" class="text-center text-gray-600 text-sm py-12">
-        點擊「重新整理」載入排行榜，或「立即同步」先抓取今日集保資料（約需 15 秒）
+        點擊「立即同步」先抓取集保資料（約需 15 秒），完成後點「重新整理」查看排行榜。
       </div>
 
       <!-- 排行榜 -->
@@ -1669,12 +1680,11 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               <tr>
                 <th class="px-3 py-3 text-center w-10">#</th>
                 <th class="px-4 py-3 text-left">個股</th>
-                <th class="px-4 py-3 text-center">連續增加</th>
+                <th class="px-4 py-3 text-center">連續週增</th>
                 <th class="px-4 py-3 text-right">大戶持股%</th>
-                <th class="px-4 py-3 text-right">前日增減</th>
+                <th class="px-4 py-3 text-right">週增減</th>
                 <th class="px-4 py-3 text-right">累計增加</th>
                 <th class="px-4 py-3 text-right">大戶人數</th>
-                <th class="px-4 py-3 text-right">資料日期</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-gray-800">
@@ -1686,36 +1696,37 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                   <div class="text-xs text-gray-500 font-mono">{{ row.stock_no }}</div>
                 </td>
                 <td class="px-4 py-2.5 text-center">
-                  <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold"
-                        :class="row.streak_days >= 7 ? 'bg-red-500/20 text-red-400' :
-                                row.streak_days >= 5 ? 'bg-orange-500/20 text-orange-400' :
-                                row.streak_days >= 3 ? 'bg-yellow-500/20 text-yellow-400' :
-                                'bg-gray-700 text-gray-300'">
-                    🔥 {{ row.streak_days }} 天
+                  <span v-if="row.streak_days > 0"
+                        class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold"
+                        :class="row.streak_days >= 5 ? 'bg-red-500/20 text-red-400' :
+                                row.streak_days >= 3 ? 'bg-orange-500/20 text-orange-400' :
+                                row.streak_days >= 2 ? 'bg-yellow-500/20 text-yellow-400' :
+                                'bg-green-500/20 text-green-400'">
+                    🔥 {{ row.streak_days }} 週
                   </span>
+                  <span v-else class="text-xs text-gray-600">首週</span>
                 </td>
                 <td class="px-4 py-2.5 text-right font-mono font-bold text-yellow-300">
                   {{ row.latest_pct != null ? row.latest_pct.toFixed(2) + '%' : '—' }}
                 </td>
-                <td class="px-4 py-2.5 text-right font-mono font-semibold text-red-400">
+                <td class="px-4 py-2.5 text-right font-mono font-semibold"
+                    :class="row.latest_change > 0 ? 'text-red-400' : row.latest_change < 0 ? 'text-green-400' : 'text-gray-600'">
                   <span v-if="row.latest_change != null">
-                    +{{ row.latest_change.toFixed(2) }}%
+                    {{ row.latest_change > 0 ? '+' : '' }}{{ row.latest_change.toFixed(2) }}%
                   </span>
                   <span v-else class="text-gray-700">—</span>
                 </td>
                 <td class="px-4 py-2.5 text-right font-mono text-orange-400">
-                  +{{ row.total_change?.toFixed(2) ?? '—' }}%
+                  <span v-if="row.total_change">+{{ row.total_change.toFixed(2) }}%</span>
+                  <span v-else class="text-gray-700">—</span>
                 </td>
                 <td class="px-4 py-2.5 text-right text-gray-400 text-xs">{{ row.large_count?.toLocaleString() ?? '—' }}</td>
-                <td class="px-4 py-2.5 text-right text-gray-600 text-xs font-mono">
-                  {{ row.data_date ? String(row.data_date).slice(0, 10) : '—' }}
-                </td>
               </tr>
             </tbody>
           </table>
         </div>
         <div class="px-5 py-3 border-t border-gray-800 text-xs text-gray-600">
-          大戶定義：集保持股 ≥ 400,000 股（400 張）。「前日增減」為最新一天vs前一天的差值，「累計增加」為連續天數內的總增幅。資料來源：集保結算所每日庫存統計。
+          大戶定義：集保持股 ≥ 400,000 股（400 張）。排序依連續週增數 → 累計增幅 → 持股比例。資料來源：集保結算所每週庫存統計（id=1-5）。連續週增需兩週以上資料，首週資料依持股比例高低排序。
         </div>
       </div>
 
