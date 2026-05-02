@@ -2163,27 +2163,79 @@ app.get('/api/debug/futures-chips', async (req, res) => {
   }
 })
 
-// Debug: 查 market_daily 狀況 + 測試 STOCK_DAY_ALL date 參數
+// Debug: 詳細診斷選股篩選條件
 app.get('/api/debug/screener-check', async (req, res) => {
   try {
     const { rows: countRows } = await pool.query(`SELECT COUNT(*) AS cnt, MAX(trade_date) AS latest FROM market_daily`)
     const { rows: srRows }    = await pool.query(`SELECT COUNT(*) AS cnt, MAX(run_date) AS latest FROM screener_results`)
 
-    // 測試 STOCK_DAY_ALL 帶日期
-    const dateStr8 = req.query.date || new Date(Date.now()+8*3600000).toISOString().slice(0,10).replace(/-/g,'')
-    let apiTest = {}
-    try {
-      const data = await fetchUrl(`https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY_ALL?date=${dateStr8}&response=json`)
-      apiTest = { stat: data?.stat, rowCount: data?.data?.length, sample: data?.data?.slice(0,2) }
-    } catch(e) { apiTest = { error: e.message } }
+    // 最新日期有多少股票有 inst_trust 資料（非 NULL）
+    const { rows: trustRows } = await pool.query(`
+      SELECT
+        COUNT(*) FILTER (WHERE inst_trust IS NOT NULL) AS has_trust,
+        COUNT(*) FILTER (WHERE inst_trust > 0) AS trust_positive,
+        COUNT(*) FILTER (WHERE inst_trust IS NULL) AS no_trust,
+        COUNT(*) FILTER (WHERE margin_bal IS NOT NULL) AS has_margin,
+        trade_date
+      FROM market_daily
+      WHERE trade_date = (SELECT MAX(trade_date) FROM market_daily)
+      GROUP BY trade_date
+    `)
+
+    // 找有多少股票連續 3 天以上 inst_trust > 0（用 SQL 直接算）
+    const { rows: streakRows } = await pool.query(`
+      WITH ranked AS (
+        SELECT stock_no, trade_date, inst_trust,
+               ROW_NUMBER() OVER (PARTITION BY stock_no ORDER BY trade_date DESC) AS rn
+        FROM market_daily
+        WHERE trade_date >= CURRENT_DATE - 20
+      ),
+      streaks AS (
+        SELECT stock_no,
+          SUM(CASE WHEN rn <= 3 AND inst_trust > 0 THEN 1 ELSE 0 END) AS last3_positive,
+          SUM(CASE WHEN rn <= 5 AND inst_trust > 0 THEN 1 ELSE 0 END) AS last5_positive,
+          COUNT(*) AS total_days
+        FROM ranked
+        GROUP BY stock_no
+      )
+      SELECT
+        COUNT(*) FILTER (WHERE last3_positive >= 3) AS streak3_count,
+        COUNT(*) FILTER (WHERE last5_positive >= 5) AS streak5_count,
+        COUNT(*) AS total_stocks
+      FROM streaks
+    `)
+
+    // 找有多少股票 5 日主力淨買 > 0
+    const { rows: majorRows } = await pool.query(`
+      WITH recent5 AS (
+        SELECT stock_no,
+          SUM(COALESCE(inst_foreign,0) + COALESCE(inst_trust,0)) AS major_net5
+        FROM market_daily
+        WHERE trade_date >= CURRENT_DATE - 7
+        GROUP BY stock_no
+      )
+      SELECT COUNT(*) FILTER (WHERE major_net5 > 0) AS major_positive FROM recent5
+    `)
+
+    // 取幾筆樣本看 inst_trust 實際值
+    const { rows: sampleRows } = await pool.query(`
+      SELECT stock_no, stock_name, trade_date, close, inst_foreign, inst_trust, inst_dealer, margin_bal
+      FROM market_daily
+      WHERE trade_date = (SELECT MAX(trade_date) FROM market_daily)
+        AND inst_trust IS NOT NULL
+      ORDER BY inst_trust DESC NULLS LAST
+      LIMIT 10
+    `)
 
     res.json({
       market_daily: countRows[0],
       screener_results: srRows[0],
-      apiTest_date: dateStr8,
-      apiTest,
+      latest_day_stats: trustRows[0],
+      streak_stats: streakRows[0],
+      major_stats: majorRows[0],
+      top10_trust: sampleRows,
     })
-  } catch(e) { res.status(500).json({ error: e.message }) }
+  } catch(e) { res.status(500).json({ error: e.message, stack: e.stack?.slice(0,500) }) }
 })
 
 // ── 台股選股系統 ─────────────────────────────────────
