@@ -2163,6 +2163,26 @@ app.get('/api/debug/futures-chips', async (req, res) => {
   }
 })
 
+// Debug: T86 原始欄位確認
+app.get('/api/debug/t86-raw', async (req, res) => {
+  try {
+    const date = req.query.date || new Date(Date.now()+8*3600000).toISOString().slice(0,10).replace(/-/g,'')
+    const data = await fetchUrl(
+      `https://www.twse.com.tw/rwd/zh/fund/T86?date=${date}&selectType=ALLBUT0999&response=json`
+    )
+    const sample = (data?.data || []).filter(r => /^\d{4}$/.test(r[0]?.trim())).slice(0, 5)
+    res.json({
+      stat: data?.stat, total: data?.data?.length,
+      fields: data?.fields,
+      sample: sample.map(r => ({
+        code: r[0], name: r[1],
+        r4: r[4], r8: r[8], r10: r[10], r11: r[11], r14: r[14],
+        allCols: r,
+      }))
+    })
+  } catch(e) { res.status(500).json({ error: e.message }) }
+})
+
 // Debug: 詳細診斷選股篩選條件
 app.get('/api/debug/screener-check', async (req, res) => {
   try {
