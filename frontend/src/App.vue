@@ -2107,7 +2107,10 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <th class="px-4 py-3 text-center">投信連買</th>
                 <th class="px-4 py-3 text-right">主力5日淨</th>
                 <th class="px-4 py-3 text-right">融資5日變</th>
-                <th class="px-4 py-3 text-center">位置</th>
+                <th class="px-4 py-3 text-center">
+                  <div>位置</div>
+                  <div class="text-gray-600 font-normal" style="font-size:10px">20日低↔高　越低越好</div>
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -2167,14 +2170,22 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                   {{ row.margin_chg5 != null ? fmtSignShares2(row.margin_chg5) : '—' }}
                 </td>
                 <td class="px-4 py-2.5 text-center">
-                  <div class="flex items-center gap-1.5 justify-center">
-                    <div class="w-16 bg-gray-700 rounded-full h-1.5 overflow-hidden">
-                      <div class="h-full rounded-full"
-                           :style="{ width: ((row.close_rank||0) * 100).toFixed(0) + '%' }"
-                           :class="row.close_rank < 0.3 ? 'bg-green-500' : row.close_rank < 0.6 ? 'bg-yellow-500' : 'bg-red-500'">
+                  <div class="flex flex-col items-center gap-0.5">
+                    <div class="flex items-center gap-1">
+                      <span class="text-gray-600" style="font-size:10px">低</span>
+                      <div class="w-14 bg-gray-700 rounded-full h-1.5 overflow-hidden">
+                        <div class="h-full rounded-full"
+                             :style="{ width: ((row.close_rank||0) * 100).toFixed(0) + '%' }"
+                             :class="row.close_rank < 0.3 ? 'bg-green-500' : row.close_rank < 0.6 ? 'bg-yellow-500' : 'bg-red-500'">
+                        </div>
                       </div>
+                      <span class="text-gray-600" style="font-size:10px">高</span>
                     </div>
-                    <span class="text-xs text-gray-500">{{ row.close_rank != null ? ((+row.close_rank)*100).toFixed(0) + '%' : '—' }}</span>
+                    <span class="font-mono"
+                          :class="row.close_rank < 0.3 ? 'text-green-400 text-xs font-bold' :
+                                  row.close_rank < 0.6 ? 'text-yellow-400 text-xs' : 'text-red-400 text-xs'">
+                      {{ row.close_rank != null ? ((+row.close_rank)*100).toFixed(0) + '%' : '—' }}
+                    </span>
                   </div>
                 </td>
               </tr>
