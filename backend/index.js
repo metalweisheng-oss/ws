@@ -294,6 +294,9 @@ app.get('/api/concentration/ranking', async (req, res) => {
       SELECT stock_no, stock_name, data_date, large_pct, large_count
       FROM concentration
       WHERE data_date >= CURRENT_DATE - 90
+        AND stock_name IS NOT NULL
+        AND large_pct < 99.9
+        AND large_pct > 0
       ORDER BY stock_no, data_date ASC
     `)
 
@@ -326,14 +329,13 @@ app.get('/api/concentration/ranking', async (req, res) => {
         }
       }
 
-      // 若只有 1 週資料，以 large_pct 高者優先；有 streak 才套用 minStreak 過濾
       const hasHistory = days.length >= 2
       if (hasHistory && streak < minStreak) continue
       if (!hasHistory && minStreak > 1) continue  // 嚴格模式下不顯示無歷史股票
 
       result.push({
         stock_no:      stockNo,
-        stock_name:    latest.stock_name || stockNo,
+        stock_name:    latest.stock_name,
         streak_days:   streak,
         latest_pct:    +latest.large_pct,
         latest_change: latestChange != null ? +latestChange.toFixed(4) : null,
