@@ -2247,12 +2247,25 @@ app.get('/api/debug/screener-check', async (req, res) => {
       LIMIT 10
     `)
 
+    // 各日期 inst_trust 狀況
+    const { rows: perDateRows } = await pool.query(`
+      SELECT trade_date::DATE::TEXT AS td,
+        COUNT(*) AS stocks,
+        COUNT(*) FILTER (WHERE inst_trust IS NOT NULL) AS has_trust,
+        COUNT(*) FILTER (WHERE inst_trust > 0) AS trust_pos,
+        COUNT(*) FILTER (WHERE margin_bal IS NOT NULL) AS has_margin
+      FROM market_daily
+      WHERE trade_date >= CURRENT_DATE - 20
+      GROUP BY trade_date ORDER BY trade_date DESC
+    `)
+
     res.json({
       market_daily: countRows[0],
       screener_results: srRows[0],
       latest_day_stats: trustRows[0],
       streak_stats: streakRows[0],
       major_stats: majorRows[0],
+      per_date: perDateRows,
       top10_trust: sampleRows,
     })
   } catch(e) { res.status(500).json({ error: e.message, stack: e.stack?.slice(0,500) }) }
