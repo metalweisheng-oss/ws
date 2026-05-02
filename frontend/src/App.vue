@@ -545,6 +545,46 @@ function fmtSignShares2(v) {
   return sign + num
 }
 
+function screenerAdvice(row) {
+  const rank    = +(row.close_rank || 0)
+  const streak  = row.trust_streak || 0
+  const chg5d   = +(row.detail?.chg5d || 0)
+  const phase   = row.phase
+  const stealth = row.is_stealth
+  const marginDown = row.margin_chg5 != null && row.margin_chg5 < 0
+
+  if (phase === 'A') {
+    if (stealth && rank < 0.3 && streak >= 5)
+      return { tag: '★ 積極關注', tip: `低位隱形布局連買 ${streak} 天，訊號最強。可小量試單（資金 ≤ 5%），跌破近期低點即出場。`, cls: 'text-green-400', bg: 'bg-green-500/10 border-green-800/60' }
+    if (stealth && rank < 0.5)
+      return { tag: '◎ 追蹤觀察', tip: '隱形布局進行中。等待量能溫和放大（非爆量）或股價突破短期盤整後再進場，勿搶進。', cls: 'text-blue-400', bg: 'bg-blue-500/10 border-blue-800/60' }
+    if (rank < 0.3)
+      return { tag: '◎ 低位留意', tip: '吸籌訊號且位置偏低。可小量試探，停損設近期低點，等投信連買天數增加後加碼。', cls: 'text-blue-400', bg: 'bg-blue-500/10 border-blue-800/60' }
+    return { tag: '○ 持續觀察', tip: '吸籌訊號成立但位置偏中，暫不追入，等位置更低或天數更長（≥5天）再行動。', cls: 'text-gray-400', bg: 'bg-gray-700/30 border-gray-700/60' }
+  }
+
+  if (phase === 'B') {
+    if (chg5d >= 0 && marginDown)
+      return { tag: '▲ 止穩留意', tip: '洗盤後股價轉穩且融資仍在降，可小量試探。若再破洗盤低點立即出場，等出現明顯紅K確認再加碼。', cls: 'text-yellow-400', bg: 'bg-yellow-500/10 border-yellow-800/60' }
+    if (chg5d >= 0)
+      return { tag: '▲ 觀察止穩', tip: '股價暫時持穩，但需確認融資持續下降。等 2~3 天確認止穩後再考慮進場。', cls: 'text-yellow-400', bg: 'bg-yellow-500/10 border-yellow-800/60' }
+    return { tag: '✕ 等待止穩', tip: '仍在洗盤下跌中，勿追跌。等股價止穩並出現紅 K 棒，確認低點不再破後再評估。', cls: 'text-gray-500', bg: 'bg-gray-700/30 border-gray-700/60' }
+  }
+
+  if (phase === 'C') {
+    if (rank < 0.5)
+      return { tag: '▶ 可跟進', tip: `啟動初期且位置合理（${Math.round(rank*100)}%）。量溫和放大時可跟進，停損設 5 日均線下方或進場價 -5%。`, cls: 'text-orange-400', bg: 'bg-orange-500/10 border-orange-800/60' }
+    if (rank < 0.7)
+      return { tag: '▶ 謹慎跟進', tip: '發動中但位置偏中高，追入風險提高。建議等回測確認支撐後小量介入，嚴設停損。', cls: 'text-yellow-400', bg: 'bg-yellow-500/10 border-yellow-800/60' }
+    return { tag: '⚠ 高位追入謹慎', tip: '已漲一段且位置偏高，不建議追入。等回測前段盤整區支撐後再評估。', cls: 'text-red-400', bg: 'bg-red-500/10 border-red-800/60' }
+  }
+
+  if (phase === 'D')
+    return { tag: '⚠ 高位謹慎', tip: '籌碼訊號佳但位置偏高，追高風險大。等出現明顯回測（-5%~-8%）且量縮後，確認支撐再考慮。', cls: 'text-red-400', bg: 'bg-red-500/10 border-red-800/60' }
+
+  return { tag: '○ 持續追蹤', tip: '訊號成立，持續觀察法人動向，尚無明確進場時機。', cls: 'text-gray-500', bg: 'bg-gray-700/30 border-gray-700/60' }
+}
+
 async function generateReport() {
   reportLoading.value = true
   reportError.value   = ''
@@ -1946,9 +1986,74 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
             </p>
           </div>
 
-          <!-- 五、資料來源 -->
+          <!-- 五、進場時機判斷 -->
           <div class="px-5 py-4">
-            <h4 class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">五、資料來源與更新機制</h4>
+            <h4 class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">五、進場時機判斷</h4>
+            <div class="space-y-3 text-sm">
+
+              <!-- 各階段進場邏輯 -->
+              <div class="space-y-2">
+                <div class="flex gap-3 items-start">
+                  <span class="shrink-0 px-2 py-0.5 rounded-full text-xs border border-blue-700 bg-blue-500/20 text-blue-400 font-bold mt-0.5">A 吸籌</span>
+                  <ul class="text-xs text-gray-500 space-y-0.5">
+                    <li>• 位置 &lt; 30% + 連買 ≥ 5 天 + 🕵️隱形布局 → <span class="text-green-400 font-medium">可小量試單（資金 ≤ 5%）</span></li>
+                    <li>• 位置 30–50% + 連買 ≥ 3 天 → <span class="text-blue-400 font-medium">列入觀察，等量溫和放大後進場</span></li>
+                    <li>• 位置 &gt; 50% → 暫不追入，等回落至低位再評估</li>
+                    <li class="text-gray-600 mt-1">停損設定：跌破近 10 日最低點即出場</li>
+                  </ul>
+                </div>
+                <div class="flex gap-3 items-start">
+                  <span class="shrink-0 px-2 py-0.5 rounded-full text-xs border border-purple-700 bg-purple-500/20 text-purple-400 font-bold mt-0.5">B 洗盤</span>
+                  <ul class="text-xs text-gray-500 space-y-0.5">
+                    <li>• 股價仍在下跌中 → <span class="text-gray-400 font-medium">勿進場，等止穩訊號</span></li>
+                    <li>• 股價止穩（連續 2–3 天不破低）且融資仍降 → <span class="text-yellow-400 font-medium">可小量試探</span></li>
+                    <li>• 出現量縮紅 K 突破短期壓力 → 確認洗盤結束，可加碼</li>
+                    <li class="text-gray-600 mt-1">停損設定：再跌破洗盤低點立即出場</li>
+                  </ul>
+                </div>
+                <div class="flex gap-3 items-start">
+                  <span class="shrink-0 px-2 py-0.5 rounded-full text-xs border border-orange-700 bg-orange-500/20 text-orange-400 font-bold mt-0.5">C 發動</span>
+                  <ul class="text-xs text-gray-500 space-y-0.5">
+                    <li>• 位置 &lt; 50% + 量溫和放大（非爆量）→ <span class="text-orange-400 font-medium">可跟進，順勢操作</span></li>
+                    <li>• 位置 50–70% → 謹慎跟進，等回測確認支撐後再進</li>
+                    <li>• 位置 &gt; 70% → 追高風險高，等明顯回測後再評估</li>
+                    <li class="text-gray-600 mt-1">停損設定：跌破 5 日均線或進場價 -5%</li>
+                  </ul>
+                </div>
+                <div class="flex gap-3 items-start">
+                  <span class="shrink-0 px-2 py-0.5 rounded-full text-xs border border-red-700 bg-red-500/20 text-red-400 font-bold mt-0.5">D 主升</span>
+                  <ul class="text-xs text-gray-500 space-y-0.5">
+                    <li>• 籌碼訊號仍佳但位置偏高 → <span class="text-red-400 font-medium">追高風險大，不建議追入</span></li>
+                    <li>• 等出現 -5% 至 -8% 量縮回測，確認支撐後可小量介入</li>
+                    <li class="text-gray-600 mt-1">停損設定：跌破回測低點即出場</li>
+                  </ul>
+                </div>
+              </div>
+
+              <!-- 進場前技術確認 -->
+              <div class="rounded-xl bg-gray-800/40 px-4 py-3 space-y-1.5 text-xs">
+                <p class="text-gray-300 font-medium mb-1">進場前技術面確認（自行查圖）</p>
+                <div class="flex gap-2"><span class="text-gray-600 shrink-0">✓</span><span class="text-gray-400">日線圖：股價在 20 日均線附近或以上（不在均線跌破後的下降通道中）</span></div>
+                <div class="flex gap-2"><span class="text-gray-600 shrink-0">✓</span><span class="text-gray-400">成交量：法人買入當天有量，但未超過均量 3 倍（過量代表換手，非布局）</span></div>
+                <div class="flex gap-2"><span class="text-gray-600 shrink-0">✓</span><span class="text-gray-400">K 線型態：最近 2–3 天無連續長黑，且未在明顯下降趨勢中</span></div>
+                <div class="flex gap-2"><span class="text-gray-600 shrink-0">✓</span><span class="text-gray-400">大盤環境：加權指數未在重要支撐下方，避免系統性下跌中進場</span></div>
+              </div>
+
+              <!-- 停利時機 -->
+              <div class="rounded-xl bg-gray-800/40 px-4 py-3 space-y-1.5 text-xs">
+                <p class="text-gray-300 font-medium mb-1">停利時機（出場訊號）</p>
+                <div class="flex gap-2"><span class="text-red-500 shrink-0">→</span><span class="text-gray-400">投信從連買轉為連賣 2 天以上：主力開始出貨，分批減碼</span></div>
+                <div class="flex gap-2"><span class="text-red-500 shrink-0">→</span><span class="text-red-400/80">融資餘額突然大增（散戶跟進）+ 股價快速拉高：主力出貨時機，開始分批獲利了結</span></div>
+                <div class="flex gap-2"><span class="text-red-500 shrink-0">→</span><span class="text-gray-400">成交量爆量（&gt; 均量 5 倍）+ 股價未再創高：量價背離，注意出貨風險</span></div>
+                <div class="flex gap-2"><span class="text-yellow-500 shrink-0">→</span><span class="text-gray-400">股價已漲 20–30% 以上：無論訊號如何，建議分批獲利了結部分部位</span></div>
+              </div>
+
+            </div>
+          </div>
+
+          <!-- 六、資料來源 -->
+          <div class="px-5 py-4">
+            <h4 class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">六、資料來源與更新機制</h4>
             <div class="space-y-1.5 text-xs">
               <div class="flex gap-3">
                 <span class="shrink-0 text-gray-600 w-24">股價 / 量能</span>
@@ -2005,9 +2110,9 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <th class="px-4 py-3 text-center">位置</th>
               </tr>
             </thead>
-            <tbody class="divide-y divide-gray-800">
-              <tr v-for="(row, idx) in screenerRows" :key="row.stock_no"
-                  class="hover:bg-gray-800/40 transition"
+            <tbody>
+              <template v-for="(row, idx) in screenerRows" :key="row.stock_no">
+              <tr class="hover:bg-gray-800/40 transition border-t border-gray-800"
                   :class="row.is_stealth ? 'bg-cyan-950/30' : ''">
                 <td class="px-3 py-2.5 text-center text-gray-600 text-xs">{{ idx + 1 }}</td>
                 <td class="px-4 py-2.5">
@@ -2073,6 +2178,18 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                   </div>
                 </td>
               </tr>
+              <!-- 操作建議子列 -->
+              <tr :class="row.is_stealth ? 'bg-cyan-950/20' : 'bg-gray-900/40'">
+                <td class="px-3 pb-2.5 pt-0 text-center text-gray-700 text-xs">↳</td>
+                <td colspan="10" class="px-4 pb-2.5 pt-0">
+                  <div class="inline-flex items-start gap-2 rounded-lg border px-3 py-1.5 text-xs"
+                       :class="screenerAdvice(row).bg">
+                    <span class="font-bold shrink-0" :class="screenerAdvice(row).cls">{{ screenerAdvice(row).tag }}</span>
+                    <span class="text-gray-400">{{ screenerAdvice(row).tip }}</span>
+                  </div>
+                </td>
+              </tr>
+              </template>
             </tbody>
           </table>
         </div>
