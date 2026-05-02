@@ -346,12 +346,18 @@ app.get('/api/concentration/ranking', async (req, res) => {
       })
     }
 
-    // 排序：streak 天數 → 累計增加幅度 → 持股比例
-    result.sort((a,b) =>
-      b.streak_days - a.streak_days ||
-      b.total_change - a.total_change ||
-      b.latest_pct - a.latest_pct
-    )
+    const hasAnyStreak = result.some(r => r.streak_days > 0)
+    if (hasAnyStreak) {
+      // 有多週資料：streak 天數 → 累計增加幅度
+      result.sort((a,b) =>
+        b.streak_days - a.streak_days ||
+        b.total_change - a.total_change ||
+        b.latest_pct - a.latest_pct
+      )
+    } else {
+      // 只有單週：按大戶人數排序（卡位人越多越值得關注）
+      result.sort((a,b) => b.large_count - a.large_count || b.latest_pct - a.latest_pct)
+    }
 
     res.json({
       total: result.length,
