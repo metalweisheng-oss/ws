@@ -471,6 +471,7 @@ const screenerRunDate  = ref('')
 const screenerTotal    = ref(0)
 const screenerSyncing  = ref(false)
 const screenerBackfilling = ref(false)
+const screenerLogicOpen = ref(false)
 
 async function loadScreener() {
   screenerLoading.value = true
@@ -1759,6 +1760,173 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
         </template>
         <div class="flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-cyan-700 bg-cyan-500/10 text-cyan-400">
           🕵️ 隱形布局
+        </div>
+      </div>
+
+      <!-- 選股邏輯說明 -->
+      <div class="rounded-2xl border border-gray-800 bg-gray-900 overflow-hidden">
+        <button @click="screenerLogicOpen = !screenerLogicOpen"
+                class="w-full flex items-center justify-between px-5 py-3.5 text-left hover:bg-gray-800/40 transition">
+          <span class="text-sm font-semibold text-gray-300">📋 詳細選股邏輯說明</span>
+          <span class="text-gray-500 text-xs">{{ screenerLogicOpen ? '收起 ▲' : '展開 ▼' }}</span>
+        </button>
+        <div v-if="screenerLogicOpen" class="border-t border-gray-800 px-5 py-4 space-y-5 text-sm">
+
+          <!-- 篩選條件 -->
+          <div>
+            <h4 class="font-semibold text-white mb-2.5">✅ 入選條件（全部需同時滿足）</h4>
+            <div class="space-y-2">
+              <div class="flex gap-3 items-start">
+                <span class="shrink-0 inline-block w-5 h-5 rounded-full bg-blue-500/20 text-blue-400 text-xs font-bold text-center leading-5">1</span>
+                <div>
+                  <span class="text-gray-200 font-medium">投信連續買超 ≥ 3 天</span>
+                  <p class="text-xs text-gray-500 mt-0.5">投信（基金法人）連續 N 天淨買超張數 &gt; 0。法人持續加碼是主升段的核心訊號。天數越多評分越高。</p>
+                </div>
+              </div>
+              <div class="flex gap-3 items-start">
+                <span class="shrink-0 inline-block w-5 h-5 rounded-full bg-blue-500/20 text-blue-400 text-xs font-bold text-center leading-5">2</span>
+                <div>
+                  <span class="text-gray-200 font-medium">主力（外資 + 投信）近 5 日淨買合計 &gt; 0</span>
+                  <p class="text-xs text-gray-500 mt-0.5">合計外資與投信過去 5 個交易日的淨買超，總和必須為正。過濾投信單買但外資猛賣的股票。</p>
+                </div>
+              </div>
+              <div class="flex gap-3 items-start">
+                <span class="shrink-0 inline-block w-5 h-5 rounded-full bg-blue-500/20 text-blue-400 text-xs font-bold text-center leading-5">3</span>
+                <div>
+                  <span class="text-gray-200 font-medium">融資餘額近 5 日未增加（有資料時適用）</span>
+                  <p class="text-xs text-gray-500 mt-0.5">融資增加代表散戶大量借錢追高，主力布局期間融資通常持平或下降。融資降越多，評分越高。</p>
+                </div>
+              </div>
+              <div class="flex gap-3 items-start">
+                <span class="shrink-0 inline-block w-5 h-5 rounded-full bg-blue-500/20 text-blue-400 text-xs font-bold text-center leading-5">4</span>
+                <div>
+                  <span class="text-gray-200 font-medium">股價位置不超過近 20 日區間高點 90%</span>
+                  <p class="text-xs text-gray-500 mt-0.5">以近 20 日最高 / 最低計算相對位置（0% = 最低、100% = 最高）。避免追高，只在低位至中位佈局。</p>
+                </div>
+              </div>
+              <div class="flex gap-3 items-start">
+                <span class="shrink-0 inline-block w-5 h-5 rounded-full bg-blue-500/20 text-blue-400 text-xs font-bold text-center leading-5">5</span>
+                <div>
+                  <span class="text-gray-200 font-medium">近 5 日漲幅 &lt; 5%，當日漲跌幅 &lt; 7%，無爆量</span>
+                  <p class="text-xs text-gray-500 mt-0.5">排除短期急漲股與大量換手股（成交量 &gt; 近 20 日均量 3 倍視為爆量）。尋找低調布局、尚未引爆的標的。</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 評分方式 -->
+          <div>
+            <h4 class="font-semibold text-white mb-2.5">🎯 評分方式（總分 0–100）</h4>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <div class="rounded-xl bg-gray-800/60 px-4 py-3">
+                <div class="flex items-center justify-between mb-1">
+                  <span class="text-gray-200 text-xs font-medium">投信連買天數</span>
+                  <span class="text-orange-400 font-bold text-sm">30 分</span>
+                </div>
+                <div class="w-full bg-gray-700 rounded-full h-1 mb-1.5">
+                  <div class="h-full bg-orange-500 rounded-full" style="width:30%"></div>
+                </div>
+                <p class="text-xs text-gray-500">連買 7 天以上滿分。公式：min(天數/7, 1) × 30</p>
+              </div>
+              <div class="rounded-xl bg-gray-800/60 px-4 py-3">
+                <div class="flex items-center justify-between mb-1">
+                  <span class="text-gray-200 text-xs font-medium">主力強度（相對排名）</span>
+                  <span class="text-orange-400 font-bold text-sm">25 分</span>
+                </div>
+                <div class="w-full bg-gray-700 rounded-full h-1 mb-1.5">
+                  <div class="h-full bg-orange-500 rounded-full" style="width:25%"></div>
+                </div>
+                <p class="text-xs text-gray-500">外資+投信近5日淨買，依全體候選排名正規化</p>
+              </div>
+              <div class="rounded-xl bg-gray-800/60 px-4 py-3">
+                <div class="flex items-center justify-between mb-1">
+                  <span class="text-gray-200 text-xs font-medium">融資下降幅度</span>
+                  <span class="text-orange-400 font-bold text-sm">20 分</span>
+                </div>
+                <div class="w-full bg-gray-700 rounded-full h-1 mb-1.5">
+                  <div class="h-full bg-orange-500 rounded-full" style="width:20%"></div>
+                </div>
+                <p class="text-xs text-gray-500">融資下降越多（相對基期）得分越高；無融資資料得 10 分</p>
+              </div>
+              <div class="rounded-xl bg-gray-800/60 px-4 py-3">
+                <div class="flex items-center justify-between mb-1">
+                  <span class="text-gray-200 text-xs font-medium">股價低位加分</span>
+                  <span class="text-orange-400 font-bold text-sm">10 分</span>
+                </div>
+                <div class="w-full bg-gray-700 rounded-full h-1 mb-1.5">
+                  <div class="h-full bg-orange-500 rounded-full" style="width:10%"></div>
+                </div>
+                <p class="text-xs text-gray-500">位置 &lt; 30%：滿10分；位置 30–60%：5分；其餘：0分</p>
+              </div>
+              <div class="rounded-xl bg-gray-800/60 px-4 py-3 sm:col-span-2">
+                <div class="flex items-center justify-between mb-1">
+                  <span class="text-gray-200 text-xs font-medium">集中度連增加分（法人持續加碼）</span>
+                  <span class="text-orange-400 font-bold text-sm">15 分</span>
+                </div>
+                <div class="w-full bg-gray-700 rounded-full h-1 mb-1.5">
+                  <div class="h-full bg-orange-500 rounded-full" style="width:15%"></div>
+                </div>
+                <p class="text-xs text-gray-500">連續 5 天以上投信+外資合計均正：加15分；3天以上：加8分；其餘：0分</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- 階段說明 -->
+          <div>
+            <h4 class="font-semibold text-white mb-2.5">📊 股票階段分類</h4>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <div class="rounded-xl border border-blue-800 bg-blue-500/10 px-4 py-3">
+                <div class="flex items-center gap-2 mb-1">
+                  <span class="px-2 py-0.5 rounded-full text-xs border border-blue-700 bg-blue-500/20 text-blue-400 font-bold">A 吸籌</span>
+                </div>
+                <p class="text-xs text-gray-400">投信連買 ≥ 5 天 + 近5日漲幅 &lt; 2% + 位置 &lt; 45%。主力靜悄悄在低位佈局，股價幾乎沒漲，是最值得關注的早期訊號。</p>
+              </div>
+              <div class="rounded-xl border border-purple-800 bg-purple-500/10 px-4 py-3">
+                <div class="flex items-center gap-2 mb-1">
+                  <span class="px-2 py-0.5 rounded-full text-xs border border-purple-700 bg-purple-500/20 text-purple-400 font-bold">B 洗盤</span>
+                </div>
+                <p class="text-xs text-gray-400">融資餘額快速下降（&lt; -5000張/日均）且5日股價下跌。主力透過下壓震出散戶，籌碼快速集中中。</p>
+              </div>
+              <div class="rounded-xl border border-orange-800 bg-orange-500/10 px-4 py-3">
+                <div class="flex items-center gap-2 mb-1">
+                  <span class="px-2 py-0.5 rounded-full text-xs border border-orange-700 bg-orange-500/20 text-orange-400 font-bold">C 發動前期</span>
+                </div>
+                <p class="text-xs text-gray-400">近5日漲幅 1–5% + 融資持續下降 + 位置 30–70%。股價開始緩漲但融資未增，代表是主力主動拉抬而非散戶追價。</p>
+              </div>
+              <div class="rounded-xl border border-red-800 bg-red-500/10 px-4 py-3">
+                <div class="flex items-center gap-2 mb-1">
+                  <span class="px-2 py-0.5 rounded-full text-xs border border-red-700 bg-red-500/20 text-red-400 font-bold">D 主升段</span>
+                </div>
+                <p class="text-xs text-gray-400">以上條件不符但仍通過篩選。可能已進入加速上漲初期，需注意位置和量能變化，風險相對較高。</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- 隱形布局 -->
+          <div class="rounded-xl border border-cyan-800 bg-cyan-500/10 px-4 py-3">
+            <div class="flex items-center gap-2 mb-2">
+              <span class="text-cyan-400 text-base">🕵️</span>
+              <h4 class="font-semibold text-cyan-300 text-sm">隱形布局（Stealth Accumulation）</h4>
+            </div>
+            <p class="text-xs text-gray-400 leading-relaxed">同時滿足以下三個條件時標記為「隱形布局」：</p>
+            <ul class="mt-2 space-y-1 text-xs text-gray-400">
+              <li class="flex gap-2"><span class="text-cyan-500 shrink-0">•</span>投信連續買超 ≥ 3 天（法人持續進場）</li>
+              <li class="flex gap-2"><span class="text-cyan-500 shrink-0">•</span>近 5 日股價漲幅 &lt; 1.5%（股價被壓住、沒有拉高引人注意）</li>
+              <li class="flex gap-2"><span class="text-cyan-500 shrink-0">•</span>融資餘額近 5 日下降（散戶沒在追，籌碼集中中）</li>
+            </ul>
+            <p class="text-xs text-cyan-500/70 mt-2">意義：主力在悄悄壓住股價買貨，散戶看不到大漲不會注意，籌碼快速收集中。歷史上這類個股往往在籌碼收集完畢後快速啟動。</p>
+          </div>
+
+          <!-- 資料來源 -->
+          <div class="rounded-xl bg-gray-800/40 px-4 py-3 text-xs text-gray-500 space-y-1">
+            <p class="font-medium text-gray-400 mb-1.5">📡 資料來源與更新時間</p>
+            <p>・<span class="text-gray-300">TWSE STOCK_DAY_ALL</span>：每日收盤後全上市股票成交行情（含收盤、漲跌、成交量）</p>
+            <p>・<span class="text-gray-300">TWSE T86</span>：三大法人每日買賣超（外資、投信、自營商）</p>
+            <p>・<span class="text-gray-300">TWSE MI_MARGN</span>：每日融資融券餘額</p>
+            <p>・<span class="text-gray-300">自動更新時間</span>：每個交易日 18:30（台北時間）自動抓取並計算選股結果</p>
+            <p>・<span class="text-gray-300">分析範圍</span>：以近 20 日歷史資料計算各指標，過濾掉 ETF、特別股等（僅保留 4 位數純數字股票代號）</p>
+          </div>
+
         </div>
       </div>
 
