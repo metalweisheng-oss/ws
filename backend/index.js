@@ -2484,6 +2484,57 @@ async function backfillMarketDaily(days = 20) {
   console.log('[market_daily] 回填完成')
 }
 
+async function backfillOHLCVFromStockDay(days = 30) {
+  console.log(`[backfill-ohlcv] 開始用 STOCK_DAY 修正近 ${days} 天 OHLCV...`)
+
+  const { rows: stockRows } = await pool.query(`
+    SELECT DISTINCT stock_no FROM market_daily
+    WHERE trade_date >= CURRENT_DATE - $1
+    ORDER BY stock_no
+  `, [days * 2])
+  const stockNos = stockRows.map(r => r.stock_no)
+  console.log(`[backfill-ohlcv] 共 ${stockNos.length} 支股票`)
+
+  const now = new Date(Date.now() + 8 * 3600000)
+  const monthsNeeded = Math.ceil(days / 20) + 1
+  const months = []
+  for (let m = 0; m < monthsNeeded; m++) {
+    const d = new Date(now)
+    d.setMonth(d.getMonth() - m)
+    months.push(`${d.getUTCFullYear()}${String(d.getUTCMonth()+1).padStart(2,'0')}01`)
+  }
+
+  const n = s => parseFloat(String(s || '0').replace(/,/g, ''))
+  let updated = 0, errors = 0
+
+  for (const stockNo of stockNos) {
+    for (const dateStr8 of months) {
+      try {
+        const data = await fetchUrl(
+          `https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockNo=${stockNo}&date=${dateStr8}&response=json`
+        )
+        if (data?.stat !== 'OK' || !data.data?.length) continue
+        for (const row of data.data) {
+          const parts = String(row[0]).split('/')
+          if (parts.length !== 3) continue
+          const dateKey = `${parseInt(parts[0])+1911}-${parts[1].padStart(2,'0')}-${parts[2].padStart(2,'0')}`
+          const close = n(row[6]), open = n(row[3]), high = n(row[4]), low = n(row[5]), vol = Math.round(n(row[1]))
+          if (!close || isNaN(close)) continue
+          const { rowCount } = await pool.query(
+            `UPDATE market_daily SET close=$1, open_p=$2, high=$3, low=$4, volume=$5
+             WHERE stock_no=$6 AND trade_date=$7`,
+            [close, open, high, low, vol, stockNo, dateKey]
+          )
+          updated += rowCount
+        }
+      } catch(e) { errors++ }
+      await new Promise(r => setTimeout(r, 400))
+    }
+  }
+  console.log(`[backfill-ohlcv] 完成：更新 ${updated} 筆，錯誤 ${errors} 次`)
+  return { updated, errors, stocks: stockNos.length }
+}
+
 async function runScreener() {
   console.log('[screener] 開始計算選股...')
   const runDate = new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10)
@@ -2724,6 +2775,18 @@ app.post('/api/sync/backfill-market', async (req, res) => {
   backfillMarketDaily(days)
     .then(() => runScreener())
     .catch(e => console.error('[backfill-market] 失敗:', e.message))
+})
+
+app.post('/api/sync/backfill-ohlcv', async (req, res) => {
+  const days = Math.min(parseInt(req.query.days) || 30, 60)
+  const est  = Math.round(days / 20 + 1)
+  res.json({ ok: true, message: `OHLCV 修正回填已在背景執行（近 ${days} 天，預估約 ${est * 10}–${est * 20} 分鐘）` })
+  backfillOHLCVFromStockDay(days)
+    .then(r => {
+      console.log(`[backfill-ohlcv] 回填完成，更新 ${r.updated} 筆`)
+      return runScreener()
+    })
+    .catch(e => console.error('[backfill-ohlcv] 失敗:', e.message))
 })
 
 // ── 三大法人歷史查詢 ─────────────────────────────────────
