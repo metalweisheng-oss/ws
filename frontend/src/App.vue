@@ -2418,6 +2418,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <th class="px-4 py-2.5 text-right">自營</th>
                 <th class="px-4 py-2.5 text-right">主力合計</th>
                 <th class="px-4 py-2.5 text-right">融資餘額</th>
+                <th class="px-4 py-2.5 text-right">融券餘額</th>
               </tr>
             </thead>
             <tbody>
@@ -2447,12 +2448,15 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <td class="px-4 py-2.5 text-right font-mono text-gray-400">
                   {{ row.margin_bal != null ? (+row.margin_bal).toLocaleString() : '—' }}
                 </td>
+                <td class="px-4 py-2.5 text-right font-mono text-gray-400">
+                  {{ row.short_bal != null ? (+row.short_bal).toLocaleString() : '—' }}
+                </td>
               </tr>
             </tbody>
           </table>
         </div>
         <div class="px-5 py-3 border-t border-gray-800 text-xs text-gray-600">
-          數值單位：張（1張=1000股）。正數=買超 紅色・負數=賣超 綠色。主力合計＝外資＋投信。資料來源：TWSE T86。
+          三大法人單位：張（1張=1000股）。正數=買超 紅色・負數=賣超 綠色。主力合計＝外資＋投信。融資/融券餘額單位：張。資料來源：TWSE T86 / MI_MARGN。
         </div>
       </div>
 

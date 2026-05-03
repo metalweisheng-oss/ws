@@ -2311,9 +2311,11 @@ app.get('/api/debug/screener-check', async (req, res) => {
         inst_trust   BIGINT,
         inst_dealer  BIGINT,
         margin_bal   BIGINT,
+        short_bal    BIGINT,
         PRIMARY KEY (stock_no, trade_date)
       )
     `)
+    await pool.query(`ALTER TABLE market_daily ADD COLUMN IF NOT EXISTS short_bal BIGINT`).catch(()=>{})
     await pool.query(`
       CREATE TABLE IF NOT EXISTS screener_results (
         run_date     DATE,
@@ -2423,7 +2425,7 @@ async function syncMarketDailyOne(dateStr8) {
     )
     for (const row of twseM.tables?.[1]?.data || []) {
       const no = row[0]?.trim()
-      if (no) marginMap[no] = n(row[6])
+      if (no) marginMap[no] = { margin: n(row[6]), short: n(row[12]) }
     }
     console.log(`[market_daily] ${tradeDate} MARGN ${Object.keys(marginMap).length} 檔`)
   } catch(e) { console.error(`[market_daily] ${tradeDate} MARGN 失敗:`, e.message) }
@@ -2435,20 +2437,22 @@ async function syncMarketDailyOne(dateStr8) {
     let p = 1
     for (const r of batch) {
       const inst = instMap[r.stockNo]
-      vals.push(`($${p},$${p+1},$${p+2},$${p+3},$${p+4},$${p+5},$${p+6},$${p+7},$${p+8},$${p+9},$${p+10},$${p+11})`)
+      const marg = marginMap[r.stockNo]
+      vals.push(`($${p},$${p+1},$${p+2},$${p+3},$${p+4},$${p+5},$${p+6},$${p+7},$${p+8},$${p+9},$${p+10},$${p+11},$${p+12})`)
       params.push(
         r.stockNo, tradeDate, r.stockName,
         r.close, r.open, r.high, r.low, r.vol,
         inst ? inst.foreign : null,
         inst ? inst.trust   : null,
         inst ? inst.dealer  : null,
-        marginMap[r.stockNo] != null ? marginMap[r.stockNo] : null
+        marg != null ? marg.margin : null,
+        marg != null ? marg.short  : null
       )
-      p += 12
+      p += 13
     }
     await pool.query(`
       INSERT INTO market_daily
-        (stock_no,trade_date,stock_name,close,open_p,high,low,volume,inst_foreign,inst_trust,inst_dealer,margin_bal)
+        (stock_no,trade_date,stock_name,close,open_p,high,low,volume,inst_foreign,inst_trust,inst_dealer,margin_bal,short_bal)
       VALUES ${vals.join(',')}
       ON CONFLICT (stock_no,trade_date) DO UPDATE SET
         stock_name=EXCLUDED.stock_name,
@@ -2456,7 +2460,8 @@ async function syncMarketDailyOne(dateStr8) {
         inst_foreign=COALESCE(EXCLUDED.inst_foreign, market_daily.inst_foreign),
         inst_trust=COALESCE(EXCLUDED.inst_trust,   market_daily.inst_trust),
         inst_dealer=COALESCE(EXCLUDED.inst_dealer,  market_daily.inst_dealer),
-        margin_bal=COALESCE(EXCLUDED.margin_bal,   market_daily.margin_bal)
+        margin_bal=COALESCE(EXCLUDED.margin_bal,   market_daily.margin_bal),
+        short_bal=COALESCE(EXCLUDED.short_bal,     market_daily.short_bal)
     `, params)
     saved += batch.length
   }
@@ -2814,7 +2819,7 @@ app.get('/api/inst/history', async (req, res) => {
 
     // 從 DB 取法人資料
     const { rows } = await pool.query(`
-      SELECT trade_date, stock_name, inst_foreign, inst_trust, inst_dealer, margin_bal
+      SELECT trade_date, stock_name, inst_foreign, inst_trust, inst_dealer, margin_bal, short_bal
       FROM market_daily
       WHERE stock_no = $1
         AND trade_date >= CURRENT_DATE - ($2 * 2)
@@ -2883,7 +2888,8 @@ app.get('/api/inst/history', async (req, res) => {
         inst_dealer:  toLot(r.inst_dealer),
         major_net:    (r.inst_foreign != null && r.inst_trust != null)
                         ? toLot(+r.inst_foreign + +r.inst_trust) : null,
-        margin_bal:   r.margin_bal  != null ? +r.margin_bal  : null,
+        margin_bal:   r.margin_bal != null ? +r.margin_bal : null,
+        short_bal:    r.short_bal  != null ? +r.short_bal  : null,
       })
     }
 
