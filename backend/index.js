@@ -2357,18 +2357,24 @@ function getPastTradingDays(n) {
   return days
 }
 
+// TWSE 有效股票代號：4位數字（一般股）、5-6位數字（ETF）、英數混合≤7碼（槓反ETF）
+const isValidStockCode = c => /^\d{4,6}$/.test(c) || /^[0-9][0-9A-Z]{4,6}$/.test(c)
+
 async function syncMarketDailyOne(dateStr8) {
   const tradeDate = `${dateStr8.slice(0,4)}-${dateStr8.slice(4,6)}-${dateStr8.slice(6,8)}`
   const n = s => +(String(s||0).replace(/,/g,'').replace(/\+/g,'')) || 0
+  // TPEX 民國年日期格式 (e.g. "115/04/30")
+  const tpexD = `${parseInt(dateStr8.slice(0,4))-1911}/${dateStr8.slice(4,6)}/${dateStr8.slice(6,8)}`
   console.log(`[market_daily] 同步 ${tradeDate}...`)
 
+  // ── TWSE 上市行情 ──────────────────────────────────────
   let priceRows = []
   try {
     const data = await fetchUrl(`https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY_ALL?date=${dateStr8}&response=json`)
     if (data?.stat === 'OK') {
       for (const row of data.data || []) {
         const stockNo = row[0]?.trim()
-        if (!/^\d{4}$/.test(stockNo)) continue
+        if (!isValidStockCode(stockNo)) continue
         try {
           const vol   = n(row[2])
           const open  = parseFloat(String(row[4]||'').replace(/,/g,''))
@@ -2376,22 +2382,54 @@ async function syncMarketDailyOne(dateStr8) {
           const low   = parseFloat(String(row[6]||'').replace(/,/g,''))
           const close = parseFloat(String(row[7]||'').replace(/,/g,''))
           if (!close || !vol || isNaN(close)) continue
-          priceRows.push({
-            stockNo, stockName: row[1]?.trim() || stockNo, vol,
-            open: isNaN(open) ? null : open,
-            high: isNaN(high) ? null : high,
-            low:  isNaN(low)  ? null : low,
-            close,
-          })
+          priceRows.push({ stockNo, stockName: row[1]?.trim() || stockNo, vol,
+            open: isNaN(open)?null:open, high: isNaN(high)?null:high,
+            low: isNaN(low)?null:low, close, exchange: 'TWSE' })
         } catch {}
       }
     }
-    console.log(`[market_daily] ${tradeDate} 行情 ${priceRows.length} 檔`)
-  } catch(e) { console.error(`[market_daily] ${tradeDate} 行情失敗:`, e.message) }
+    console.log(`[market_daily] ${tradeDate} TWSE行情 ${priceRows.length} 檔`)
+  } catch(e) { console.error(`[market_daily] ${tradeDate} TWSE行情失敗:`, e.message) }
+
+  // ── TPEX 上櫃行情 ──────────────────────────────────────
+  const tpexStockSet = new Set()
+  try {
+    const tpexInst = await fetchUrl(
+      `https://www.tpex.org.tw/web/stock/3insti/daily_trade/3itrade_hedge_result.php?l=zh-tw&o=json&d=${tpexD}&t=D`
+    )
+    for (const row of tpexInst?.tables?.[0]?.data || []) {
+      const no = row[0]?.trim()
+      if (no) tpexStockSet.add(no)
+    }
+  } catch(e) {}
+
+  if (tpexStockSet.size > 0) {
+    try {
+      const tpexP = await fetchUrl(
+        `https://www.tpex.org.tw/web/stock/aftertrading/daily_close_quotes/stk_quote_result.php?l=zh-tw&o=json&d=${tpexD}`
+      )
+      for (const row of tpexP?.tables?.[0]?.data || []) {
+        const stockNo = row[0]?.trim()
+        if (!stockNo || !tpexStockSet.has(stockNo)) continue
+        try {
+          const vol   = n(row[8])
+          const open  = parseFloat(String(row[4]||'').replace(/,/g,''))
+          const high  = parseFloat(String(row[5]||'').replace(/,/g,''))
+          const low   = parseFloat(String(row[6]||'').replace(/,/g,''))
+          const close = parseFloat(String(row[2]||'').replace(/,/g,''))
+          if (!close || !vol || isNaN(close)) continue
+          priceRows.push({ stockNo, stockName: row[1]?.trim() || stockNo, vol,
+            open: isNaN(open)?null:open, high: isNaN(high)?null:high,
+            low: isNaN(low)?null:low, close, exchange: 'TPEX' })
+        } catch {}
+      }
+      console.log(`[market_daily] ${tradeDate} TPEX行情 ${tpexStockSet.size} 檔`)
+    } catch(e) { console.error(`[market_daily] ${tradeDate} TPEX行情失敗:`, e.message) }
+  }
 
   if (!priceRows.length) { console.log(`[market_daily] ${tradeDate} 無行情（休市？）`); return 0 }
 
-  // 先確認 T86 有無資料（無資料 = 休市日）
+  // ── TWSE T86 三大法人 ──────────────────────────────────
   const instMap = {}
   let t86HasData = false
   try {
@@ -2408,16 +2446,27 @@ async function syncMarketDailyOne(dateStr8) {
     console.log(`[market_daily] ${tradeDate} T86 ${Object.keys(instMap).length} 檔`)
   } catch(e) { console.error(`[market_daily] ${tradeDate} T86 失敗:`, e.message) }
 
-  // T86 無資料 → 視為休市日，不寫入（避免休市資料佔據最新日期）
-  // 例外：若是今天，允許寫入（T86 要 17:00 後才發布）
   const nowDateStr8 = new Date(Date.now()+8*3600000).toISOString().slice(0,10).replace(/-/g,'')
   if (!t86HasData && dateStr8 !== nowDateStr8) {
     console.log(`[market_daily] ${tradeDate} T86 無資料，判定為休市日，跳過寫入`)
-    // 順便清除若已寫入的錯誤資料
     await pool.query(`DELETE FROM market_daily WHERE trade_date=$1`, [tradeDate]).catch(()=>{})
     return 0
   }
 
+  // ── TPEX 三大法人 ──────────────────────────────────────
+  try {
+    const tpexInst = await fetchUrl(
+      `https://www.tpex.org.tw/web/stock/3insti/daily_trade/3itrade_hedge_result.php?l=zh-tw&o=json&d=${tpexD}&t=D`
+    )
+    for (const row of tpexInst?.tables?.[0]?.data || []) {
+      const no = row[0]?.trim()
+      // [4]=外資超, [10]=投信超, [19]=自營合計超
+      if (no) instMap[no] = { foreign: n(row[4]), trust: n(row[10]), dealer: n(row[19]) }
+    }
+    console.log(`[market_daily] ${tradeDate} TPEX法人 ${tpexStockSet.size} 檔`)
+  } catch(e) { console.error(`[market_daily] ${tradeDate} TPEX法人失敗:`, e.message) }
+
+  // ── TWSE 融資融券 ──────────────────────────────────────
   const marginMap = {}
   try {
     const twseM = await fetchUrl(
@@ -2430,6 +2479,20 @@ async function syncMarketDailyOne(dateStr8) {
     console.log(`[market_daily] ${tradeDate} MARGN ${Object.keys(marginMap).length} 檔`)
   } catch(e) { console.error(`[market_daily] ${tradeDate} MARGN 失敗:`, e.message) }
 
+  // ── TPEX 融資融券 ──────────────────────────────────────
+  try {
+    const tpexM = await fetchUrl(
+      `https://www.tpex.org.tw/web/stock/margin_trading/margin_balance/margin_bal_result.php?l=zh-tw&o=json&d=${tpexD}`
+    )
+    for (const row of tpexM?.tables?.[0]?.data || []) {
+      const no = row[0]?.trim()
+      // TPEX 單位已是張；[6]=資餘額(張), [14]=券餘額(張) → 統一換成股(×1000)
+      if (no) marginMap[no] = { margin: n(row[6]) * 1000, short: n(row[14]) * 1000 }
+    }
+    console.log(`[market_daily] ${tradeDate} TPEX融資 ${tpexStockSet.size} 檔`)
+  } catch(e) { console.error(`[market_daily] ${tradeDate} TPEX融資失敗:`, e.message) }
+
+  // ── 寫入 DB ────────────────────────────────────────────
   let saved = 0
   for (let i = 0; i < priceRows.length; i += 100) {
     const batch = priceRows.slice(i, i + 100)
@@ -2465,7 +2528,7 @@ async function syncMarketDailyOne(dateStr8) {
     `, params)
     saved += batch.length
   }
-  console.log(`[market_daily] ${tradeDate} 寫入 ${saved} 筆`)
+  console.log(`[market_daily] ${tradeDate} 寫入 ${saved} 筆（TWSE+TPEX）`)
   return saved
 }
 
@@ -2490,7 +2553,7 @@ async function backfillMarketDaily(days = 20) {
 }
 
 async function backfillOHLCVFromStockDay(days = 30) {
-  console.log(`[backfill-ohlcv] 開始用 STOCK_DAY 修正近 ${days} 天 OHLCV...`)
+  console.log(`[backfill-ohlcv] 開始修正近 ${days} 天 OHLCV（TWSE+TPEX）...`)
 
   const { rows: stockRows } = await pool.query(`
     SELECT DISTINCT stock_no FROM market_daily
@@ -2502,38 +2565,77 @@ async function backfillOHLCVFromStockDay(days = 30) {
 
   const now = new Date(Date.now() + 8 * 3600000)
   const monthsNeeded = Math.ceil(days / 20) + 1
-  const months = []
+  // TWSE 月份 (YYYYMM01)
+  const twseMonths = []
+  // TPEX 月份 (ROC/MM)
+  const tpexMonths = []
   for (let m = 0; m < monthsNeeded; m++) {
     const d = new Date(now)
     d.setMonth(d.getMonth() - m)
-    months.push(`${d.getUTCFullYear()}${String(d.getUTCMonth()+1).padStart(2,'0')}01`)
+    const y = d.getUTCFullYear()
+    const mo = String(d.getUTCMonth()+1).padStart(2,'0')
+    twseMonths.push(`${y}${mo}01`)
+    tpexMonths.push(`${y-1911}/${mo}`)
   }
 
   const n = s => parseFloat(String(s || '0').replace(/,/g, ''))
   let updated = 0, errors = 0
 
   for (const stockNo of stockNos) {
-    for (const dateStr8 of months) {
+    let fixed = false
+
+    // 先試 TWSE STOCK_DAY
+    for (const dateStr8 of twseMonths) {
       try {
         const data = await fetchUrl(
           `https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockNo=${stockNo}&date=${dateStr8}&response=json`
         )
-        if (data?.stat !== 'OK' || !data.data?.length) continue
-        for (const row of data.data) {
-          const parts = String(row[0]).split('/')
-          if (parts.length !== 3) continue
-          const dateKey = `${parseInt(parts[0])+1911}-${parts[1].padStart(2,'0')}-${parts[2].padStart(2,'0')}`
-          const close = n(row[6]), open = n(row[3]), high = n(row[4]), low = n(row[5]), vol = Math.round(n(row[1]))
-          if (!close || isNaN(close)) continue
-          const { rowCount } = await pool.query(
-            `UPDATE market_daily SET close=$1, open_p=$2, high=$3, low=$4, volume=$5
-             WHERE stock_no=$6 AND trade_date=$7`,
-            [close, open, high, low, vol, stockNo, dateKey]
-          )
-          updated += rowCount
+        if (data?.stat === 'OK' && data.data?.length) {
+          for (const row of data.data) {
+            const parts = String(row[0]).split('/')
+            if (parts.length !== 3) continue
+            const dateKey = `${parseInt(parts[0])+1911}-${parts[1].padStart(2,'0')}-${parts[2].padStart(2,'0')}`
+            const close = n(row[6]), open = n(row[3]), high = n(row[4]), low = n(row[5]), vol = Math.round(n(row[1]))
+            if (!close || isNaN(close)) continue
+            const { rowCount } = await pool.query(
+              `UPDATE market_daily SET close=$1, open_p=$2, high=$3, low=$4, volume=$5
+               WHERE stock_no=$6 AND trade_date=$7`,
+              [close, open, high, low, vol, stockNo, dateKey]
+            )
+            updated += rowCount
+          }
+          fixed = true
         }
       } catch(e) { errors++ }
-      await new Promise(r => setTimeout(r, 400))
+      await new Promise(r => setTimeout(r, 300))
+    }
+
+    // TWSE 無資料 → 改試 TPEX st43（上櫃個股月歷史）
+    if (!fixed) {
+      for (const tpexMo of tpexMonths) {
+        try {
+          const data = await fetchUrl(
+            `https://www.tpex.org.tw/web/stock/aftertrading/daily_trading_info/st43_result.php?l=zh-tw&o=json&d=${tpexMo}&stkno=${stockNo}`
+          )
+          const rows = data?.tables?.[0]?.data || []
+          if (!rows.length) continue
+          for (const row of rows) {
+            const parts = String(row[0]).split('/')
+            if (parts.length !== 3) continue
+            const dateKey = `${parseInt(parts[0])+1911}-${parts[1].padStart(2,'0')}-${parts[2].padStart(2,'0')}`
+            // TPEX st43: [日期, 成交股數, 成交金額, 開盤, 最高, 最低, 收盤, 漲跌, 成交筆數]
+            const close = n(row[6]), open = n(row[3]), high = n(row[4]), low = n(row[5]), vol = Math.round(n(row[1]))
+            if (!close || isNaN(close)) continue
+            const { rowCount } = await pool.query(
+              `UPDATE market_daily SET close=$1, open_p=$2, high=$3, low=$4, volume=$5
+               WHERE stock_no=$6 AND trade_date=$7`,
+              [close, open, high, low, vol, stockNo, dateKey]
+            )
+            updated += rowCount
+          }
+        } catch(e) { errors++ }
+        await new Promise(r => setTimeout(r, 300))
+      }
     }
   }
   console.log(`[backfill-ohlcv] 完成：更新 ${updated} 筆，錯誤 ${errors} 次`)
