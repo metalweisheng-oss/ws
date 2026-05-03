@@ -2558,12 +2558,13 @@ async function runScreener() {
     const volRatio = avgVol20 > 0 ? parseFloat(latest.volume) / avgVol20 : 1
     if (volRatio > 3) continue
 
-    // 從 instEndIdx 往前算投信連續買超（跳過中間 NULL = 偶發性無資料）
+    // 從 instEndIdx 往前算投信連續買超，同步收集 streak 天資料
     let trustStreak = 0
+    const instStreakDays = []
     for (let i = instEndIdx; i >= 0; i--) {
       const trust = days[i].inst_trust != null ? parseFloat(days[i].inst_trust) : null
       if (trust === null || isNaN(trust)) break
-      if (trust > 0) trustStreak++
+      if (trust > 0) { trustStreak++; instStreakDays.unshift(days[i]) }
       else break
     }
     if (trustStreak < 3) continue
@@ -2593,11 +2594,29 @@ async function runScreener() {
     const trustNet5   = instLast5.reduce((s,r) => s + (parseFloat(r.inst_trust)||0), 0)
     const foreignNet5 = instLast5.reduce((s,r) => s + (parseFloat(r.inst_foreign)||0), 0)
 
+    // 主力成本估算：以主力淨買超量為權重的加權均價（僅取主力淨買 > 0 的 streak 天）
+    let instCost = null
+    const costDays = instStreakDays.filter(r => {
+      const m = (parseFloat(r.inst_trust)||0) + (parseFloat(r.inst_foreign)||0)
+      return m > 0 && parseFloat(r.close) > 0
+    })
+    if (costDays.length > 0) {
+      const totalWeight = costDays.reduce((s, r) =>
+        s + (parseFloat(r.inst_trust)||0) + (parseFloat(r.inst_foreign)||0), 0)
+      if (totalWeight > 0) {
+        const weightedSum = costDays.reduce((s, r) => {
+          const w = (parseFloat(r.inst_trust)||0) + (parseFloat(r.inst_foreign)||0)
+          return s + parseFloat(r.close) * w
+        }, 0)
+        instCost = Math.round(weightedSum / totalWeight * 100) / 100
+      }
+    }
+
     candidates.push({
       stockNo, stockName: latest.stock_name || stockNo,
       majorNet5, trustStreak, trustNet5, foreignNet5,
       marginChg5: marginChg5 != null ? Math.round(marginChg5) : null,
-      marginFirst,
+      marginFirst, instCost,
       close, changePct, chg5d, chg10d, closeRank, volRatio,
       baseScore: trustScore + marginScore + posScore,
     })
@@ -2665,7 +2684,7 @@ async function runScreener() {
         runDate, c.stockNo, c.stockName, c.score, c.phase, c.isStealth,
         c.trustStreak, Math.round(c.majorNet5), c.marginChg5,
         c.close, +c.changePct.toFixed(2), +c.closeRank.toFixed(4), +c.volRatio.toFixed(2),
-        JSON.stringify({ chg5d: +c.chg5d.toFixed(2), chg10d: +c.chg10d.toFixed(2), trustNet5: Math.round(c.trustNet5), foreignNet5: Math.round(c.foreignNet5) }),
+        JSON.stringify({ chg5d: +c.chg5d.toFixed(2), chg10d: +c.chg10d.toFixed(2), trustNet5: Math.round(c.trustNet5), foreignNet5: Math.round(c.foreignNet5), instCost: c.instCost }),
       ])
       saved++
     } catch(e) { console.error('[screener] 寫入錯誤:', e.message) }

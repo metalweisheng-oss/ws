@@ -2111,6 +2111,10 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                   <div>位置</div>
                   <div class="text-gray-600 font-normal" style="font-size:10px">20日低↔高　越低越好</div>
                 </th>
+                <th class="px-4 py-3 text-right">
+                  <div>主力成本區</div>
+                  <div class="text-gray-600 font-normal" style="font-size:10px">法人買入加權均價</div>
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -2187,6 +2191,23 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                       {{ row.close_rank != null ? ((+row.close_rank)*100).toFixed(0) + '%' : '—' }}
                     </span>
                   </div>
+                </td>
+              </tr>
+                <!-- 主力成本欄 -->
+                <td class="px-4 py-2.5 text-right">
+                  <template v-if="row.detail?.instCost">
+                    <div class="font-mono font-semibold text-white">{{ (+row.detail.instCost).toFixed(1) }}</div>
+                    <div class="text-xs font-mono"
+                         :class="(+row.close) >= (+row.detail.instCost) ? 'text-red-400' : 'text-green-400'">
+                      {{ (+row.close) >= (+row.detail.instCost)
+                          ? '▲ +' + (((+row.close)/(+row.detail.instCost)-1)*100).toFixed(1) + '%'
+                          : '▼ ' + (((+row.close)/(+row.detail.instCost)-1)*100).toFixed(1) + '%' }}
+                    </div>
+                    <div class="text-gray-700" style="font-size:10px">
+                      {{ (+row.close) >= (+row.detail.instCost) ? '現價高於成本' : '現價低於成本' }}
+                    </div>
+                  </template>
+                  <span v-else class="text-gray-600 text-xs">—</span>
                 </td>
               </tr>
               <!-- 操作建議子列 -->
