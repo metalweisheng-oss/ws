@@ -619,11 +619,7 @@ async function queryInst() {
 function instFmt(v) {
   if (v == null) return '—'
   const sign = v > 0 ? '+' : ''
-  const abs = Math.abs(v)
-  if (abs >= 10000000) return sign + (v/10000000).toFixed(1) + '千萬'
-  if (abs >= 1000000)  return sign + (v/1000000).toFixed(1) + 'M'
-  if (abs >= 1000)     return sign + (v/1000).toFixed(0) + 'K'
-  return sign + String(v)
+  return sign + (+v).toLocaleString() + ' 張'
 }
 function instColor(v) {
   if (v == null) return 'text-gray-600'
@@ -2456,7 +2452,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
           </table>
         </div>
         <div class="px-5 py-3 border-t border-gray-800 text-xs text-gray-600">
-          數值單位：股（正數=買超 紅色・負數=賣超 綠色）。主力合計＝外資＋投信。資料來源：TWSE T86。
+          數值單位：張（1張=1000股）。正數=買超 紅色・負數=賣超 綠色。主力合計＝外資＋投信。資料來源：TWSE T86。
         </div>
       </div>
 

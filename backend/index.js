@@ -2745,34 +2745,39 @@ app.get('/api/inst/history', async (req, res) => {
 
     if (!rows.length) return res.json({ stock_no: stockNo, stock_name: null, rows: [] })
 
-    // 計算每日漲跌幅（與前一日收盤比）及累計法人數據
+    // 計算每日漲跌幅（與前一日收盤比）及累計法人數據（單位：整張 = 股 ÷ 1000）
+    const toLot = v => v != null ? Math.round(+v / 1000) : null
     const result = []
     for (let i = 0; i < rows.length; i++) {
       const r = rows[i]
       const prevClose = rows[i + 1]?.close ? parseFloat(rows[i + 1].close) : null
       const close = parseFloat(r.close)
-      const changePct = prevClose ? +((close - prevClose) / prevClose * 100).toFixed(2) : null
+      const changePct = prevClose != null ? +((close - prevClose) / prevClose * 100).toFixed(2) : null
+      const d = r.trade_date
+      const dateStr = d instanceof Date
+        ? d.toISOString().slice(0, 10)
+        : String(d).length === 10 ? String(d) : new Date(d).toISOString().slice(0, 10)
       result.push({
-        trade_date:   String(r.trade_date).slice(0, 10),
+        trade_date:   dateStr,
         close:        close,
         change_pct:   changePct,
-        volume:       r.volume ? +r.volume : null,
-        inst_foreign: r.inst_foreign != null ? +r.inst_foreign : null,
-        inst_trust:   r.inst_trust  != null ? +r.inst_trust  : null,
-        inst_dealer:  r.inst_dealer != null ? +r.inst_dealer : null,
+        volume:       r.volume ? Math.round(+r.volume / 1000) : null,
+        inst_foreign: toLot(r.inst_foreign),
+        inst_trust:   toLot(r.inst_trust),
+        inst_dealer:  toLot(r.inst_dealer),
         major_net:    (r.inst_foreign != null && r.inst_trust != null)
-                        ? +r.inst_foreign + +r.inst_trust : null,
+                        ? toLot(+r.inst_foreign + +r.inst_trust) : null,
         margin_bal:   r.margin_bal  != null ? +r.margin_bal  : null,
       })
     }
 
-    // 期間小計
+    // 期間小計（整張）
     const validRows = result.filter(r => r.inst_trust != null)
     const summary = {
-      foreign_total: validRows.reduce((s, r) => s + (r.inst_foreign || 0), 0),
-      trust_total:   validRows.reduce((s, r) => s + (r.inst_trust  || 0), 0),
-      dealer_total:  validRows.reduce((s, r) => s + (r.inst_dealer || 0), 0),
-      major_total:   validRows.reduce((s, r) => s + (r.major_net   || 0), 0),
+      total_foreign: validRows.reduce((s, r) => s + (r.inst_foreign || 0), 0),
+      total_trust:   validRows.reduce((s, r) => s + (r.inst_trust  || 0), 0),
+      total_dealer:  validRows.reduce((s, r) => s + (r.inst_dealer || 0), 0),
+      total_major:   validRows.reduce((s, r) => s + (r.major_net   || 0), 0),
       days_with_data: validRows.length,
     }
 
