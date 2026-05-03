@@ -2770,7 +2770,7 @@ app.post('/api/sync/screener', async (req, res) => {
 })
 
 app.post('/api/sync/backfill-market', async (req, res) => {
-  const days = Math.min(parseInt(req.query.days) || 20, 30)
+  const days = Math.min(parseInt(req.query.days) || 20, 250)
   res.json({ ok: true, message: `市場日線回填已開始（${days} 個交易日）` })
   backfillMarketDaily(days)
     .then(() => runScreener())
@@ -2778,15 +2778,31 @@ app.post('/api/sync/backfill-market', async (req, res) => {
 })
 
 app.post('/api/sync/backfill-ohlcv', async (req, res) => {
-  const days = Math.min(parseInt(req.query.days) || 30, 60)
-  const est  = Math.round(days / 20 + 1)
-  res.json({ ok: true, message: `OHLCV 修正回填已在背景執行（近 ${days} 天，預估約 ${est * 10}–${est * 20} 分鐘）` })
+  const days = Math.min(parseInt(req.query.days) || 30, 250)
+  const estMins = Math.round(days / 20 + 1) * 10
+  res.json({ ok: true, message: `OHLCV 修正回填已在背景執行（近 ${days} 天，預估約 ${estMins} 分鐘）` })
   backfillOHLCVFromStockDay(days)
     .then(r => {
       console.log(`[backfill-ohlcv] 回填完成，更新 ${r.updated} 筆`)
       return runScreener()
     })
     .catch(e => console.error('[backfill-ohlcv] 失敗:', e.message))
+})
+
+// 一鍵完整回填：先抓法人/融資資料，再修正 OHLCV，最後重算選股
+app.post('/api/sync/full-backfill', async (req, res) => {
+  const days = Math.min(parseInt(req.query.days) || 60, 220)
+  const estMins = 15 + Math.round(days / 20 + 1) * 10
+  res.json({ ok: true, message: `完整回填已在背景執行（近 ${days} 個交易日，預估約 ${estMins} 分鐘）` })
+  ;(async () => {
+    console.log(`[full-backfill] 開始：${days} 天`)
+    await backfillMarketDaily(days)
+    console.log('[full-backfill] 法人/融資回填完成，開始修正 OHLCV...')
+    const r = await backfillOHLCVFromStockDay(days)
+    console.log(`[full-backfill] OHLCV 修正完成 ${r.updated} 筆，重算選股...`)
+    await runScreener()
+    console.log('[full-backfill] 全部完成')
+  })().catch(e => console.error('[full-backfill] 失敗:', e.message))
 })
 
 // ── 三大法人歷史查詢 ─────────────────────────────────────
