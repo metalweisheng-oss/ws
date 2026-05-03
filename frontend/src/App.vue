@@ -2051,9 +2051,64 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
             </div>
           </div>
 
-          <!-- 六、資料來源 -->
+          <!-- 六、主力成本區 -->
           <div class="px-5 py-4">
-            <h4 class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">六、資料來源與更新機制</h4>
+            <h4 class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">六、主力成本區計算說明</h4>
+            <div class="space-y-3 text-sm">
+
+              <div class="space-y-1.5 text-xs text-gray-400">
+                <p class="text-gray-300 font-medium">計算公式</p>
+                <div class="rounded-xl bg-gray-800/60 px-4 py-3 font-mono text-xs text-yellow-300 leading-relaxed">
+                  主力成本 = Σ（每日收盤價 × 當日主力淨買超量）÷ Σ（當日主力淨買超量）
+                </div>
+                <ul class="space-y-1 mt-2">
+                  <li class="flex gap-2"><span class="text-gray-600 shrink-0">•</span>主力 = 外資 + 投信，取兩者每日淨買超股數合計</li>
+                  <li class="flex gap-2"><span class="text-gray-600 shrink-0">•</span>只計入主力淨買超 &gt; 0 的交易日（排除主力賣出的天數）</li>
+                  <li class="flex gap-2"><span class="text-gray-600 shrink-0">•</span>計算範圍：整個投信連續買超的 streak 期間（3 天以上）</li>
+                  <li class="flex gap-2"><span class="text-gray-600 shrink-0">•</span>結果為加權平均收盤價，買越多的那天對成本影響越大</li>
+                </ul>
+              </div>
+
+              <div class="space-y-1.5 text-xs text-gray-400">
+                <p class="text-gray-300 font-medium">欄位說明</p>
+                <div class="space-y-2">
+                  <div class="flex gap-3 items-start">
+                    <span class="shrink-0 text-yellow-300 font-bold font-mono w-16">黃色數字</span>
+                    <span>加權平均成本估算值，代表法人在這段期間的平均買入價位</span>
+                  </div>
+                  <div class="flex gap-3 items-start">
+                    <span class="shrink-0 text-gray-500 font-mono w-16">灰色區間</span>
+                    <span>整個 streak 期間的最低日低到最高日高，代表法人操作的完整價格帶</span>
+                  </div>
+                  <div class="flex gap-3 items-start">
+                    <span class="shrink-0 text-yellow-500 font-mono w-16">≈ 成本價</span>
+                    <span>現價與成本相差 &lt; 1%，通常出現在隱形布局階段，法人壓住股價收貨中</span>
+                  </div>
+                  <div class="flex gap-3 items-start">
+                    <span class="shrink-0 text-green-400 font-mono w-16">低於成本</span>
+                    <span>現價跌到成本以下，法人帳面虧損，通常處於洗盤或補跌階段，可等止穩</span>
+                  </div>
+                  <div class="flex gap-3 items-start">
+                    <span class="shrink-0 text-red-400 font-mono w-16">高於成本</span>
+                    <span>現價已超過成本，法人帳面獲利，股價開始啟動，觀察是否持續放量</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="rounded-xl bg-gray-800/40 px-4 py-3 space-y-1.5 text-xs">
+                <p class="text-gray-300 font-medium mb-1">如何使用主力成本區</p>
+                <div class="flex gap-2"><span class="text-blue-400 shrink-0">→</span><span class="text-gray-400">現價 ≈ 成本或低於成本：法人尚未獲利，不會急著賣，支撐力強，是較安全的進場區</span></div>
+                <div class="flex gap-2"><span class="text-orange-400 shrink-0">→</span><span class="text-gray-400">現價高於成本 5–15%：法人小幅獲利，股票進入啟動期，可考慮跟進但注意追高風險</span></div>
+                <div class="flex gap-2"><span class="text-red-400 shrink-0">→</span><span class="text-gray-400">現價高於成本 &gt; 20%：法人獲利豐厚，隨時可能出貨，追入風險偏高，需格外謹慎</span></div>
+                <div class="flex gap-2"><span class="text-gray-500 shrink-0">⚠</span><span class="text-gray-500">此為估算值，實際買入成本因分批操作而有誤差，僅供參考，不代表精確的法人持倉成本</span></div>
+              </div>
+
+            </div>
+          </div>
+
+          <!-- 七、資料來源 -->
+          <div class="px-5 py-4">
+            <h4 class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">七、資料來源與更新機制</h4>
             <div class="space-y-1.5 text-xs">
               <div class="flex gap-3">
                 <span class="shrink-0 text-gray-600 w-24">股價 / 量能</span>
