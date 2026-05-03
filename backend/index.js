@@ -2595,7 +2595,7 @@ async function runScreener() {
     const foreignNet5 = instLast5.reduce((s,r) => s + (parseFloat(r.inst_foreign)||0), 0)
 
     // 主力成本估算：以主力淨買超量為權重的加權均價（僅取主力淨買 > 0 的 streak 天）
-    let instCost = null
+    let instCost = null, instCostLow = null, instCostHigh = null
     const costDays = instStreakDays.filter(r => {
       const m = (parseFloat(r.inst_trust)||0) + (parseFloat(r.inst_foreign)||0)
       return m > 0 && parseFloat(r.close) > 0
@@ -2610,13 +2610,18 @@ async function runScreener() {
         }, 0)
         instCost = Math.round(weightedSum / totalWeight * 100) / 100
       }
+      // 買入期間的價格區間（用 low/high 欄位，若無則用 close）
+      const lows  = costDays.map(r => parseFloat(r.low  || r.close)).filter(v => v > 0)
+      const highs = costDays.map(r => parseFloat(r.high || r.close)).filter(v => v > 0)
+      if (lows.length)  instCostLow  = Math.round(Math.min(...lows)  * 100) / 100
+      if (highs.length) instCostHigh = Math.round(Math.max(...highs) * 100) / 100
     }
 
     candidates.push({
       stockNo, stockName: latest.stock_name || stockNo,
       majorNet5, trustStreak, trustNet5, foreignNet5,
       marginChg5: marginChg5 != null ? Math.round(marginChg5) : null,
-      marginFirst, instCost,
+      marginFirst, instCost, instCostLow, instCostHigh,
       close, changePct, chg5d, chg10d, closeRank, volRatio,
       baseScore: trustScore + marginScore + posScore,
     })
@@ -2684,7 +2689,7 @@ async function runScreener() {
         runDate, c.stockNo, c.stockName, c.score, c.phase, c.isStealth,
         c.trustStreak, Math.round(c.majorNet5), c.marginChg5,
         c.close, +c.changePct.toFixed(2), +c.closeRank.toFixed(4), +c.volRatio.toFixed(2),
-        JSON.stringify({ chg5d: +c.chg5d.toFixed(2), chg10d: +c.chg10d.toFixed(2), trustNet5: Math.round(c.trustNet5), foreignNet5: Math.round(c.foreignNet5), instCost: c.instCost }),
+        JSON.stringify({ chg5d: +c.chg5d.toFixed(2), chg10d: +c.chg10d.toFixed(2), trustNet5: Math.round(c.trustNet5), foreignNet5: Math.round(c.foreignNet5), instCost: c.instCost, instCostLow: c.instCostLow, instCostHigh: c.instCostHigh }),
       ])
       saved++
     } catch(e) { console.error('[screener] 寫入錯誤:', e.message) }
