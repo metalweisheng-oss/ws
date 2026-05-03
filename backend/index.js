@@ -2917,14 +2917,13 @@ app.get('/api/inst/history', async (req, res) => {
   try {
     const stockNo = (req.query.stockNo || '').trim()
     if (!stockNo) return res.status(400).json({ error: '請輸入股票代號' })
-    const days = Math.min(parseInt(req.query.days) || 30, 60)
+    const days = Math.min(parseInt(req.query.days) || 30, 200)
 
-    // 從 DB 取法人資料
+    // 從 DB 取法人資料（不加日期下限，讓 LIMIT 決定筆數）
     const { rows } = await pool.query(`
       SELECT trade_date, stock_name, inst_foreign, inst_trust, inst_dealer, margin_bal, short_bal
       FROM market_daily
       WHERE stock_no = $1
-        AND trade_date >= CURRENT_DATE - ($2 * 2)
       ORDER BY trade_date DESC
       LIMIT $2
     `, [stockNo, days])

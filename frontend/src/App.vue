@@ -2357,10 +2357,10 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
             <label class="block text-xs text-gray-500 mb-1">天數</label>
             <select v-model="instDays"
               class="bg-gray-800 border border-gray-700 text-gray-200 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500">
-              <option :value="10">10 天</option>
               <option :value="20">20 天</option>
-              <option :value="30">30 天</option>
               <option :value="60">60 天</option>
+              <option :value="120">120 天</option>
+              <option :value="200">200 天（約10個月）</option>
             </select>
           </div>
           <button @click="queryInst" :disabled="instLoading"
