@@ -2192,20 +2192,16 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                     </span>
                   </div>
                 </td>
-              </tr>
                 <!-- 主力成本欄 -->
                 <td class="px-4 py-2.5 text-right">
                   <template v-if="row.detail?.instCost">
-                    <!-- 加權均價 -->
                     <div class="font-mono font-semibold text-yellow-300">
                       {{ (+row.detail.instCost).toFixed(1) }}
                     </div>
-                    <!-- 買入區間 low–high -->
                     <div v-if="row.detail.instCostLow && row.detail.instCostHigh"
                          class="text-gray-500 font-mono" style="font-size:10px">
                       {{ (+row.detail.instCostLow).toFixed(1) }}–{{ (+row.detail.instCostHigh).toFixed(1) }}
                     </div>
-                    <!-- 現價 vs 成本 -->
                     <div class="text-xs font-mono mt-0.5"
                          :class="Math.abs((+row.close)/(+row.detail.instCost)-1) < 0.01
                                    ? 'text-yellow-500'
