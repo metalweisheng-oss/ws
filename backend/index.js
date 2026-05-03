@@ -2733,9 +2733,9 @@ app.get('/api/inst/history', async (req, res) => {
     if (!stockNo) return res.status(400).json({ error: '請輸入股票代號' })
     const days = Math.min(parseInt(req.query.days) || 30, 60)
 
+    // 從 DB 取法人資料
     const { rows } = await pool.query(`
-      SELECT trade_date, stock_name, close, open_p, high, low, volume,
-             inst_foreign, inst_trust, inst_dealer, margin_bal
+      SELECT trade_date, stock_name, inst_foreign, inst_trust, inst_dealer, margin_bal
       FROM market_daily
       WHERE stock_no = $1
         AND trade_date >= CURRENT_DATE - ($2 * 2)
@@ -2745,23 +2745,60 @@ app.get('/api/inst/history', async (req, res) => {
 
     if (!rows.length) return res.json({ stock_no: stockNo, stock_name: null, rows: [] })
 
-    // 計算每日漲跌幅（與前一日收盤比）及累計法人數據（單位：整張 = 股 ÷ 1000）
+    // 從 TWSE STOCK_DAY 取真實每日收盤價（按月查詢，ROC 年 = AD - 1911）
+    const priceMap = {}
+    const now = new Date(Date.now() + 8 * 3600000)
+    const monthsNeeded = Math.ceil(days / 20) + 1
+    for (let m = 0; m < monthsNeeded; m++) {
+      const d = new Date(now)
+      d.setMonth(d.getMonth() - m)
+      const y  = d.getUTCFullYear()
+      const mo = String(d.getUTCMonth() + 1).padStart(2, '0')
+      try {
+        const data = await fetchUrl(
+          `https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockNo=${stockNo}&date=${y}${mo}01&response=json`
+        )
+        if (data?.stat === 'OK') {
+          const n = s => parseFloat(String(s || '0').replace(/,/g, ''))
+          for (const row of data.data || []) {
+            const parts = String(row[0]).split('/')
+            if (parts.length !== 3) continue
+            const adYear  = parseInt(parts[0]) + 1911
+            const dateKey = `${adYear}-${parts[1].padStart(2,'0')}-${parts[2].padStart(2,'0')}`
+            priceMap[dateKey] = {
+              close:  n(row[6]),
+              volume: Math.round(n(row[1]) / 1000),
+            }
+          }
+        }
+      } catch(e) {
+        console.error(`[inst/history] STOCK_DAY ${y}${mo} 失敗:`, e.message)
+      }
+    }
+
+    // 先轉換所有 dateStr
+    const dateStrs = rows.map(r => {
+      const d = r.trade_date
+      return d instanceof Date
+        ? d.toISOString().slice(0, 10)
+        : String(d).length === 10 ? String(d) : new Date(d).toISOString().slice(0, 10)
+    })
+
     const toLot = v => v != null ? Math.round(+v / 1000) : null
     const result = []
     for (let i = 0; i < rows.length; i++) {
-      const r = rows[i]
-      const prevClose = rows[i + 1]?.close ? parseFloat(rows[i + 1].close) : null
-      const close = parseFloat(r.close)
-      const changePct = prevClose != null ? +((close - prevClose) / prevClose * 100).toFixed(2) : null
-      const d = r.trade_date
-      const dateStr = d instanceof Date
-        ? d.toISOString().slice(0, 10)
-        : String(d).length === 10 ? String(d) : new Date(d).toISOString().slice(0, 10)
+      const r       = rows[i]
+      const dateStr = dateStrs[i]
+      const price   = priceMap[dateStr]
+      const close   = price?.close ?? null
+      const prevClose = i + 1 < rows.length ? (priceMap[dateStrs[i + 1]]?.close ?? null) : null
+      const changePct = (close != null && prevClose != null)
+        ? +((close - prevClose) / prevClose * 100).toFixed(2) : null
       result.push({
         trade_date:   dateStr,
         close:        close,
         change_pct:   changePct,
-        volume:       r.volume ? Math.round(+r.volume / 1000) : null,
+        volume:       price?.volume ?? null,
         inst_foreign: toLot(r.inst_foreign),
         inst_trust:   toLot(r.inst_trust),
         inst_dealer:  toLot(r.inst_dealer),
