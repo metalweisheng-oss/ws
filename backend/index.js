@@ -2726,6 +2726,62 @@ app.post('/api/sync/backfill-market', async (req, res) => {
     .catch(e => console.error('[backfill-market] 失敗:', e.message))
 })
 
+// ── 三大法人歷史查詢 ─────────────────────────────────────
+app.get('/api/inst/history', async (req, res) => {
+  try {
+    const stockNo = (req.query.stockNo || '').trim()
+    if (!stockNo) return res.status(400).json({ error: '請輸入股票代號' })
+    const days = Math.min(parseInt(req.query.days) || 30, 60)
+
+    const { rows } = await pool.query(`
+      SELECT trade_date, stock_name, close, open_p, high, low, volume,
+             inst_foreign, inst_trust, inst_dealer, margin_bal
+      FROM market_daily
+      WHERE stock_no = $1
+        AND trade_date >= CURRENT_DATE - ($2 * 2)
+      ORDER BY trade_date DESC
+      LIMIT $2
+    `, [stockNo, days])
+
+    if (!rows.length) return res.json({ stock_no: stockNo, stock_name: null, rows: [] })
+
+    // 計算每日漲跌幅（與前一日收盤比）及累計法人數據
+    const result = []
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i]
+      const prevClose = rows[i + 1]?.close ? parseFloat(rows[i + 1].close) : null
+      const close = parseFloat(r.close)
+      const changePct = prevClose ? +((close - prevClose) / prevClose * 100).toFixed(2) : null
+      result.push({
+        trade_date:   String(r.trade_date).slice(0, 10),
+        close:        close,
+        change_pct:   changePct,
+        volume:       r.volume ? +r.volume : null,
+        inst_foreign: r.inst_foreign != null ? +r.inst_foreign : null,
+        inst_trust:   r.inst_trust  != null ? +r.inst_trust  : null,
+        inst_dealer:  r.inst_dealer != null ? +r.inst_dealer : null,
+        major_net:    (r.inst_foreign != null && r.inst_trust != null)
+                        ? +r.inst_foreign + +r.inst_trust : null,
+        margin_bal:   r.margin_bal  != null ? +r.margin_bal  : null,
+      })
+    }
+
+    // 期間小計
+    const validRows = result.filter(r => r.inst_trust != null)
+    const summary = {
+      foreign_total: validRows.reduce((s, r) => s + (r.inst_foreign || 0), 0),
+      trust_total:   validRows.reduce((s, r) => s + (r.inst_trust  || 0), 0),
+      dealer_total:  validRows.reduce((s, r) => s + (r.inst_dealer || 0), 0),
+      major_total:   validRows.reduce((s, r) => s + (r.major_net   || 0), 0),
+      days_with_data: validRows.length,
+    }
+
+    res.json({ stock_no: stockNo, stock_name: rows[0].stock_name, rows: result, summary })
+  } catch(e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
 // 排程：週一到週五 15:00 自動執行
 cron.schedule('0 15 * * 1-5', () => {
   console.log('[cron] 15:00 自動同步觸發')

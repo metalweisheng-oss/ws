@@ -282,6 +282,7 @@ function selectTab(t) {
   if (t === 'sector')   { loadSectorDates(); loadSectorAnalysis() }
   if (t === 'conc')     loadConcentration()
   if (t === 'screener') loadScreener()
+  if (t === 'inst') { instStockNo.value = ''; instRows.value = []; instSummary.value = null; instError.value = '' }
 }
 
 // ── 日報表 ────────────────────────────────────────
@@ -585,6 +586,54 @@ function screenerAdvice(row) {
   return { tag: '○ 持續追蹤', tip: '訊號成立，持續觀察法人動向，尚無明確進場時機。', cls: 'text-gray-500', bg: 'bg-gray-700/30 border-gray-700/60' }
 }
 
+// ── 三大法人查詢 ─────────────────────────────────────────
+const instStockNo  = ref('')
+const instDays     = ref(20)
+const instLoading  = ref(false)
+const instError    = ref('')
+const instRows     = ref([])
+const instSummary  = ref(null)
+const instStockName = ref('')
+
+async function queryInst() {
+  if (!instStockNo.value.trim()) return
+  instLoading.value = true
+  instError.value   = ''
+  instRows.value    = []
+  instSummary.value = null
+  try {
+    const r = await fetch(`${API}/api/inst/history?stockNo=${instStockNo.value.trim()}&days=${instDays.value}`)
+    const d = await r.json()
+    if (d.error) throw new Error(d.error)
+    if (!d.rows.length) throw new Error(`查無 ${instStockNo.value} 的資料，請確認代號或先執行回填`)
+    instRows.value     = d.rows
+    instSummary.value  = d.summary
+    instStockName.value = d.stock_name || instStockNo.value
+  } catch(e) {
+    instError.value = e.message
+  } finally {
+    instLoading.value = false
+  }
+}
+
+function instFmt(v) {
+  if (v == null) return '—'
+  const sign = v > 0 ? '+' : ''
+  const abs = Math.abs(v)
+  if (abs >= 10000000) return sign + (v/10000000).toFixed(1) + '千萬'
+  if (abs >= 1000000)  return sign + (v/1000000).toFixed(1) + 'M'
+  if (abs >= 1000)     return sign + (v/1000).toFixed(0) + 'K'
+  return sign + String(v)
+}
+function instColor(v) {
+  if (v == null) return 'text-gray-600'
+  return v > 0 ? 'text-red-400' : v < 0 ? 'text-green-400' : 'text-gray-500'
+}
+function instChangePctColor(v) {
+  if (v == null) return 'text-gray-600'
+  return v > 0 ? 'text-red-400' : v < 0 ? 'text-green-400' : 'text-gray-500'
+}
+
 async function generateReport() {
   reportLoading.value = true
   reportError.value   = ''
@@ -637,7 +686,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
 
     <!-- 分頁切換 -->
     <div class="border-b border-gray-800 px-6 flex gap-1">
-      <button v-for="t in [{ id:'monitor', label:'即時監控' }, { id:'db', label:'歷史資料' }, { id:'report', label:'日報表' }, { id:'breadth', label:'漲跌家數' }, { id:'chips', label:'台指期籌碼' }, { id:'sector', label:'強勢族群' }, { id:'conc', label:'大股東吃貨' }, { id:'screener', label:'台股選股' }]" :key="t.id"
+      <button v-for="t in [{ id:'monitor', label:'即時監控' }, { id:'db', label:'歷史資料' }, { id:'report', label:'日報表' }, { id:'breadth', label:'漲跌家數' }, { id:'chips', label:'台指期籌碼' }, { id:'sector', label:'強勢族群' }, { id:'conc', label:'大股東吃貨' }, { id:'screener', label:'台股選股' }, { id:'inst', label:'三大法人' }]" :key="t.id"
               @click="selectTab(t.id)"
               class="px-4 py-3 text-sm font-medium transition border-b-2 -mb-px"
               :class="tab === t.id ? 'border-purple-500 text-purple-400' : 'border-transparent text-gray-500 hover:text-gray-300'">
@@ -2290,6 +2339,124 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
         <div class="px-5 py-3 border-t border-gray-800 text-xs text-gray-600">
           條件：投信連買≥3天・主力（外資+投信）近5日淨買>0・融資餘額近5日下降・當日漲跌&lt;7%・5日漲&lt;5%・無爆量。
           位置欄為近20日高低點中的相對位置（0%=最低・100%=最高）。🕵️=隱形布局（籌碼持續布局但股價未大漲）。每日 18:30 自動計算。
+        </div>
+      </div>
+
+    </div>
+
+    <!-- 三大法人查詢 -->
+    <div v-if="tab === 'inst'" class="max-w-5xl mx-auto px-4 py-6 space-y-4">
+
+      <!-- 查詢列 -->
+      <div class="bg-gray-900 rounded-xl border border-gray-800 px-5 py-4">
+        <h2 class="text-base font-semibold text-gray-200 mb-3">🏦 三大法人買賣超查詢</h2>
+        <div class="flex flex-wrap gap-3 items-end">
+          <div>
+            <label class="block text-xs text-gray-500 mb-1">股票代號</label>
+            <input v-model="instStockNo" @keyup.enter="queryInst"
+              class="bg-gray-800 border border-gray-700 text-gray-200 text-sm rounded-lg px-3 py-2 w-28 focus:outline-none focus:border-blue-500"
+              placeholder="例：2330" maxlength="6" />
+          </div>
+          <div>
+            <label class="block text-xs text-gray-500 mb-1">天數</label>
+            <select v-model="instDays"
+              class="bg-gray-800 border border-gray-700 text-gray-200 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500">
+              <option :value="10">10 天</option>
+              <option :value="20">20 天</option>
+              <option :value="30">30 天</option>
+              <option :value="60">60 天</option>
+            </select>
+          </div>
+          <button @click="queryInst" :disabled="instLoading"
+            class="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-semibold px-4 py-2 rounded-lg transition">
+            {{ instLoading ? '查詢中…' : '查詢' }}
+          </button>
+        </div>
+        <p v-if="instError" class="mt-3 text-sm text-red-400">{{ instError }}</p>
+      </div>
+
+      <!-- 摘要統計 -->
+      <div v-if="instSummary" class="bg-gray-900 rounded-xl border border-gray-800 px-5 py-4">
+        <div class="flex items-center gap-2 mb-3">
+          <h3 class="text-sm font-semibold text-gray-200">{{ instStockName }} ({{ instStockNo }}) — 近 {{ instRows.length }} 日累計</h3>
+        </div>
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div class="bg-gray-800 rounded-lg px-4 py-3">
+            <div class="text-xs text-gray-500 mb-1">外資合計</div>
+            <div class="text-base font-bold font-mono" :class="instColor(instSummary.total_foreign)">
+              {{ instFmt(instSummary.total_foreign) }}
+            </div>
+          </div>
+          <div class="bg-gray-800 rounded-lg px-4 py-3">
+            <div class="text-xs text-gray-500 mb-1">投信合計</div>
+            <div class="text-base font-bold font-mono" :class="instColor(instSummary.total_trust)">
+              {{ instFmt(instSummary.total_trust) }}
+            </div>
+          </div>
+          <div class="bg-gray-800 rounded-lg px-4 py-3">
+            <div class="text-xs text-gray-500 mb-1">自營合計</div>
+            <div class="text-base font-bold font-mono" :class="instColor(instSummary.total_dealer)">
+              {{ instFmt(instSummary.total_dealer) }}
+            </div>
+          </div>
+          <div class="bg-gray-800 rounded-lg px-4 py-3">
+            <div class="text-xs text-gray-500 mb-1">主力（外+投）合計</div>
+            <div class="text-base font-bold font-mono" :class="instColor(instSummary.total_major)">
+              {{ instFmt(instSummary.total_major) }}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 明細表格 -->
+      <div v-if="instRows.length" class="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="bg-gray-800 text-xs text-gray-400 uppercase tracking-wide">
+                <th class="px-4 py-2.5 text-left">日期</th>
+                <th class="px-4 py-2.5 text-right">收盤</th>
+                <th class="px-4 py-2.5 text-right">漲跌%</th>
+                <th class="px-4 py-2.5 text-right">外資</th>
+                <th class="px-4 py-2.5 text-right">投信</th>
+                <th class="px-4 py-2.5 text-right">自營</th>
+                <th class="px-4 py-2.5 text-right">主力合計</th>
+                <th class="px-4 py-2.5 text-right">融資餘額</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="row in instRows" :key="row.trade_date"
+                class="border-t border-gray-800 hover:bg-gray-800/50 transition">
+                <td class="px-4 py-2.5 text-gray-400 font-mono text-xs">
+                  {{ row.trade_date ? row.trade_date.slice(0,10) : '—' }}
+                </td>
+                <td class="px-4 py-2.5 text-right font-mono font-semibold text-gray-200">
+                  {{ row.close != null ? (+row.close).toFixed(2) : '—' }}
+                </td>
+                <td class="px-4 py-2.5 text-right font-mono font-semibold" :class="instChangePctColor(row.change_pct)">
+                  {{ row.change_pct != null ? (row.change_pct > 0 ? '+' : '') + (+row.change_pct).toFixed(2) + '%' : '—' }}
+                </td>
+                <td class="px-4 py-2.5 text-right font-mono" :class="instColor(row.inst_foreign)">
+                  {{ instFmt(row.inst_foreign) }}
+                </td>
+                <td class="px-4 py-2.5 text-right font-mono" :class="instColor(row.inst_trust)">
+                  {{ instFmt(row.inst_trust) }}
+                </td>
+                <td class="px-4 py-2.5 text-right font-mono" :class="instColor(row.inst_dealer)">
+                  {{ instFmt(row.inst_dealer) }}
+                </td>
+                <td class="px-4 py-2.5 text-right font-mono font-semibold" :class="instColor(row.major_net)">
+                  {{ instFmt(row.major_net) }}
+                </td>
+                <td class="px-4 py-2.5 text-right font-mono text-gray-400">
+                  {{ row.margin_bal != null ? (+row.margin_bal).toLocaleString() : '—' }}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="px-5 py-3 border-t border-gray-800 text-xs text-gray-600">
+          數值單位：股（正數=買超 紅色・負數=賣超 綠色）。主力合計＝外資＋投信。資料來源：TWSE T86。
         </div>
       </div>
 
