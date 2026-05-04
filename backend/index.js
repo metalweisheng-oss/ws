@@ -3457,6 +3457,97 @@ app.get('/api/fubon/stream', (req, res) => {
   req.on('close', () => py.kill())
 })
 
+app.get('/api/warrant/test-sources', async (req, res) => {
+  const sources = [
+    { key: 'BWIBBU',     url: 'https://www.twse.com.tw/rwd/zh/warrant/BWIBBU?response=json' },
+    { key: 'BW43U',      url: 'https://www.twse.com.tw/rwd/zh/warrant/BW43U?response=json' },
+    { key: 'BWSearch',   url: 'https://www.twse.com.tw/rwd/zh/warrant/BWSearch?response=json&stockNo=2330' },
+    { key: 'BWIBBU_ALL', url: 'https://www.twse.com.tw/rwd/zh/afterTrading/BWIBBU_ALL?response=json' },
+    { key: 'finmind',    url: 'https://api.finmindtrade.com/api/v4/data?dataset=TaiwanStockWarrantTradingDailyReport&data_id=2330&start_date=2026-05-01&end_date=2026-05-04' },
+  ]
+  const results = []
+  for (const { key, url } of sources) {
+    try {
+      const d = await fetchUrl(url)
+      const data = d.data || d.rows || d.tables?.[0]?.data || null
+      const fields = d.fields || d.tables?.[0]?.fields || (Array.isArray(data) && data.length ? Object.keys(data[0]) : null)
+      results.push({
+        key, url,
+        stat: d.stat || (data ? 'OK' : 'no-data'),
+        count: Array.isArray(data) ? data.length : null,
+        fields,
+        sampleRow: Array.isArray(data) && data.length ? data[0] : null,
+      })
+    } catch(e) {
+      results.push({ key, url, stat: 'ERROR', error: e.message })
+    }
+  }
+  res.json(results)
+})
+
+app.get('/api/warrant/search', async (req, res) => {
+  const { stockNo, type = 'all' } = req.query
+  if (!stockNo) return res.status(400).json({ error: '請輸入標的代號' })
+  try {
+    const d = await fetchUrl(`https://www.twse.com.tw/rwd/zh/warrant/BWSearch?response=json&stockNo=${stockNo}`)
+    if (d.stat !== 'OK' || !Array.isArray(d.data)) return res.json({ rows: [], stockName: '' })
+
+    const fields = d.fields || []
+    const idx = (name) => fields.indexOf(name)
+
+    const rows = d.data.map(r => {
+      const rawType = r[idx('認購認售')] || r[2] || ''
+      const warrantType = rawType.includes('售') ? 'put' : 'call'
+      if (type === 'call' && warrantType !== 'call') return null
+      if (type === 'put'  && warrantType !== 'put')  return null
+
+      const expiry = r[idx('到期日')] || r[7] || ''
+      const today  = new Date()
+      let daysLeft = null
+      if (expiry) {
+        const parts = expiry.split('/')
+        if (parts.length === 3) {
+          const y = parseInt(parts[0]) > 1000 ? parseInt(parts[0]) : parseInt(parts[0]) + 1911
+          const exp = new Date(y, parseInt(parts[1])-1, parseInt(parts[2]))
+          daysLeft = Math.max(0, Math.round((exp - today) / 86400000))
+        }
+      }
+
+      const price     = parseFloat((r[idx('權證收盤價')] || r[idx('收盤價')] || r[9]  || '').toString().replace(/,/g,'')) || null
+      const prevClose = parseFloat((r[idx('昨收')] || r[idx('昨日收盤價')] || '').toString().replace(/,/g,'')) || null
+      const change    = price != null && prevClose != null ? +(price - prevClose).toFixed(2) : null
+      const changePct = price != null && prevClose != null && prevClose !== 0
+        ? +(((price - prevClose) / prevClose) * 100).toFixed(2) : null
+      const volume    = parseInt((r[idx('成交量')] || r[10] || '').toString().replace(/,/g,'')) || 0
+
+      return {
+        warrantNo:  r[idx('權證代號')] || r[0] || '',
+        stockNo:    r[idx('標的股票')] || r[1] || '',
+        stockName:  r[idx('標的名稱')] || r[idx('股票名稱')] || '',
+        type:       warrantType,
+        issuer:     r[idx('發行人')] || r[idx('發行商')] || r[3] || '',
+        strike:     parseFloat((r[idx('行使價格')] || r[idx('履約價')] || r[5] || '').toString().replace(/,/g,'')) || null,
+        expiry,
+        ratio:      parseFloat((r[idx('行使比例')] || r[4] || '').toString().replace(/,/g,'')) || null,
+        price,
+        change,
+        changePct,
+        volume,
+        premiumPct: parseFloat((r[idx('溢價率')] || r[idx('溢價(%)')] || '').toString().replace(/%/g,'')) || null,
+        iv:         parseFloat((r[idx('隱含波動率')] || r[idx('隱含波動率(%)')] || '').toString().replace(/%/g,'')) || null,
+        leverage:   parseFloat((r[idx('實質槓桿')] || r[idx('槓桿倍數')] || '').toString().replace(/,/g,'')) || null,
+        delta:      parseFloat((r[idx('Delta')] || r[idx('delta')] || '').toString()) || null,
+        daysLeft,
+      }
+    }).filter(Boolean)
+
+    const stockNameFromData = rows[0]?.stockName || ''
+    res.json({ rows, stockName: stockNameFromData, total: rows.length })
+  } catch(e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
 const PORT = process.env.PORT || 3000
 app.listen(PORT, () => {
   console.log(`Backend running on http://localhost:${PORT}`)
