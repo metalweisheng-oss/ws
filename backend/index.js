@@ -3533,11 +3533,13 @@ app.get('/api/warrant/search', async (req, res) => {
       if (type === 'put'  && wtype !== 'put')  return null
 
       const mis    = priceMap[code] || {}
-      const price  = parseFloat(mis.z) || null
-      const prev   = parseFloat(mis.y) || null
-      const change = price != null && prev != null ? +(price - prev).toFixed(2) : null
-      const changePct = price != null && prev != null && prev !== 0
-        ? +(((price - prev) / prev) * 100).toFixed(2) : null
+      const zVal   = mis.z && mis.z !== '-' ? parseFloat(mis.z) : null
+      const yVal   = mis.y && mis.y !== '-' ? parseFloat(mis.y) : null
+      // 今日有成交用現價，否則顯示昨收（參考價）
+      const price  = zVal ?? yVal ?? null
+      const change = zVal != null && yVal != null ? +(zVal - yVal).toFixed(2) : null
+      const changePct = change != null && yVal != null && yVal !== 0
+        ? +(change / yVal * 100).toFixed(2) : null
       const volume = parseInt(mis.v) || 0
 
       const expiryDate = rocToGregorian(r['最後交易日'])
@@ -3561,6 +3563,7 @@ app.get('/api/warrant/search', async (req, res) => {
         expiry:     expiryStr,
         ratio:      ratio ? +(ratio / 1000).toFixed(4) : null,
         price,
+        noTrade:    zVal == null && yVal != null,
         change,
         changePct,
         volume,

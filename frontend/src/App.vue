@@ -2589,9 +2589,13 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                   :class="row.daysLeft != null && row.daysLeft < 30 ? 'text-orange-400 font-semibold' : 'text-gray-400'">
                 {{ row.daysLeft != null ? row.daysLeft : '—' }}
               </td>
-              <td class="px-3 py-2 text-right text-white font-medium">{{ row.price != null ? row.price.toFixed(2) : '—' }}</td>
+              <td class="px-3 py-2 text-right font-medium" :class="row.noTrade ? 'text-gray-500' : 'text-white'">
+                {{ row.price != null ? row.price.toFixed(2) : '—' }}
+                <span v-if="row.noTrade" class="text-gray-600 text-xs ml-0.5">昨</span>
+              </td>
               <td class="px-3 py-2 text-right font-medium" :class="wChangePctColor(row.changePct)">
-                {{ row.changePct != null ? (row.changePct > 0 ? '+' : '') + row.changePct.toFixed(2) + '%' : '—' }}
+                <span v-if="row.noTrade" class="text-gray-600 text-xs">無成交</span>
+                <span v-else>{{ row.changePct != null ? (row.changePct > 0 ? '+' : '') + row.changePct.toFixed(2) + '%' : '—' }}</span>
               </td>
               <td class="px-3 py-2 text-right text-gray-300">{{ row.volume ? row.volume.toLocaleString() : '—' }}</td>
             </tr>
