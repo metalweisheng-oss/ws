@@ -2567,10 +2567,13 @@ async function syncMarketDailyOne(dateStr8) {
   console.log(`[market_daily] 同步 ${tradeDate}...`)
 
   // ── TWSE 上市行情 ──────────────────────────────────────
+  // 注意：STOCK_DAY_ALL 不支援歷史日期，date 參數無效，永遠回傳最新交易日資料
+  // 因此必須確認回傳的 data.date 與請求日期一致，才能寫入 OHLCV
   let priceRows = []
   try {
     const data = await fetchUrl(`https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY_ALL?date=${dateStr8}&response=json`)
-    if (data?.stat === 'OK') {
+    const returnedDate = String(data?.date || '').replace(/-/g, '')
+    if (data?.stat === 'OK' && returnedDate === dateStr8) {
       for (const row of data.data || []) {
         const stockNo = row[0]?.trim()
         if (!isValidStockCode(stockNo)) continue
@@ -2586,6 +2589,8 @@ async function syncMarketDailyOne(dateStr8) {
             low: isNaN(low)?null:low, close, exchange: 'TWSE' })
         } catch {}
       }
+    } else if (data?.stat === 'OK' && returnedDate !== dateStr8) {
+      console.log(`[market_daily] ${tradeDate} STOCK_DAY_ALL 回傳日期 ${returnedDate}，非目標日期，跳過 OHLCV`)
     }
     console.log(`[market_daily] ${tradeDate} TWSE行情 ${priceRows.length} 檔`)
   } catch(e) { console.error(`[market_daily] ${tradeDate} TWSE行情失敗:`, e.message) }
