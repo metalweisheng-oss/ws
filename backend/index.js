@@ -2063,6 +2063,17 @@ async function backfillFuturesChips(days = 30) {
       updated++
     }
     inserted = Object.keys(byDate).length
+
+    // 清除 DB 中在此日期範圍內、但不是真實交易日的錯誤資料
+    if (Object.keys(byDate).length > 0) {
+      const validDates = Object.keys(byDate).map(d => `'${d}'`).join(',')
+      const { rowCount } = await pool.query(
+        `DELETE FROM futures_chips WHERE trade_date BETWEEN $1 AND $2 AND trade_date::text NOT IN (${validDates})`,
+        [startDate, endDate]
+      )
+      if (rowCount) console.log(`[backfill_futures] 清除 ${rowCount} 筆非交易日資料`)
+    }
+
     console.log(`[backfill_futures] 完成：處理 ${inserted} 個交易日`)
   } catch (e) {
     console.error('[backfill_futures] 失敗:', e.message)
