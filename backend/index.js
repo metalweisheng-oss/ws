@@ -3226,6 +3226,28 @@ app.get('/api/screener/results', async (req, res) => {
       `SELECT * FROM screener_results WHERE run_date=$1 ORDER BY score DESC LIMIT $2`,
       [runDate, limit]
     )
+
+    // Fetch live prices from MIS to get accurate close/change_pct
+    try {
+      const codes = rows.map(r => r.stock_no)
+      const exCh = codes.flatMap(c => [`tse_${c}.tw`, `otc_${c}.tw`]).join('|')
+      const url = `https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=${encodeURIComponent(exCh)}&json=1&delay=0`
+      const misRaw = await fetchUrl(url)
+      const misMap = {}
+      for (const item of misRaw?.msgArray || []) misMap[item.c] = item
+      for (const row of rows) {
+        const mis = misMap[row.stock_no]
+        if (!mis) continue
+        const zVal = mis.z && mis.z !== '-' ? parseFloat(mis.z) : null
+        const yVal = mis.y && mis.y !== '-' ? parseFloat(mis.y) : null
+        const liveClose = zVal ?? yVal ?? null
+        if (liveClose != null) row.close = liveClose
+        if (zVal != null && yVal != null && yVal !== 0) {
+          row.change_pct = +((zVal - yVal) / yVal * 100).toFixed(2)
+        }
+      }
+    } catch(e) { /* live price enrichment failed, use cached values */ }
+
     res.json({ run_date: runDate, total: rows.length, rows })
   } catch(e) { res.status(500).json({ error: e.message }) }
 })
