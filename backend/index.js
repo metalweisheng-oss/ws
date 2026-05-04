@@ -2432,24 +2432,36 @@ async function syncMarketDailyOne(dateStr8) {
   // ── TWSE T86 三大法人 ──────────────────────────────────
   const instMap = {}
   let t86HasData = false
+  let t86ApiOk = false  // true only when API returned valid JSON (not an error)
   try {
     const twse = await fetchUrl(
       `https://www.twse.com.tw/rwd/zh/fund/T86?date=${dateStr8}&selectType=ALLBUT0999&response=json`
     )
     if (twse?.stat === 'OK') {
+      t86ApiOk = true
       for (const row of twse.data || []) {
         const no = row[0]?.trim()
         if (no) instMap[no] = { foreign: n(row[4]), trust: n(row[10]), dealer: n(row[11]) }
       }
       t86HasData = Object.keys(instMap).length > 0
+    } else if (twse?.stat) {
+      // API responded with non-OK stat (e.g. "查詢日期無效") — genuine holiday/no-data
+      t86ApiOk = true
     }
     console.log(`[market_daily] ${tradeDate} T86 ${Object.keys(instMap).length} 檔`)
   } catch(e) { console.error(`[market_daily] ${tradeDate} T86 失敗:`, e.message) }
 
   const nowDateStr8 = new Date(Date.now()+8*3600000).toISOString().slice(0,10).replace(/-/g,'')
-  if (!t86HasData && dateStr8 !== nowDateStr8) {
+  // Only delete on confirmed holiday: API responded cleanly with no data AND no TPEX data either
+  const hasTpexPrices = priceRows.some(r => r.exchange === 'TPEX')
+  if (!t86HasData && t86ApiOk && !hasTpexPrices && dateStr8 !== nowDateStr8) {
     console.log(`[market_daily] ${tradeDate} T86 無資料，判定為休市日，跳過寫入`)
     await pool.query(`DELETE FROM market_daily WHERE trade_date=$1`, [tradeDate]).catch(()=>{})
+    return 0
+  }
+  // If T86 API failed but we have TPEX price data — it's a trading day, continue writing TPEX data
+  if (!t86HasData && !t86ApiOk && !hasTpexPrices && dateStr8 !== nowDateStr8) {
+    console.log(`[market_daily] ${tradeDate} T86 API 異常且無TPEX行情，跳過（保留現有資料）`)
     return 0
   }
 
@@ -2919,47 +2931,18 @@ app.get('/api/inst/history', async (req, res) => {
     if (!stockNo) return res.status(400).json({ error: '請輸入股票代號' })
     const days = Math.min(parseInt(req.query.days) || 30, 200)
 
-    // 從 DB 取法人資料（不加日期下限，讓 LIMIT 決定筆數）
+    // 從 DB 取法人資料（含 close/volume，不加日期下限，讓 LIMIT 決定筆數）
+    // 多取一筆以計算最舊那筆的漲跌%
     const { rows } = await pool.query(`
-      SELECT trade_date, stock_name, inst_foreign, inst_trust, inst_dealer, margin_bal, short_bal
+      SELECT trade_date, stock_name, close, volume,
+             inst_foreign, inst_trust, inst_dealer, margin_bal, short_bal
       FROM market_daily
       WHERE stock_no = $1
       ORDER BY trade_date DESC
       LIMIT $2
-    `, [stockNo, days])
+    `, [stockNo, days + 1])
 
     if (!rows.length) return res.json({ stock_no: stockNo, stock_name: null, rows: [] })
-
-    // 從 TWSE STOCK_DAY 取真實每日收盤價（按月查詢，ROC 年 = AD - 1911）
-    const priceMap = {}
-    const now = new Date(Date.now() + 8 * 3600000)
-    const monthsNeeded = Math.ceil(days / 20) + 1
-    for (let m = 0; m < monthsNeeded; m++) {
-      const d = new Date(now)
-      d.setMonth(d.getMonth() - m)
-      const y  = d.getUTCFullYear()
-      const mo = String(d.getUTCMonth() + 1).padStart(2, '0')
-      try {
-        const data = await fetchUrl(
-          `https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockNo=${stockNo}&date=${y}${mo}01&response=json`
-        )
-        if (data?.stat === 'OK') {
-          const n = s => parseFloat(String(s || '0').replace(/,/g, ''))
-          for (const row of data.data || []) {
-            const parts = String(row[0]).split('/')
-            if (parts.length !== 3) continue
-            const adYear  = parseInt(parts[0]) + 1911
-            const dateKey = `${adYear}-${parts[1].padStart(2,'0')}-${parts[2].padStart(2,'0')}`
-            priceMap[dateKey] = {
-              close:  n(row[6]),
-              volume: Math.round(n(row[1]) / 1000),
-            }
-          }
-        }
-      } catch(e) {
-        console.error(`[inst/history] STOCK_DAY ${y}${mo} 失敗:`, e.message)
-      }
-    }
 
     // 先轉換所有 dateStr
     const dateStrs = rows.map(r => {
@@ -2971,19 +2954,20 @@ app.get('/api/inst/history', async (req, res) => {
 
     const toLot = v => v != null ? Math.round(+v / 1000) : null
     const result = []
-    for (let i = 0; i < rows.length; i++) {
-      const r       = rows[i]
-      const dateStr = dateStrs[i]
-      const price   = priceMap[dateStr]
-      const close   = price?.close ?? null
-      const prevClose = i + 1 < rows.length ? (priceMap[dateStrs[i + 1]]?.close ?? null) : null
+    const displayRows = rows.slice(0, days)
+    for (let i = 0; i < displayRows.length; i++) {
+      const r        = displayRows[i]
+      const dateStr  = dateStrs[i]
+      const close    = r.close != null ? +r.close : null
+      const prevRow  = rows[i + 1]
+      const prevClose = prevRow?.close != null ? +prevRow.close : null
       const changePct = (close != null && prevClose != null)
         ? +((close - prevClose) / prevClose * 100).toFixed(2) : null
       result.push({
         trade_date:   dateStr,
         close:        close,
         change_pct:   changePct,
-        volume:       price?.volume ?? null,
+        volume:       r.volume != null ? Math.round(+r.volume / 1000) : null,
         inst_foreign: toLot(r.inst_foreign),
         inst_trust:   toLot(r.inst_trust),
         inst_dealer:  toLot(r.inst_dealer),
@@ -3141,6 +3125,98 @@ cron.schedule('30 18 * * 1-5', async () => {
 }, { timezone: 'Asia/Taipei' })
 
 console.log('[cron] 已設定每日 15:00/17:00/18:00/18:30 自動同步、15:30 台指期籌碼、15:35 強勢族群（週一至週五）')
+
+// ── 富邦 API 端點 ─────────────────────────────────────────
+const { spawn } = require('child_process')
+const path = require('path')
+
+function runPython(scriptArgs, onData) {
+  return new Promise((resolve, reject) => {
+    const py = spawn('python3', ['-m', ...scriptArgs], {
+      cwd: path.join(__dirname),
+      env: { ...process.env }
+    })
+    const out = []
+    py.stdout.on('data', d => { out.push(d.toString()); if (onData) onData(d.toString()) })
+    py.stderr.on('data', d => console.error('[python]', d.toString().trim()))
+    py.on('close', code => code === 0 ? resolve(out.join('')) : reject(new Error(`exit ${code}`)))
+  })
+}
+
+// 個股即時報價
+app.get('/api/fubon/quote', async (req, res) => {
+  const symbol = (req.query.symbol || '2330').trim()
+  try {
+    const output = await runPython(['fubon.marketdata', 'quote', symbol])
+    res.json({ ok: true, data: JSON.parse(output) })
+  } catch(e) { res.status(500).json({ ok: false, error: e.message }) }
+})
+
+// 全市場快照
+app.get('/api/fubon/snapshot', async (req, res) => {
+  const market = (req.query.market || 'TSE').trim()
+  try {
+    const output = await runPython(['fubon.marketdata', 'snapshot', market])
+    res.json({ ok: true, data: JSON.parse(output) })
+  } catch(e) { res.status(500).json({ ok: false, error: e.message }) }
+})
+
+// 歷史K線
+app.get('/api/fubon/history', async (req, res) => {
+  const symbol = (req.query.symbol || '2330').trim()
+  const from   = req.query.from || '2026-01-01'
+  const to     = req.query.to   || new Date().toISOString().slice(0, 10)
+  try {
+    const output = await runPython(['fubon.marketdata', 'history', symbol, from, to])
+    res.json({ ok: true, data: JSON.parse(output) })
+  } catch(e) { res.status(500).json({ ok: false, error: e.message }) }
+})
+
+// 漲跌幅排行
+app.get('/api/fubon/movers', async (req, res) => {
+  const market    = req.query.market    || 'TSE'
+  const direction = req.query.direction || 'up'
+  try {
+    const output = await runPython(['fubon.marketdata', 'movers', market, direction])
+    res.json({ ok: true, data: JSON.parse(output) })
+  } catch(e) { res.status(500).json({ ok: false, error: e.message }) }
+})
+
+// 以 Fubon 歷史K線修正 DB 的 OHLCV
+app.post('/api/fubon/backfill-ohlcv', async (req, res) => {
+  const days  = Math.min(parseInt(req.query.days) || 200, 200)
+  const stock = req.query.stock || ''
+  res.json({ ok: true, message: `Fubon OHLCV 修正已開始（${days} 天）` });
+  (async () => {
+    const args = ['fubon.backfill_ohlcv', String(days)]
+    if (stock) args.push(stock)
+    try {
+      await runPython(args)
+      console.log('[fubon] OHLCV 修正完成')
+    } catch(e) { console.error('[fubon] OHLCV 修正失敗:', e.message) }
+  })()
+})
+
+// WebSocket 即時行情 SSE 串流
+app.get('/api/fubon/stream', (req, res) => {
+  const symbols = (req.query.symbols || '2330').split(',').map(s => s.trim())
+  res.setHeader('Content-Type', 'text/event-stream')
+  res.setHeader('Cache-Control', 'no-cache')
+  res.setHeader('Connection', 'keep-alive')
+  res.flushHeaders()
+
+  const py = spawn('python3', ['-m', 'fubon.marketdata', 'watch', ...symbols], {
+    cwd: path.join(__dirname),
+    env: { ...process.env }
+  })
+  py.stdout.on('data', d => {
+    d.toString().trim().split('\n').forEach(line => {
+      if (line) res.write(`data: ${line}\n\n`)
+    })
+  })
+  py.stderr.on('data', d => console.error('[fubon-stream]', d.toString().trim()))
+  req.on('close', () => py.kill())
+})
 
 const PORT = process.env.PORT || 3000
 app.listen(PORT, () => {
