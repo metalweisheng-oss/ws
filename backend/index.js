@@ -1866,6 +1866,17 @@ async function syncFuturesChips() {
       latestPC ? parseInt(latestPC.CallOI) : 0,
     ])
     console.log(`[futures_chips] ${tradeDate} 同步完成`)
+
+    const fmt = n => (n >= 0 ? '+' : '') + n.toLocaleString()
+    const msg =
+      `📊 <b>台指期籌碼快訊</b> ${tradeDate}\n` +
+      `外資　多 ${foreign.long.toLocaleString()} 空 ${foreign.short.toLocaleString()} 淨 <b>${fmt(foreign.net)}</b>\n` +
+      `投信　多 ${trust.long.toLocaleString()} 空 ${trust.short.toLocaleString()} 淨 <b>${fmt(trust.net)}</b>\n` +
+      `自營　多 ${dealer.long.toLocaleString()} 空 ${dealer.short.toLocaleString()} 淨 <b>${fmt(dealer.net)}</b>\n` +
+      (latestPC ? `PC量比 <b>${latestPC['PutCallVolumeRatio%']}</b>　PC未平倉 <b>${latestPC['PutCallOIRatio%']}</b>\n` : '') +
+      (largeTX.Top5Buy ? `大額前5　多 ${parseInt(largeTX.Top5Buy).toLocaleString()} 空 ${parseInt(largeTX.Top5Sell).toLocaleString()}\n` : '') +
+      (largeTX.Top10Buy ? `大額前10　多 ${parseInt(largeTX.Top10Buy).toLocaleString()} 空 ${parseInt(largeTX.Top10Sell).toLocaleString()}` : '')
+    sendTelegram(msg.trim())
   } catch (e) {
     console.error('[futures_chips] 同步失敗:', e.message)
   }
