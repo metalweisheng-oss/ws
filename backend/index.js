@@ -1878,7 +1878,7 @@ async function syncFuturesChips() {
     const dealer  = getInst('自營商')
 
     const largeTX = largeData.find(r => r.Contract === 'TX' && r.SettlementMonth === '999912' && r.TypeOfTraders === '0') || {}
-    const latestPC = pcData?.length ? pcData[pcData.length - 1] : null
+    const latestPC = pcData?.length ? pcData[0] : null
 
     await pool.query(`
       INSERT INTO futures_chips (
@@ -2338,7 +2338,7 @@ app.get('/api/debug/futures-chips', async (req, res) => {
       return row ? { long: parseInt(row['OpenInterest(Long)']), short: parseInt(row['OpenInterest(Short)']), net: parseInt(row['OpenInterest(Net)']) } : null
     }
     const largeTX = largeData.find(r => r.Contract === 'TX' && r.SettlementMonth === '999912' && r.TypeOfTraders === '0')
-    const latestPC = pcData?.length ? pcData[pcData.length-1] : null
+    const latestPC = pcData?.length ? pcData[0] : null
 
     // 試寫入 DB
     let dbResult = null, dbError = null
