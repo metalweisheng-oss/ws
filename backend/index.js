@@ -1981,17 +1981,37 @@ async function backfillFuturesChips(days = 30) {
       : null
     const largeTX = largeRaw?.find?.(r => r.Contract === 'TX' && r.SettlementMonth === '999912' && r.TypeOfTraders === '0') || {}
 
-    // 4. 按日期彙整三大法人
-    const byDate = {}
+    // 4. 按日期彙整三大法人（FinMind 對非交易日會填入前一日數值，需去除）
+    const rawByDate = {}
     for (const row of instRaw.data) {
       const d = row.date
-      if (!byDate[d]) byDate[d] = {}
+      if (!rawByDate[d]) rawByDate[d] = {}
       const type = row.institutional_investors
-      byDate[d][type] = {
+      rawByDate[d][type] = {
         long:  row.long_open_interest_balance_volume  || 0,
         short: row.short_open_interest_balance_volume || 0,
         net:   (row.long_open_interest_balance_volume || 0) - (row.short_open_interest_balance_volume || 0),
       }
+    }
+
+    // 過濾：跳過週六日，並檢查與前一個交易日是否完全相同（表示休市填充）
+    const sortedDates = Object.keys(rawByDate).sort()
+    const byDate = {}
+    for (let i = 0; i < sortedDates.length; i++) {
+      const d   = sortedDates[i]
+      const dow = new Date(d).getDay()  // 0=日, 6=六
+      if (dow === 0 || dow === 6) continue  // 跳過週末
+
+      const inst = rawByDate[d]
+      // 找前一個已接受的日期，若三大法人數值完全相同則視為假日填充
+      const prevDates = sortedDates.slice(0, i).filter(x => byDate[x])
+      if (prevDates.length) {
+        const prev = rawByDate[prevDates[prevDates.length - 1]]
+        const f = inst['外資及陸資'] || inst['外資'] || {}
+        const fp = prev['外資及陸資'] || prev['外資'] || {}
+        if (f.long === fp.long && f.short === fp.short) continue  // 假日填充，跳過
+      }
+      byDate[d] = inst
     }
 
     let inserted = 0, updated = 0
