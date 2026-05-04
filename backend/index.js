@@ -3457,92 +3457,124 @@ app.get('/api/fubon/stream', (req, res) => {
   req.on('close', () => py.kill())
 })
 
-app.get('/api/warrant/test-sources', async (req, res) => {
-  const sources = [
-    { key: 'BWIBBU',     url: 'https://www.twse.com.tw/rwd/zh/warrant/BWIBBU?response=json' },
-    { key: 'BW43U',      url: 'https://www.twse.com.tw/rwd/zh/warrant/BW43U?response=json' },
-    { key: 'BWSearch',   url: 'https://www.twse.com.tw/rwd/zh/warrant/BWSearch?response=json&stockNo=2330' },
-    { key: 'BWIBBU_ALL', url: 'https://www.twse.com.tw/rwd/zh/afterTrading/BWIBBU_ALL?response=json' },
-    { key: 'finmind',    url: 'https://api.finmindtrade.com/api/v4/data?dataset=TaiwanStockWarrantTradingDailyReport&data_id=2330&start_date=2026-05-01&end_date=2026-05-04' },
-  ]
-  const results = []
-  for (const { key, url } of sources) {
-    try {
-      const d = await fetchUrl(url)
-      const data = d.data || d.rows || d.tables?.[0]?.data || null
-      const fields = d.fields || d.tables?.[0]?.fields || (Array.isArray(data) && data.length ? Object.keys(data[0]) : null)
-      results.push({
-        key, url,
-        stat: d.stat || (data ? 'OK' : 'no-data'),
-        count: Array.isArray(data) ? data.length : null,
-        fields,
-        sampleRow: Array.isArray(data) && data.length ? data[0] : null,
-      })
-    } catch(e) {
-      results.push({ key, url, stat: 'ERROR', error: e.message })
-    }
-  }
-  res.json(results)
+// ── 權證查詢 ──────────────────────────────────────────
+const WARRANT_ISSUERS = ['群益','元大','富邦','凱基','統一','大展','永豐','玉山','兆豐','台新','國泰','中信','康和','宏遠','日盛','第一','華南','合庫','華票']
+
+function rocToGregorian(rocStr) {
+  if (!rocStr || rocStr.length < 7) return null
+  const y = parseInt(rocStr.slice(0, 3)) + 1911
+  const m = parseInt(rocStr.slice(3, 5)) - 1
+  const d = parseInt(rocStr.slice(5, 7))
+  return new Date(y, m, d)
+}
+
+const fetchMisBatch = (codes) => new Promise((resolve, reject) => {
+  const exCh = codes.map(c => `tse_${c}.tw`).join('|')
+  const url = `https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=${encodeURIComponent(exCh)}&json=1&delay=0`
+  https.get(url, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36' } }, (r) => {
+    const chunks = []
+    r.on('data', c => chunks.push(c))
+    r.on('end', () => {
+      try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf8'))) }
+      catch(e) { reject(e) }
+    })
+  }).on('error', reject)
 })
 
 app.get('/api/warrant/search', async (req, res) => {
   const { stockNo, type = 'all' } = req.query
   if (!stockNo) return res.status(400).json({ error: '請輸入標的代號' })
+
   try {
-    const d = await fetchUrl(`https://www.twse.com.tw/rwd/zh/warrant/BWSearch?response=json&stockNo=${stockNo}`)
-    if (d.stat !== 'OK' || !Array.isArray(d.data)) return res.json({ rows: [], stockName: '' })
+    const [basicRaw, stockDayRaw] = await Promise.all([
+      fetchUrl('https://openapi.twse.com.tw/v1/opendata/t187ap37_L'),
+      fetchUrl('https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY_ALL?response=json'),
+    ])
 
-    const fields = d.fields || []
-    const idx = (name) => fields.indexOf(name)
+    // Build code -> name and name -> code maps
+    const codeToName = {}
+    const nameToCode = {}
+    for (const row of stockDayRaw?.data || []) {
+      const code = row[0]?.trim()
+      const name = row[1]?.trim()
+      if (code && name) { codeToName[code] = name; nameToCode[name] = code }
+    }
+    const stockName = codeToName[stockNo] || ''
+    if (!stockName) return res.json({ rows: [], stockName: '', total: 0 })
 
-    const rows = d.data.map(r => {
-      const rawType = r[idx('認購認售')] || r[2] || ''
-      const warrantType = rawType.includes('售') ? 'put' : 'call'
-      if (type === 'call' && warrantType !== 'call') return null
-      if (type === 'put'  && warrantType !== 'put')  return null
+    const today = new Date()
+    const todayRoc = String((today.getFullYear() - 1911)).padStart(3, '0')
+      + String(today.getMonth() + 1).padStart(2, '0')
+      + String(today.getDate()).padStart(2, '0')
 
-      const expiry = r[idx('到期日')] || r[7] || ''
-      const today  = new Date()
-      let daysLeft = null
-      if (expiry) {
-        const parts = expiry.split('/')
-        if (parts.length === 3) {
-          const y = parseInt(parts[0]) > 1000 ? parseInt(parts[0]) : parseInt(parts[0]) + 1911
-          const exp = new Date(y, parseInt(parts[1])-1, parseInt(parts[2]))
-          daysLeft = Math.max(0, Math.round((exp - today) / 86400000))
+    // Filter active warrants for this underlying stock
+    const warrants = (Array.isArray(basicRaw) ? basicRaw : []).filter(r =>
+      r['標的證券/指數'] === stockName && r['最後交易日'] >= todayRoc
+    )
+
+    const allCodes = warrants.map(r => r['權證代號'])
+
+    // Batch-query MIS for prices (batches of 50)
+    const priceMap = {}
+    for (let i = 0; i < allCodes.length; i += 50) {
+      const batch = allCodes.slice(i, i + 50)
+      try {
+        const mis = await fetchMisBatch(batch)
+        for (const item of mis.msgArray || []) {
+          priceMap[item.c] = item
         }
-      }
+      } catch(e) { /* skip failed batch */ }
+    }
 
-      const price     = parseFloat((r[idx('權證收盤價')] || r[idx('收盤價')] || r[9]  || '').toString().replace(/,/g,'')) || null
-      const prevClose = parseFloat((r[idx('昨收')] || r[idx('昨日收盤價')] || '').toString().replace(/,/g,'')) || null
-      const change    = price != null && prevClose != null ? +(price - prevClose).toFixed(2) : null
-      const changePct = price != null && prevClose != null && prevClose !== 0
-        ? +(((price - prevClose) / prevClose) * 100).toFixed(2) : null
-      const volume    = parseInt((r[idx('成交量')] || r[10] || '').toString().replace(/,/g,'')) || 0
+    // Join and map fields
+    const rows = warrants.map(r => {
+      const code = r['權証代号'] || r['權證代號']
+      const wtype = r['權證類型']?.includes('售') ? 'put' : 'call'
+      if (type === 'call' && wtype !== 'call') return null
+      if (type === 'put'  && wtype !== 'put')  return null
+
+      const mis    = priceMap[code] || {}
+      const price  = parseFloat(mis.z) || null
+      const prev   = parseFloat(mis.y) || null
+      const change = price != null && prev != null ? +(price - prev).toFixed(2) : null
+      const changePct = price != null && prev != null && prev !== 0
+        ? +(((price - prev) / prev) * 100).toFixed(2) : null
+      const volume = parseInt(mis.v) || 0
+
+      const expiryDate = rocToGregorian(r['最後交易日'])
+      const daysLeft   = expiryDate ? Math.max(0, Math.round((expiryDate - today) / 86400000)) : null
+      const expiryStr  = expiryDate
+        ? `${expiryDate.getFullYear()}/${String(expiryDate.getMonth()+1).padStart(2,'0')}/${String(expiryDate.getDate()).padStart(2,'0')}`
+        : r['最後交易日'] || ''
+
+      const ratio = parseFloat(r['最新標的履約配發數量(每仟單位權證)']) || null
+      const strike = parseFloat(r['最新履約價格(元)/履約指數']) || null
+      const issuer = WARRANT_ISSUERS.find(i => (r['權證簡稱'] || '').includes(i)) || ''
 
       return {
-        warrantNo:  r[idx('權證代號')] || r[0] || '',
-        stockNo:    r[idx('標的股票')] || r[1] || '',
-        stockName:  r[idx('標的名稱')] || r[idx('股票名稱')] || '',
-        type:       warrantType,
-        issuer:     r[idx('發行人')] || r[idx('發行商')] || r[3] || '',
-        strike:     parseFloat((r[idx('行使價格')] || r[idx('履約價')] || r[5] || '').toString().replace(/,/g,'')) || null,
-        expiry,
-        ratio:      parseFloat((r[idx('行使比例')] || r[4] || '').toString().replace(/,/g,'')) || null,
+        warrantNo:  code,
+        warrantName: r['權證簡稱'] || '',
+        stockNo,
+        stockName,
+        type:       wtype,
+        issuer,
+        strike,
+        expiry:     expiryStr,
+        ratio:      ratio ? +(ratio / 1000).toFixed(4) : null,
         price,
         change,
         changePct,
         volume,
-        premiumPct: parseFloat((r[idx('溢價率')] || r[idx('溢價(%)')] || '').toString().replace(/%/g,'')) || null,
-        iv:         parseFloat((r[idx('隱含波動率')] || r[idx('隱含波動率(%)')] || '').toString().replace(/%/g,'')) || null,
-        leverage:   parseFloat((r[idx('實質槓桿')] || r[idx('槓桿倍數')] || '').toString().replace(/,/g,'')) || null,
-        delta:      parseFloat((r[idx('Delta')] || r[idx('delta')] || '').toString()) || null,
+        premiumPct: null,
+        iv:         null,
+        leverage:   null,
+        delta:      null,
         daysLeft,
       }
     }).filter(Boolean)
 
-    const stockNameFromData = rows[0]?.stockName || ''
-    res.json({ rows, stockName: stockNameFromData, total: rows.length })
+    rows.sort((a, b) => (b.volume || 0) - (a.volume || 0))
+    res.json({ rows, stockName, total: rows.length })
   } catch(e) {
     res.status(500).json({ error: e.message })
   }

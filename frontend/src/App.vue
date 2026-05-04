@@ -283,7 +283,58 @@ function selectTab(t) {
   if (t === 'conc')     loadConcentration()
   if (t === 'screener') loadScreener()
   if (t === 'inst') { instStockNo.value = ''; instRows.value = []; instSummary.value = null; instError.value = '' }
+  if (t === 'warrant') { warrantRows.value = []; warrantError.value = ''; warrantStockName.value = '' }
 }
+
+// ── 權證查詢 ──────────────────────────────────────────
+const warrantStockNo   = ref('')
+const warrantType      = ref('all')
+const warrantLoading   = ref(false)
+const warrantError     = ref('')
+const warrantRows      = ref([])
+const warrantStockName = ref('')
+const warrantSortCol   = ref('volume')
+const warrantSortDesc  = ref(true)
+
+async function searchWarrant() {
+  if (!warrantStockNo.value.trim()) return
+  warrantLoading.value = true
+  warrantError.value   = ''
+  warrantRows.value    = []
+  warrantStockName.value = ''
+  try {
+    const r = await fetch(`${API}/api/warrant/search?stockNo=${warrantStockNo.value.trim()}&type=${warrantType.value}`)
+    const d = await r.json()
+    if (d.error) throw new Error(d.error)
+    if (!d.rows.length) throw new Error(`查無 ${warrantStockNo.value} 的有效權證，請確認代號`)
+    warrantRows.value      = d.rows
+    warrantStockName.value = d.stockName || warrantStockNo.value
+  } catch(e) {
+    warrantError.value = e.message
+  } finally {
+    warrantLoading.value = false
+  }
+}
+
+const warrantSorted = computed(() => {
+  const col = warrantSortCol.value
+  return [...warrantRows.value].sort((a, b) => {
+    const av = a[col] ?? (warrantSortDesc.value ? -Infinity : Infinity)
+    const bv = b[col] ?? (warrantSortDesc.value ? -Infinity : Infinity)
+    return warrantSortDesc.value ? bv - av : av - bv
+  })
+})
+
+function warrantSort(col) {
+  if (warrantSortCol.value === col) { warrantSortDesc.value = !warrantSortDesc.value }
+  else { warrantSortCol.value = col; warrantSortDesc.value = true }
+}
+
+const warrantCallCount = computed(() => warrantRows.value.filter(r => r.type === 'call').length)
+const warrantPutCount  = computed(() => warrantRows.value.filter(r => r.type === 'put').length)
+
+function wChangePctColor(v) { return v == null ? 'text-gray-500' : +v > 0 ? 'text-red-400' : +v < 0 ? 'text-green-400' : 'text-gray-400' }
+function wSortIcon(col) { return warrantSortCol.value === col ? (warrantSortDesc.value ? ' ▼' : ' ▲') : '' }
 
 // ── 日報表 ────────────────────────────────────────
 const reportStockNo = ref('2059')
@@ -2463,11 +2514,96 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
     </div>
 
     <!-- 權證 -->
-    <div v-if="tab === 'warrant'" class="max-w-5xl mx-auto px-4 py-6 space-y-4">
-      <div class="bg-gray-900 rounded-xl border border-gray-800 px-5 py-4">
-        <h2 class="text-base font-semibold text-gray-200 mb-1">🎫 權證</h2>
-        <p class="text-xs text-gray-500">功能建置中...</p>
+    <div v-if="tab === 'warrant'" class="max-w-6xl mx-auto px-4 py-6 space-y-4">
+
+      <!-- 搜尋列 -->
+      <div class="bg-gray-900 rounded-xl border border-gray-800 px-5 py-4 flex flex-wrap gap-3 items-end">
+        <div>
+          <div class="text-xs text-gray-500 mb-1">標的代號</div>
+          <input v-model="warrantStockNo" @keyup.enter="searchWarrant" type="text" placeholder="例：2330"
+                 class="w-28 bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-purple-500" />
+        </div>
+        <div>
+          <div class="text-xs text-gray-500 mb-1">類型</div>
+          <div class="flex gap-1">
+            <button v-for="opt in [{v:'all',l:'全部'},{v:'call',l:'認購'},{v:'put',l:'認售'}]" :key="opt.v"
+                    @click="warrantType = opt.v"
+                    class="px-3 py-1.5 rounded-lg text-sm font-medium transition border"
+                    :class="warrantType === opt.v ? 'bg-purple-700 border-purple-600 text-white' : 'bg-gray-800 border-gray-700 text-gray-400 hover:text-gray-200'">
+              {{ opt.l }}
+            </button>
+          </div>
+        </div>
+        <button @click="searchWarrant" :disabled="warrantLoading"
+                class="px-4 py-1.5 rounded-lg bg-purple-700 hover:bg-purple-600 text-sm font-medium transition disabled:opacity-50">
+          {{ warrantLoading ? '查詢中...' : '查詢' }}
+        </button>
       </div>
+
+      <!-- 錯誤 -->
+      <div v-if="warrantError" class="bg-red-900/30 border border-red-800 rounded-xl px-4 py-3 text-sm text-red-400">
+        {{ warrantError }}
+      </div>
+
+      <!-- 摘要列 -->
+      <div v-if="warrantRows.length" class="bg-gray-900 rounded-xl border border-gray-800 px-5 py-3 flex flex-wrap gap-4 items-center text-sm">
+        <span class="text-white font-semibold">{{ warrantStockName }} ({{ warrantStockNo }})</span>
+        <span class="text-gray-500">共 {{ warrantRows.length }} 檔</span>
+        <span class="px-2 py-0.5 rounded-full text-xs font-bold bg-red-500/20 text-red-400 border border-red-800">認購 {{ warrantCallCount }}</span>
+        <span class="px-2 py-0.5 rounded-full text-xs font-bold bg-green-500/20 text-green-400 border border-green-800">認售 {{ warrantPutCount }}</span>
+      </div>
+
+      <!-- 表格 -->
+      <div v-if="warrantRows.length" class="bg-gray-900 rounded-xl border border-gray-800 overflow-x-auto">
+        <table class="w-full text-xs">
+          <thead>
+            <tr class="border-b border-gray-800 text-gray-500">
+              <th class="text-left px-3 py-2.5 font-medium cursor-pointer hover:text-gray-300 whitespace-nowrap" @click="warrantSort('warrantNo')">代號{{ wSortIcon('warrantNo') }}</th>
+              <th class="text-left px-3 py-2.5 font-medium whitespace-nowrap">名稱</th>
+              <th class="text-left px-3 py-2.5 font-medium whitespace-nowrap">類型</th>
+              <th class="text-left px-3 py-2.5 font-medium whitespace-nowrap hidden sm:table-cell">發行商</th>
+              <th class="text-right px-3 py-2.5 font-medium cursor-pointer hover:text-gray-300 whitespace-nowrap" @click="warrantSort('strike')">履約價{{ wSortIcon('strike') }}</th>
+              <th class="text-right px-3 py-2.5 font-medium cursor-pointer hover:text-gray-300 whitespace-nowrap hidden md:table-cell" @click="warrantSort('daysLeft')">到期日{{ wSortIcon('daysLeft') }}</th>
+              <th class="text-right px-3 py-2.5 font-medium cursor-pointer hover:text-gray-300 whitespace-nowrap hidden md:table-cell" @click="warrantSort('daysLeft')">剩餘天{{ wSortIcon('daysLeft') }}</th>
+              <th class="text-right px-3 py-2.5 font-medium cursor-pointer hover:text-gray-300 whitespace-nowrap" @click="warrantSort('price')">現價{{ wSortIcon('price') }}</th>
+              <th class="text-right px-3 py-2.5 font-medium cursor-pointer hover:text-gray-300 whitespace-nowrap" @click="warrantSort('changePct')">漲跌%{{ wSortIcon('changePct') }}</th>
+              <th class="text-right px-3 py-2.5 font-medium cursor-pointer hover:text-gray-300 whitespace-nowrap" @click="warrantSort('volume')">成交量{{ wSortIcon('volume') }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="row in warrantSorted" :key="row.warrantNo"
+                class="border-b border-gray-800/50 hover:bg-gray-800/40 transition"
+                :class="row.daysLeft != null && row.daysLeft < 30 ? 'bg-orange-900/10' : ''">
+              <td class="px-3 py-2 font-mono text-gray-300">{{ row.warrantNo }}</td>
+              <td class="px-3 py-2 text-gray-400 max-w-[120px] truncate">{{ row.warrantName }}</td>
+              <td class="px-3 py-2">
+                <span class="px-1.5 py-0.5 rounded text-xs font-bold"
+                      :class="row.type === 'call' ? 'bg-red-500/20 text-red-400' : 'bg-green-500/20 text-green-400'">
+                  {{ row.type === 'call' ? '認購' : '認售' }}
+                </span>
+              </td>
+              <td class="px-3 py-2 text-gray-400 hidden sm:table-cell">{{ row.issuer || '—' }}</td>
+              <td class="px-3 py-2 text-right text-gray-300">{{ row.strike != null ? row.strike.toLocaleString() : '—' }}</td>
+              <td class="px-3 py-2 text-right text-gray-400 hidden md:table-cell">{{ row.expiry || '—' }}</td>
+              <td class="px-3 py-2 text-right hidden md:table-cell"
+                  :class="row.daysLeft != null && row.daysLeft < 30 ? 'text-orange-400 font-semibold' : 'text-gray-400'">
+                {{ row.daysLeft != null ? row.daysLeft : '—' }}
+              </td>
+              <td class="px-3 py-2 text-right text-white font-medium">{{ row.price != null ? row.price.toFixed(2) : '—' }}</td>
+              <td class="px-3 py-2 text-right font-medium" :class="wChangePctColor(row.changePct)">
+                {{ row.changePct != null ? (row.changePct > 0 ? '+' : '') + row.changePct.toFixed(2) + '%' : '—' }}
+              </td>
+              <td class="px-3 py-2 text-right text-gray-300">{{ row.volume ? row.volume.toLocaleString() : '—' }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Loading -->
+      <div v-if="warrantLoading" class="text-center py-12 text-gray-500 text-sm">查詢中，請稍候...</div>
+
+      <!-- 資料來源 -->
+      <div v-if="warrantRows.length" class="text-right text-xs text-gray-700">資料來源：TWSE OpenAPI + MIS  每日盤後更新</div>
     </div>
 
   </div>
