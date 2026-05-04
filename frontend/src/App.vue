@@ -2568,6 +2568,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               <th class="text-right px-3 py-2.5 font-medium cursor-pointer hover:text-gray-300 whitespace-nowrap" @click="warrantSort('price')">現價{{ wSortIcon('price') }}</th>
               <th class="text-right px-3 py-2.5 font-medium cursor-pointer hover:text-gray-300 whitespace-nowrap" @click="warrantSort('changePct')">漲跌%{{ wSortIcon('changePct') }}</th>
               <th class="text-right px-3 py-2.5 font-medium cursor-pointer hover:text-gray-300 whitespace-nowrap" @click="warrantSort('volume')">成交量{{ wSortIcon('volume') }}</th>
+              <th class="px-3 py-2.5 font-medium whitespace-nowrap">工具</th>
             </tr>
           </thead>
           <tbody>
@@ -2598,6 +2599,16 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <span v-else>{{ row.changePct != null ? (row.changePct > 0 ? '+' : '') + row.changePct.toFixed(2) + '%' : '—' }}</span>
               </td>
               <td class="px-3 py-2 text-right text-gray-300">{{ row.volume ? row.volume.toLocaleString() : '—' }}</td>
+              <td class="px-3 py-2">
+                <div class="flex gap-1 justify-center">
+                  <a :href="`https://warrant.pscnet.com.tw/wSettle.aspx?wid=${row.warrantNo}`" target="_blank" rel="noopener"
+                     class="px-1.5 py-0.5 rounded text-xs bg-blue-900/40 text-blue-400 hover:bg-blue-800/60 border border-blue-800/50 whitespace-nowrap transition">履約</a>
+                  <a :href="`https://www.warrantwin.com.tw/eyuanta/Warrant/Analyzer.aspx?WID=${row.warrantNo}`" target="_blank" rel="noopener"
+                     class="px-1.5 py-0.5 rounded text-xs bg-purple-900/40 text-purple-400 hover:bg-purple-800/60 border border-purple-800/50 whitespace-nowrap transition">試算</a>
+                  <a href="https://www.warrantwin.com.tw/eyuanta/Warrant/Search.aspx" target="_blank" rel="noopener"
+                     class="px-1.5 py-0.5 rounded text-xs bg-gray-800 text-gray-400 hover:bg-gray-700 border border-gray-700 whitespace-nowrap transition">搜尋</a>
+                </div>
+              </td>
             </tr>
           </tbody>
         </table>
