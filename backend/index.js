@@ -1805,10 +1805,10 @@ const TAIFEX_BASE = 'https://openapi.taifex.com.tw/v1'
 })()
 
 async function isTradingDay(dateStr) {
-  // dateStr: YYYYMMDD，呼叫 TWSE 確認當日是否有交易
+  // dateStr: YYYYMMDD，用 T86 三大法人確認當日是否有交易（MI_INDEX 可能無資料）
   try {
     const data = await fetchUrl(
-      `https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX?date=${dateStr}&type=MS&response=json`
+      `https://www.twse.com.tw/rwd/zh/fund/T86?date=${dateStr}&selectType=ALLBUT0999&response=json`
     )
     return data?.stat === 'OK' && Array.isArray(data?.data) && data.data.length > 0
   } catch {
@@ -3151,6 +3151,20 @@ cron.schedule('35 15 * * 1-5', async () => {
     await saveSectorSnapshot(result)
     console.log(`[sector_snapshots] ${today} 快照儲存完成`)
   } catch(e) { console.error('[sector_snapshots] 快照儲存失敗:', e.message) }
+}, { timezone: 'Asia/Taipei' })
+
+// 17:30 台指期籌碼補試（TAIFEX OpenAPI 有時晚發，15:30 沒拿到今日資料時再補一次）
+cron.schedule('30 17 * * 1-5', async () => {
+  const todayStr = new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10)
+  // 確認 DB 是否已有今日資料
+  try {
+    const { rows } = await pool.query(
+      `SELECT 1 FROM futures_chips WHERE trade_date=$1 AND foreign_tx_net <> 0 LIMIT 1`, [todayStr]
+    )
+    if (rows.length) { console.log(`[cron] 17:30 台指期籌碼已有 ${todayStr} 資料，略過`); return }
+  } catch { /* pass */ }
+  console.log(`[cron] 17:30 補試台指期籌碼 ${todayStr}`)
+  await syncFuturesChips().catch(e => console.error('[cron] 17:30 補試失敗:', e.message))
 }, { timezone: 'Asia/Taipei' })
 
 // 17:00 每日行情摘要（TWSE afterTrading 16:30+ 穩定後補抓三大法人 + 融資）
