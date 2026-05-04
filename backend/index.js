@@ -1912,8 +1912,6 @@ async function syncFuturesChips() {
     ])
     console.log(`[futures_chips] ${tradeDate} 同步完成`)
 
-    // 確認是否為今日資料，避免重複通知舊資料
-    const todayStr = new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10)
     if (tradeDate !== todayStr) {
       console.log(`[futures_chips] TAIFEX 資料尚未更新（最新: ${tradeDate}，今日: ${todayStr}），不發通知`)
       return false
