@@ -1826,7 +1826,7 @@ async function syncFuturesChips() {
     ])
 
     const tx = instData.filter(r => r.ContractCode === '臺股期貨')
-    if (!tx.length) { console.log('[futures_chips] 無台指期資料（可能休市）'); return }
+    if (!tx.length) { console.log('[futures_chips] 無台指期資料（可能休市）'); return false }
 
     const getInst = (item) => {
       const row = tx.find(r => r.Item === item)
@@ -1837,12 +1837,45 @@ async function syncFuturesChips() {
         net:   parseInt(row['OpenInterest(Net)'])   || 0,
       }
     }
-    const foreign = getInst('外資及陸資')
-    const trust   = getInst('投信')
-    const dealer  = getInst('自營商')
 
     const dateStr   = tx[0].Date   // YYYYMMDD
     const tradeDate = `${dateStr.slice(0,4)}-${dateStr.slice(4,6)}-${dateStr.slice(6,8)}`
+    const todayStr  = new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10)
+
+    // TAIFEX API 還是舊日期 → 改用 FinMind 抓今日資料
+    if (tradeDate !== todayStr) {
+      console.log(`[futures_chips] TAIFEX 仍為 ${tradeDate}，改用 FinMind 抓 ${todayStr}`)
+      const fm = await fetchUrl(
+        `https://api.finmindtrade.com/api/v4/data?dataset=TaiwanFuturesInstitutionalInvestors&data_id=TX&start_date=${todayStr}&end_date=${todayStr}`
+      ).catch(() => null)
+      if (!fm?.data?.length) {
+        console.log('[futures_chips] FinMind 今日資料也尚未發布，放棄')
+        return false
+      }
+      // 用 FinMind 資料重新走 backfill 流程（只補今天）
+      await backfillFuturesChips(1)
+      // 再查 DB 確認有今日資料
+      const { rows } = await pool.query(
+        `SELECT foreign_tx_net FROM futures_chips WHERE trade_date=$1`, [todayStr]
+      )
+      if (!rows.length) return false
+      // 發通知（從 DB 讀回）
+      const { rows: r } = await pool.query(`SELECT * FROM futures_chips WHERE trade_date=$1`, [todayStr])
+      const row = r[0]
+      const fmt = n => (n >= 0 ? '+' : '') + n.toLocaleString()
+      sendTelegram(
+        `📊 <b>台指期籌碼快訊</b> ${todayStr}\n` +
+        `外資　多 ${row.foreign_tx_long.toLocaleString()} 空 ${row.foreign_tx_short.toLocaleString()} 淨 <b>${fmt(row.foreign_tx_net)}</b>\n` +
+        `投信　多 ${row.trust_tx_long.toLocaleString()} 空 ${row.trust_tx_short.toLocaleString()} 淨 <b>${fmt(row.trust_tx_net)}</b>\n` +
+        `自營　多 ${row.dealer_tx_long.toLocaleString()} 空 ${row.dealer_tx_short.toLocaleString()} 淨 <b>${fmt(row.dealer_tx_net)}</b>\n` +
+        (row.pc_oi_ratio ? `PC量比 <b>${row.pc_volume_ratio}</b>　PC未平倉 <b>${row.pc_oi_ratio}</b>` : '')
+      )
+      return true
+    }
+
+    const foreign = getInst('外資及陸資')
+    const trust   = getInst('投信')
+    const dealer  = getInst('自營商')
 
     const largeTX = largeData.find(r => r.Contract === 'TX' && r.SettlementMonth === '999912' && r.TypeOfTraders === '0') || {}
     const latestPC = pcData?.length ? pcData[pcData.length - 1] : null
@@ -1917,6 +1950,111 @@ app.get('/api/futures-chips', async (req, res) => {
 app.post('/api/sync/futures-chips', async (req, res) => {
   res.json({ ok: true, message: '同步已開始' })
   syncFuturesChips()
+})
+
+// ── 台指期籌碼歷史回填（FinMind，最多 30 個交易日）────────────────────
+async function backfillFuturesChips(days = 30) {
+  console.log(`[backfill_futures] 開始回填近 ${days} 天台指期籌碼...`)
+  try {
+    const endDate   = new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10)
+    const startDate = new Date(Date.now() + 8 * 3600000 - days * 86400000).toISOString().slice(0, 10)
+
+    // 1. FinMind 三大法人未平倉
+    const instRaw = await fetchUrl(
+      `https://api.finmindtrade.com/api/v4/data?dataset=TaiwanFuturesInstitutionalInvestors&data_id=TX&start_date=${startDate}&end_date=${endDate}`
+    )
+    if (instRaw?.status !== 200 || !instRaw?.data?.length) {
+      console.log('[backfill_futures] FinMind 無資料')
+      return
+    }
+
+    // 2. TAIFEX PC比率（約 21 天）
+    const pcRaw = await fetchUrl('https://openapi.taifex.com.tw/v1/PutCallRatio').catch(() => [])
+    const pcByDate = {}
+    for (const r of pcRaw || []) {
+      const d = `${r.Date.slice(0,4)}-${r.Date.slice(4,6)}-${r.Date.slice(6,8)}`
+      pcByDate[d] = r
+    }
+
+    // 3. TAIFEX 大額交易人（只有當日）
+    const largeRaw = await fetchUrl('https://openapi.taifex.com.tw/v1/OpenInterestOfLargeTradersFutures').catch(() => [])
+    const largeTodayStr = largeRaw?.[0]?.Date
+      ? `${largeRaw[0].Date.slice(0,4)}-${largeRaw[0].Date.slice(4,6)}-${largeRaw[0].Date.slice(6,8)}`
+      : null
+    const largeTX = largeRaw?.find?.(r => r.Contract === 'TX' && r.SettlementMonth === '999912' && r.TypeOfTraders === '0') || {}
+
+    // 4. 按日期彙整三大法人
+    const byDate = {}
+    for (const row of instRaw.data) {
+      const d = row.date
+      if (!byDate[d]) byDate[d] = {}
+      const type = row.institutional_investors
+      byDate[d][type] = {
+        long:  row.long_open_interest_balance_volume  || 0,
+        short: row.short_open_interest_balance_volume || 0,
+        net:   (row.long_open_interest_balance_volume || 0) - (row.short_open_interest_balance_volume || 0),
+      }
+    }
+
+    let inserted = 0, updated = 0
+    for (const [tradeDate, inst] of Object.entries(byDate)) {
+      const foreign = inst['外資及陸資'] || inst['外資'] || { long: 0, short: 0, net: 0 }
+      const trust   = inst['投信']       || { long: 0, short: 0, net: 0 }
+      const dealer  = inst['自營商']     || { long: 0, short: 0, net: 0 }
+      const pc      = pcByDate[tradeDate] || null
+      const isToday = tradeDate === largeTodayStr
+
+      await pool.query(`
+        INSERT INTO futures_chips (
+          trade_date,
+          foreign_tx_long, foreign_tx_short, foreign_tx_net,
+          trust_tx_long,   trust_tx_short,   trust_tx_net,
+          dealer_tx_long,  dealer_tx_short,  dealer_tx_net,
+          large_top5_long, large_top5_short, large_top10_long, large_top10_short, oi_market,
+          pc_volume_ratio, pc_oi_ratio, put_oi, call_oi, updated_at
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,NOW())
+        ON CONFLICT (trade_date) DO UPDATE SET
+          foreign_tx_long=$2,  foreign_tx_short=$3,  foreign_tx_net=$4,
+          trust_tx_long=$5,    trust_tx_short=$6,    trust_tx_net=$7,
+          dealer_tx_long=$8,   dealer_tx_short=$9,   dealer_tx_net=$10,
+          large_top5_long  = CASE WHEN $11 <> 0 THEN $11 ELSE futures_chips.large_top5_long  END,
+          large_top5_short = CASE WHEN $12 <> 0 THEN $12 ELSE futures_chips.large_top5_short END,
+          large_top10_long = CASE WHEN $13 <> 0 THEN $13 ELSE futures_chips.large_top10_long END,
+          large_top10_short= CASE WHEN $14 <> 0 THEN $14 ELSE futures_chips.large_top10_short END,
+          oi_market        = CASE WHEN $15 <> 0 THEN $15 ELSE futures_chips.oi_market END,
+          pc_volume_ratio  = COALESCE($16, futures_chips.pc_volume_ratio),
+          pc_oi_ratio      = COALESCE($17, futures_chips.pc_oi_ratio),
+          put_oi           = COALESCE($18, futures_chips.put_oi),
+          call_oi          = COALESCE($19, futures_chips.call_oi),
+          updated_at       = NOW()
+      `, [
+        tradeDate,
+        foreign.long, foreign.short, foreign.net,
+        trust.long,   trust.short,   trust.net,
+        dealer.long,  dealer.short,  dealer.net,
+        isToday ? (parseInt(largeTX.Top5Buy)    || 0) : 0,
+        isToday ? (parseInt(largeTX.Top5Sell)   || 0) : 0,
+        isToday ? (parseInt(largeTX.Top10Buy)   || 0) : 0,
+        isToday ? (parseInt(largeTX.Top10Sell)  || 0) : 0,
+        isToday ? (parseInt(largeTX.OIOfMarket) || 0) : 0,
+        pc ? parseFloat(pc['PutCallVolumeRatio%']) : null,
+        pc ? parseFloat(pc['PutCallOIRatio%'])     : null,
+        pc ? parseInt(pc.PutOI)  : null,
+        pc ? parseInt(pc.CallOI) : null,
+      ])
+      updated++
+    }
+    inserted = Object.keys(byDate).length
+    console.log(`[backfill_futures] 完成：處理 ${inserted} 個交易日`)
+  } catch (e) {
+    console.error('[backfill_futures] 失敗:', e.message)
+  }
+}
+
+app.post('/api/sync/backfill-futures-chips', async (req, res) => {
+  const days = parseInt(req.query.days) || 30
+  res.json({ ok: true, message: `回填近 ${days} 天台指期籌碼已開始` })
+  backfillFuturesChips(days)
 })
 
 // PC 比率歷史回填（TAIFEX PutCallRatio 約 21 個交易日）
