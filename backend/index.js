@@ -3648,15 +3648,31 @@ const fetchMisBatch = (codes) => new Promise((resolve, reject) => {
   }).on('error', reject)
 })
 
+// In-memory cache for large TWSE warrant/company OpenAPI datasets (10-min TTL)
+const _warrantApiCache = { basic: null, company: null, ts: 0 }
+const WARRANT_CACHE_TTL = 10 * 60 * 1000
+
+async function getWarrantBaseData() {
+  const now = Date.now()
+  if (_warrantApiCache.basic && (now - _warrantApiCache.ts) < WARRANT_CACHE_TTL) {
+    return { basicRaw: _warrantApiCache.basic, companyRaw: _warrantApiCache.company }
+  }
+  const [basicRaw, companyRaw] = await Promise.all([
+    fetchUrl('https://openapi.twse.com.tw/v1/opendata/t187ap37_L'),
+    fetchUrl('https://openapi.twse.com.tw/v1/opendata/t187ap03_L'),
+  ])
+  _warrantApiCache.basic   = basicRaw
+  _warrantApiCache.company = companyRaw
+  _warrantApiCache.ts      = now
+  return { basicRaw, companyRaw }
+}
+
 app.get('/api/warrant/search', async (req, res) => {
   const { stockNo, type = 'all' } = req.query
   if (!stockNo) return res.status(400).json({ error: '請輸入標的代號' })
 
   try {
-    const [basicRaw, companyRaw] = await Promise.all([
-      fetchUrl('https://openapi.twse.com.tw/v1/opendata/t187ap37_L'),
-      fetchUrl('https://openapi.twse.com.tw/v1/opendata/t187ap03_L'),
-    ])
+    const { basicRaw, companyRaw } = await getWarrantBaseData()
 
     // Build code -> short name from TWSE listed company list (公司代號 -> 公司簡稱)
     const codeToName = {}
@@ -3680,16 +3696,15 @@ app.get('/api/warrant/search', async (req, res) => {
 
     const allCodes = warrants.map(r => r['權證代號'])
 
-    // Batch-query MIS for prices (batches of 50)
+    // Batch-query MIS for prices — all batches in parallel
+    const batches = []
+    for (let i = 0; i < allCodes.length; i += 50) batches.push(allCodes.slice(i, i + 50))
+    const batchResults = await Promise.all(
+      batches.map(batch => fetchMisBatch(batch).catch(() => null))
+    )
     const priceMap = {}
-    for (let i = 0; i < allCodes.length; i += 50) {
-      const batch = allCodes.slice(i, i + 50)
-      try {
-        const mis = await fetchMisBatch(batch)
-        for (const item of mis.msgArray || []) {
-          priceMap[item.c] = item
-        }
-      } catch(e) { /* skip failed batch */ }
+    for (const mis of batchResults) {
+      for (const item of mis?.msgArray || []) priceMap[item.c] = item
     }
 
     // Join and map fields
