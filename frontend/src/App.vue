@@ -638,13 +638,18 @@ function screenerAdvice(row) {
 }
 
 // ── 三大法人查詢 ─────────────────────────────────────────
-const instStockNo  = ref('')
-const instDays     = ref(20)
-const instLoading  = ref(false)
-const instError    = ref('')
-const instRows     = ref([])
-const instSummary  = ref(null)
-const instStockName = ref('')
+const instStockNo    = ref('')
+const instDays       = ref(20)
+const instCustomDays = ref(30)
+const instLoading    = ref(false)
+const instError      = ref('')
+const instRows       = ref([])
+const instSummary    = ref(null)
+const instStockName  = ref('')
+
+const instEffectiveDays = computed(() =>
+  instDays.value === 'custom' ? (parseInt(instCustomDays.value) || 20) : instDays.value
+)
 
 async function queryInst() {
   if (!instStockNo.value.trim()) return
@@ -653,7 +658,7 @@ async function queryInst() {
   instRows.value    = []
   instSummary.value = null
   try {
-    const r = await fetch(`${API}/api/inst/history?stockNo=${instStockNo.value.trim()}&days=${instDays.value}`)
+    const r = await fetch(`${API}/api/inst/history?stockNo=${instStockNo.value.trim()}&days=${instEffectiveDays.value}`)
     const d = await r.json()
     if (d.error) throw new Error(d.error)
     if (!d.rows.length) throw new Error(`查無 ${instStockNo.value} 的資料，請確認代號或先執行回填`)
@@ -2408,11 +2413,19 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
             <label class="block text-xs text-gray-500 mb-1">天數</label>
             <select v-model="instDays"
               class="bg-gray-800 border border-gray-700 text-gray-200 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500">
+              <option :value="5">5 天（五日）</option>
               <option :value="20">20 天</option>
               <option :value="60">60 天</option>
               <option :value="120">120 天</option>
               <option :value="200">200 天（約10個月）</option>
+              <option value="custom">自訂天數</option>
             </select>
+          </div>
+          <div v-if="instDays === 'custom'">
+            <label class="block text-xs text-gray-500 mb-1">輸入天數</label>
+            <input v-model="instCustomDays" @keyup.enter="queryInst" type="number" min="1" max="500"
+              class="bg-gray-800 border border-gray-700 text-gray-200 text-sm rounded-lg px-3 py-2 w-24 focus:outline-none focus:border-blue-500"
+              placeholder="例：30" />
           </div>
           <button @click="queryInst" :disabled="instLoading"
             class="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-semibold px-4 py-2 rounded-lg transition">
