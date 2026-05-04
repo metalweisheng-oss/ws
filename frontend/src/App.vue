@@ -2323,7 +2323,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 </td>
                 <td class="px-4 py-2.5 text-right font-mono text-sm"
                     :class="row.major_net5 > 0 ? 'text-red-400' : 'text-green-400'">
-                  {{ fmtSignShares2(row.major_net5) }}
+                  {{ fmtSignShares2(row.major_net5) }}<span class="text-gray-600 text-xs ml-0.5">張</span>
                 </td>
                 <td class="px-4 py-2.5 text-right font-mono text-sm"
                     :class="row.margin_chg5 == null ? 'text-gray-600' : row.margin_chg5 < 0 ? 'text-green-400' : 'text-red-400'">

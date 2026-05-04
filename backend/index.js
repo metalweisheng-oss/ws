@@ -2943,10 +2943,10 @@ async function runScreener() {
     }
     if (trustStreak < 3) continue
 
-    // 主力近 5 日（以 inst 最新5天計算）
-    const majorNet5 = instLast5.reduce((s, r) => {
+    // 主力近 5 日（以 inst 最新5天計算，單位：張）
+    const majorNet5 = Math.round(instLast5.reduce((s, r) => {
       return s + (parseFloat(r.inst_foreign)||0) + (parseFloat(r.inst_trust)||0)
-    }, 0)
+    }, 0) / 1000)
     if (majorNet5 <= 0) continue
 
     // 融資（以 inst 最新5天計算）
@@ -2965,8 +2965,8 @@ async function runScreener() {
     }
     const posScore = (1 - closeRank) * 10
 
-    const trustNet5   = instLast5.reduce((s,r) => s + (parseFloat(r.inst_trust)||0), 0)
-    const foreignNet5 = instLast5.reduce((s,r) => s + (parseFloat(r.inst_foreign)||0), 0)
+    const trustNet5   = Math.round(instLast5.reduce((s,r) => s + (parseFloat(r.inst_trust)||0), 0) / 1000)
+    const foreignNet5 = Math.round(instLast5.reduce((s,r) => s + (parseFloat(r.inst_foreign)||0), 0) / 1000)
 
     // 主力成本估算：以主力淨買超量為權重的加權均價（僅取主力淨買 > 0 的 streak 天）
     let instCost = null, instCostLow = null, instCostHigh = null
