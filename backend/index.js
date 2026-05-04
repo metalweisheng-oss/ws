@@ -1804,6 +1804,18 @@ const TAIFEX_BASE = 'https://openapi.taifex.com.tw/v1'
   }
 })()
 
+async function isTradingDay(dateStr) {
+  // dateStr: YYYYMMDD，呼叫 TWSE 確認當日是否有交易
+  try {
+    const data = await fetchUrl(
+      `https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX?date=${dateStr}&type=MS&response=json`
+    )
+    return data?.stat === 'OK' && Array.isArray(data?.data) && data.data.length > 0
+  } catch {
+    return false
+  }
+}
+
 async function syncFuturesChips() {
   console.log('[futures_chips] 開始同步台指期籌碼...')
   try {
@@ -1867,6 +1879,13 @@ async function syncFuturesChips() {
     ])
     console.log(`[futures_chips] ${tradeDate} 同步完成`)
 
+    // 確認是否為今日資料，避免重複通知舊資料
+    const todayStr = new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10)
+    if (tradeDate !== todayStr) {
+      console.log(`[futures_chips] TAIFEX 資料尚未更新（最新: ${tradeDate}，今日: ${todayStr}），不發通知`)
+      return false
+    }
+
     const fmt = n => (n >= 0 ? '+' : '') + n.toLocaleString()
     const msg =
       `📊 <b>台指期籌碼快訊</b> ${tradeDate}\n` +
@@ -1877,8 +1896,10 @@ async function syncFuturesChips() {
       (largeTX.Top5Buy ? `大額前5　多 ${parseInt(largeTX.Top5Buy).toLocaleString()} 空 ${parseInt(largeTX.Top5Sell).toLocaleString()}\n` : '') +
       (largeTX.Top10Buy ? `大額前10　多 ${parseInt(largeTX.Top10Buy).toLocaleString()} 空 ${parseInt(largeTX.Top10Sell).toLocaleString()}` : '')
     sendTelegram(msg.trim())
+    return true
   } catch (e) {
     console.error('[futures_chips] 同步失敗:', e.message)
+    return false
   }
 }
 
@@ -3091,13 +3112,34 @@ async function serverMonitorAll() {
 setInterval(serverMonitorAll, 30 * 1000)
 console.log('[monitor] 伺服器端背景監控已啟動（開盤時每 30 秒自動執行）')
 
-cron.schedule('30 15 * * 1-5', () => {
+cron.schedule('30 15 * * 1-5', async () => {
   console.log('[cron] 15:30 台指期籌碼 + 漲跌家數自動同步')
   syncMarketBreadth()
-  syncFuturesChips().catch(() => {
-    console.log('[cron] 15:30 台指期籌碼失敗，5 分鐘後重試')
-    setTimeout(() => syncFuturesChips(), 5 * 60 * 1000)
+
+  const todayStr = new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10)
+  const dateKey  = todayStr.replace(/-/g, '')
+
+  const trading = await isTradingDay(dateKey)
+  if (!trading) {
+    console.log(`[cron] 15:30 今日 ${todayStr} 為休市日，跳過台指期籌碼同步`)
+    return
+  }
+
+  // 嘗試同步；若 TAIFEX 資料尚未更新（回傳 false），30 分鐘後再試一次
+  const got = await syncFuturesChips().catch(e => {
+    console.error('[cron] 15:30 台指期籌碼失敗:', e.message)
+    return false
   })
+  if (!got) {
+    console.log('[cron] 15:30 TAIFEX 資料未更新，16:00 重試')
+    setTimeout(async () => {
+      const got2 = await syncFuturesChips().catch(e => {
+        console.error('[cron] 16:00 重試失敗:', e.message)
+        return false
+      })
+      if (!got2) console.log('[cron] 16:00 重試仍無當日資料，放棄')
+    }, 30 * 60 * 1000)
+  }
 }, { timezone: 'Asia/Taipei' })
 
 cron.schedule('35 15 * * 1-5', async () => {
