@@ -3486,18 +3486,17 @@ app.get('/api/warrant/search', async (req, res) => {
   if (!stockNo) return res.status(400).json({ error: '請輸入標的代號' })
 
   try {
-    const [basicRaw, stockDayRaw] = await Promise.all([
+    const [basicRaw, companyRaw] = await Promise.all([
       fetchUrl('https://openapi.twse.com.tw/v1/opendata/t187ap37_L'),
-      fetchUrl('https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY_ALL?response=json'),
+      fetchUrl('https://openapi.twse.com.tw/v1/opendata/t187ap03_L'),
     ])
 
-    // Build code -> name and name -> code maps
+    // Build code -> short name from TWSE listed company list (公司代號 -> 公司簡稱)
     const codeToName = {}
-    const nameToCode = {}
-    for (const row of stockDayRaw?.data || []) {
-      const code = row[0]?.trim()
-      const name = row[1]?.trim()
-      if (code && name) { codeToName[code] = name; nameToCode[name] = code }
+    for (const row of Array.isArray(companyRaw) ? companyRaw : []) {
+      const code = (row['公司代號'] || '').trim()
+      const name = (row['公司簡稱'] || '').trim()
+      if (code && name) codeToName[code] = name
     }
     const stockName = codeToName[stockNo] || ''
     if (!stockName) return res.json({ rows: [], stockName: '', total: 0 })
