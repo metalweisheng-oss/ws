@@ -3071,6 +3071,151 @@ async function runScreener() {
   console.log(`[screener] 完成：候選 ${candidates.length} 檔，寫入 ${saved} 筆（${runDate}）`)
 }
 
+// 個股跑分：對單一股票執行選股評分，並回傳各關卡通過/失敗明細
+app.get('/api/screener/score', async (req, res) => {
+  const { stockNo } = req.query
+  if (!stockNo) return res.status(400).json({ error: '請輸入股票代號' })
+  try {
+    const { rows: days } = await pool.query(`
+      SELECT stock_no, stock_name, trade_date, close, open_p, high, low, volume,
+             inst_foreign, inst_trust, inst_dealer, margin_bal
+      FROM market_daily
+      WHERE stock_no=$1 AND trade_date >= CURRENT_DATE - 35
+      ORDER BY trade_date ASC
+    `, [stockNo])
+
+    if (!days.length) return res.json({ found: false, reason: '查無市場資料，請確認代號或先執行回填' })
+
+    const checks = []  // [{label, pass, value}]
+    const today = new Date(Date.now() + 8 * 3600000)
+    const latest = days[days.length - 1]
+    const stockName = latest.stock_name || stockNo
+
+    const check = (label, pass, value = '') => { checks.push({ label, pass, value: String(value) }); return pass }
+
+    check('資料筆數 ≥ 5', days.length >= 5, `${days.length} 筆`)
+    if (days.length < 5) return res.json({ found: true, pass: false, stockName, checks })
+
+    const latestDate = new Date(latest.trade_date)
+    check('最新資料在 4 天內', (today - latestDate) / 86400000 <= 4,
+      latest.trade_date.toISOString?.().slice(0,10) ?? String(latest.trade_date).slice(0,10))
+
+    const close = parseFloat(latest.close)
+    check('收盤價有效', !!close, close)
+    if (!close) return res.json({ found: true, pass: false, stockName, checks })
+
+    let instEndIdx = days.length - 1
+    while (instEndIdx >= 0 && days[instEndIdx].inst_trust === null) instEndIdx--
+    check('有三大法人資料', instEndIdx >= 0)
+    if (instEndIdx < 0) return res.json({ found: true, pass: false, stockName, checks })
+
+    const instLatestDate = new Date(days[instEndIdx].trade_date)
+    check('法人資料在 7 天內', (today - instLatestDate) / 86400000 <= 7,
+      String(days[instEndIdx].trade_date).slice(0,10))
+
+    const last20 = days.slice(-20), last10 = days.slice(-10), last5 = days.slice(-5)
+    const instLast5 = days.slice(Math.max(0, instEndIdx - 4), instEndIdx + 1)
+
+    const prevClose = days.length >= 2 ? parseFloat(days[days.length-2].close) : close
+    const changePct = prevClose > 0 ? (close - prevClose) / prevClose * 100 : 0
+    check('當日漲跌幅 ≤ 7%', Math.abs(changePct) <= 7, `${changePct.toFixed(2)}%`)
+
+    const close5dAgo = last5[0]?.close ? parseFloat(last5[0].close) : close
+    const chg5d = close5dAgo > 0 ? (close - close5dAgo) / close5dAgo * 100 : 0
+    check('5日漲幅 ≤ 5%', chg5d <= 5, `${chg5d.toFixed(2)}%`)
+
+    const close10dAgo = last10.length >= 2 ? parseFloat(last10[0].close) : close
+    const chg10d = close10dAgo > 0 ? (close - close10dAgo) / close10dAgo * 100 : 0
+    check('10日漲幅 ≤ 20%', chg10d <= 20, `${chg10d.toFixed(2)}%`)
+
+    const highs = last20.map(r => parseFloat(r.high)).filter(v => !isNaN(v) && v > 0)
+    const lows  = last20.map(r => parseFloat(r.low)).filter(v => !isNaN(v) && v > 0)
+    const high20 = highs.length ? Math.max(...highs) : close
+    const low20  = lows.length  ? Math.min(...lows)  : close
+    const closeRank = high20 > low20 ? (close - low20) / (high20 - low20) : 0.5
+    check('20日價位 ≤ 90%高點', closeRank <= 0.9, `${(closeRank*100).toFixed(0)}%`)
+
+    const vols20 = last20.map(r => parseFloat(r.volume)).filter(v => !isNaN(v) && v > 0)
+    const avgVol20 = vols20.length ? vols20.reduce((a,b)=>a+b,0)/vols20.length : 0
+    const volRatio = avgVol20 > 0 ? parseFloat(latest.volume) / avgVol20 : 1
+    check('量比 ≤ 3x', volRatio <= 3, `${volRatio.toFixed(2)}x`)
+
+    let trustStreak = 0
+    const instStreakDays = []
+    for (let i = instEndIdx; i >= 0; i--) {
+      const trust = days[i].inst_trust != null ? parseFloat(days[i].inst_trust) : null
+      if (trust === null || isNaN(trust)) break
+      if (trust > 0) { trustStreak++; instStreakDays.unshift(days[i]) }
+      else break
+    }
+    check('投信連續買超 ≥ 3 天', trustStreak >= 3, `${trustStreak} 天`)
+
+    const majorNet5 = Math.round(instLast5.reduce((s,r) => s + (parseFloat(r.inst_foreign)||0) + (parseFloat(r.inst_trust)||0), 0) / 1000)
+    check('主力5日淨買超 > 0', majorNet5 > 0, `${majorNet5.toLocaleString()} 張`)
+
+    const marginFirst = instLast5[0]?.margin_bal != null ? parseFloat(instLast5[0].margin_bal) : NaN
+    const marginLast  = days[instEndIdx]?.margin_bal != null ? parseFloat(days[instEndIdx].margin_bal) : NaN
+    let marginChg5 = null
+    if (!isNaN(marginFirst) && !isNaN(marginLast) && marginFirst > 0) marginChg5 = marginLast - marginFirst
+    check('融資5日未增加', marginChg5 === null || marginChg5 <= 0,
+      marginChg5 != null ? `${marginChg5 >= 0 ? '+' : ''}${Math.round(marginChg5)} 張` : '無融資資料')
+
+    const allPass = checks.every(c => c.pass)
+
+    // 計算分數（用 screener_results 現有 major 範圍做 normalize，若無則用 0.5）
+    let majorNorm = 0.5
+    try {
+      const { rows: mr } = await pool.query(
+        `SELECT MIN(major_net5) AS mn, MAX(major_net5) AS mx FROM screener_results WHERE run_date=(SELECT MAX(run_date) FROM screener_results)`
+      )
+      if (mr[0]?.mx > mr[0]?.mn) majorNorm = (majorNet5 - mr[0].mn) / (mr[0].mx - mr[0].mn)
+      majorNorm = Math.max(0, Math.min(1, majorNorm))
+    } catch {}
+
+    const trustScore  = Math.min(trustStreak / 7, 1) * 30
+    let   marginScore = 10
+    if (marginChg5 !== null && marginChg5 < 0 && marginFirst > 0)
+      marginScore = Math.min((-marginChg5 / marginFirst) * 100 / 5, 1) * 20
+    const posScore    = (1 - closeRank) * 10
+    const majorScore  = majorNorm * 25
+
+    let concScore = 0
+    try {
+      const { rows: concRows } = await pool.query(
+        `SELECT large_pct FROM concentration WHERE stock_no=$1 AND data_date >= CURRENT_DATE - 30 ORDER BY data_date ASC`, [stockNo]
+      )
+      let streak = 0
+      for (let i = concRows.length - 1; i >= 1; i--) {
+        if (parseFloat(concRows[i].large_pct) > parseFloat(concRows[i-1].large_pct)) streak++
+        else break
+      }
+      concScore = Math.min(streak / 5, 1) * 15
+    } catch {}
+
+    const score = +(trustScore + marginScore + posScore + majorScore + concScore).toFixed(1)
+    const trustNet5   = Math.round(instLast5.reduce((s,r) => s + (parseFloat(r.inst_trust)||0), 0) / 1000)
+    const foreignNet5 = Math.round(instLast5.reduce((s,r) => s + (parseFloat(r.inst_foreign)||0), 0) / 1000)
+
+    res.json({
+      found: true, pass: allPass, stockNo, stockName, score, checks,
+      detail: {
+        trustStreak, majorNet5, trustNet5, foreignNet5,
+        marginChg5: marginChg5 != null ? Math.round(marginChg5) : null,
+        closeRank: +(closeRank*100).toFixed(0), volRatio: +volRatio.toFixed(2),
+        chg5d: +chg5d.toFixed(2), chg10d: +chg10d.toFixed(2),
+        close, changePct: +changePct.toFixed(2),
+        scoreBreakdown: {
+          trustScore:  +trustScore.toFixed(1),
+          marginScore: +marginScore.toFixed(1),
+          posScore:    +posScore.toFixed(1),
+          majorScore:  +majorScore.toFixed(1),
+          concScore:   +concScore.toFixed(1),
+        }
+      }
+    })
+  } catch(e) { res.status(500).json({ error: e.message }) }
+})
+
 app.get('/api/screener/results', async (req, res) => {
   try {
     const limit = Math.min(parseInt(req.query.limit) || 50, 200)

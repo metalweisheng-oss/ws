@@ -529,6 +529,29 @@ const screenerSyncing  = ref(false)
 const screenerBackfilling = ref(false)
 const screenerLogicOpen = ref(false)
 
+// 個股跑分
+const scoreStockNo   = ref('')
+const scoreLoading   = ref(false)
+const scoreResult    = ref(null)
+const scoreError     = ref('')
+
+async function queryScore() {
+  if (!scoreStockNo.value.trim()) return
+  scoreLoading.value = true
+  scoreResult.value  = null
+  scoreError.value   = ''
+  try {
+    const r = await fetch(`${API}/api/screener/score?stockNo=${scoreStockNo.value.trim()}`)
+    const d = await r.json()
+    if (d.error) throw new Error(d.error)
+    scoreResult.value = d
+  } catch(e) {
+    scoreError.value = e.message
+  } finally {
+    scoreLoading.value = false
+  }
+}
+
 async function loadScreener() {
   screenerLoading.value = true
   screenerError.value   = ''
@@ -1902,6 +1925,68 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
       </div>
 
       <p v-if="screenerError" class="text-red-400 text-sm">{{ screenerError }}</p>
+
+      <!-- 個股跑分 -->
+      <div class="bg-gray-900 rounded-xl border border-gray-800 px-5 py-4 space-y-3">
+        <h3 class="text-sm font-semibold text-gray-300">🎯 個股跑分</h3>
+        <div class="flex gap-2 items-center">
+          <input v-model="scoreStockNo" @keyup.enter="queryScore" type="text" placeholder="輸入股票代號，例：2330"
+                 class="bg-gray-800 border border-gray-700 text-gray-200 text-sm rounded-lg px-3 py-2 w-44 focus:outline-none focus:border-blue-500" />
+          <button @click="queryScore" :disabled="scoreLoading"
+                  class="px-4 py-2 rounded-lg bg-blue-700 hover:bg-blue-600 text-sm transition disabled:opacity-50">
+            {{ scoreLoading ? '計算中...' : '跑分' }}
+          </button>
+        </div>
+        <p v-if="scoreError" class="text-red-400 text-sm">{{ scoreError }}</p>
+
+        <!-- 結果卡片 -->
+        <div v-if="scoreResult" class="space-y-3">
+          <!-- 標題與分數 -->
+          <div class="flex flex-wrap items-center gap-3">
+            <span class="text-white font-semibold">{{ scoreResult.stockName }} ({{ scoreResult.stockNo }})</span>
+            <span v-if="scoreResult.pass"
+                  class="px-3 py-1 rounded-full text-sm font-bold bg-green-500/20 text-green-400 border border-green-700">
+              ✅ 通過篩選・評分 {{ scoreResult.score }}
+            </span>
+            <span v-else
+                  class="px-3 py-1 rounded-full text-sm font-bold bg-red-500/20 text-red-400 border border-red-800">
+              ❌ 未通過篩選
+            </span>
+          </div>
+
+          <!-- 各關卡 -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+            <div v-for="c in scoreResult.checks" :key="c.label"
+                 class="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs"
+                 :class="c.pass ? 'bg-green-900/20 border border-green-900/40' : 'bg-red-900/20 border border-red-900/40'">
+              <span :class="c.pass ? 'text-green-400' : 'text-red-400'">{{ c.pass ? '✓' : '✗' }}</span>
+              <span class="text-gray-300 flex-1">{{ c.label }}</span>
+              <span class="text-gray-500 font-mono">{{ c.value }}</span>
+            </div>
+          </div>
+
+          <!-- 分數明細（通過才顯示） -->
+          <div v-if="scoreResult.pass && scoreResult.detail" class="bg-gray-800 rounded-lg px-4 py-3 space-y-2">
+            <div class="text-xs font-semibold text-gray-400 mb-2">評分明細（滿分 100）</div>
+            <div class="grid grid-cols-2 sm:grid-cols-5 gap-2 text-center text-xs">
+              <div v-for="(val, key) in scoreResult.detail.scoreBreakdown" :key="key" class="bg-gray-700/50 rounded px-2 py-1.5">
+                <div class="text-gray-500">{{ {trustScore:'投信連買',marginScore:'融資下降',posScore:'低位加分',majorScore:'主力買超',concScore:'大股東'}[key] }}</div>
+                <div class="text-white font-bold font-mono">{{ val }}</div>
+              </div>
+            </div>
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs mt-2">
+              <div class="text-gray-500">主力5日淨 <span class="text-gray-200 font-mono">{{ scoreResult.detail.majorNet5?.toLocaleString() }} 張</span></div>
+              <div class="text-gray-500">外資5日 <span class="text-gray-200 font-mono">{{ scoreResult.detail.foreignNet5?.toLocaleString() }} 張</span></div>
+              <div class="text-gray-500">投信5日 <span class="text-gray-200 font-mono">{{ scoreResult.detail.trustNet5?.toLocaleString() }} 張</span></div>
+              <div class="text-gray-500">投信連買 <span class="text-gray-200 font-mono">{{ scoreResult.detail.trustStreak }} 天</span></div>
+              <div class="text-gray-500">融資5日變化 <span :class="(scoreResult.detail.marginChg5||0)<0?'text-green-400':'text-gray-200'" class="font-mono">{{ scoreResult.detail.marginChg5!=null?(scoreResult.detail.marginChg5>=0?'+':'')+scoreResult.detail.marginChg5+'張':'—' }}</span></div>
+              <div class="text-gray-500">20日價位 <span class="text-gray-200 font-mono">{{ scoreResult.detail.closeRank }}%</span></div>
+              <div class="text-gray-500">5日漲幅 <span class="text-gray-200 font-mono">{{ scoreResult.detail.chg5d }}%</span></div>
+              <div class="text-gray-500">量比 <span class="text-gray-200 font-mono">{{ scoreResult.detail.volRatio }}x</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
 
       <!-- 階段說明 -->
       <div class="flex flex-wrap gap-2 text-xs">
