@@ -1,2 +1,6 @@
 [2026-05-04 17:59:33.387797 +08:00 INFO] [apikey_dma_login] personal_id="D122054524"
 [2026-05-04 17:59:33.458597 +08:00 INFO] [apikey_dma_login] Loaded permissions from XPSAZBIZS: {StockAccounting, MarketData}
+[2026-05-04 19:03:33.253276 +08:00 INFO] [apikey_dma_login] personal_id="D122054524"
+[2026-05-04 19:03:33.279148 +08:00 INFO] [apikey_dma_login] Loaded permissions from XPSAZBIZS: {StockAccounting, MarketData}
+[2026-05-04 19:04:22.298310 +08:00 INFO] [apikey_dma_login] personal_id="D122054524"
+[2026-05-04 19:04:22.317602 +08:00 INFO] [apikey_dma_login] Loaded permissions from XPSAZBIZS: {StockAccounting, MarketData}
