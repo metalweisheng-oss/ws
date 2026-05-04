@@ -282,7 +282,6 @@ function selectTab(t) {
   if (t === 'sector')   { loadSectorDates(); loadSectorAnalysis() }
   if (t === 'conc')     loadConcentration()
   if (t === 'screener') loadScreener()
-  if (t === 'inst') { instStockNo.value = ''; instRows.value = []; instSummary.value = null; instError.value = '' }
   if (t === 'warrant') { warrantRows.value = []; warrantError.value = ''; warrantStockName.value = '' }
 }
 
