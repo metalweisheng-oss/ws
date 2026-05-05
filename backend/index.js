@@ -3729,6 +3729,44 @@ const fetchMisBatch = (codes) => new Promise((resolve, reject) => {
   }).on('error', reject)
 })
 
+// ── Black-Scholes 計算函式 ────────────────────────────────
+function normCDF(x) {
+  const a = [0.254829592, -0.284496736, 1.421413741, -1.453152027, 1.061405429]
+  const p = 0.3275911, sign = x < 0 ? -1 : 1
+  x = Math.abs(x)
+  const t = 1 / (1 + p * x)
+  const poly = ((((a[4]*t + a[3])*t + a[2])*t + a[1])*t + a[0]) * t
+  return 0.5 * (1 + sign * (1 - poly * Math.exp(-x * x)))
+}
+
+function bsPrice(S, K, T, r, sigma, isCall) {
+  if (T <= 0 || sigma <= 0) return Math.max(0, isCall ? S - K : K - S)
+  const sqrtT = Math.sqrt(T)
+  const d1 = (Math.log(S / K) + (r + sigma * sigma / 2) * T) / (sigma * sqrtT)
+  const d2 = d1 - sigma * sqrtT
+  return isCall
+    ? S * normCDF(d1) - K * Math.exp(-r * T) * normCDF(d2)
+    : K * Math.exp(-r * T) * normCDF(-d2) - S * normCDF(-d1)
+}
+
+function calcIV(S, K, T, r, marketPrice, isCall) {
+  if (!S || !K || !T || marketPrice <= 0) return null
+  let lo = 0.001, hi = 15
+  for (let i = 0; i < 200; i++) {
+    const mid = (lo + hi) / 2
+    const diff = bsPrice(S, K, T, r, mid, isCall) - marketPrice
+    if (Math.abs(diff) < 1e-6) return +( mid * 100).toFixed(2)
+    if (diff > 0) hi = mid; else lo = mid
+  }
+  return +((lo + hi) / 2 * 100).toFixed(2)
+}
+
+function calcDelta(S, K, T, r, sigma, isCall) {
+  if (!S || !K || !T || !sigma) return null
+  const d1 = (Math.log(S / K) + (r + sigma * sigma / 2) * T) / (sigma * Math.sqrt(T))
+  return +((isCall ? normCDF(d1) : normCDF(d1) - 1)).toFixed(4)
+}
+
 // In-memory cache for large TWSE warrant/company OpenAPI datasets (10-min TTL)
 const _warrantApiCache = { basic: null, company: null, ts: 0 }
 const WARRANT_CACHE_TTL = 10 * 60 * 1000
@@ -3777,16 +3815,25 @@ app.get('/api/warrant/search', async (req, res) => {
 
     const allCodes = warrants.map(r => r['權證代號'])
 
-    // Batch-query MIS for prices — all batches in parallel
+    // Batch-query MIS for warrant prices — all batches in parallel
     const batches = []
     for (let i = 0; i < allCodes.length; i += 50) batches.push(allCodes.slice(i, i + 50))
-    const batchResults = await Promise.all(
-      batches.map(batch => fetchMisBatch(batch).catch(() => null))
-    )
+    const [batchResults, stockMis] = await Promise.all([
+      Promise.all(batches.map(batch => fetchMisBatch(batch).catch(() => null))),
+      fetchMisBatch([stockNo]).catch(() => null),
+    ])
     const priceMap = {}
     for (const mis of batchResults) {
       for (const item of mis?.msgArray || []) priceMap[item.c] = item
     }
+
+    // 標的股現價（盤中用即時價，盤後用昨收）
+    const sMis = stockMis?.msgArray?.[0] || {}
+    const sZ = sMis.z && sMis.z !== '-' ? parseFloat(sMis.z) : null
+    const sY = sMis.y && sMis.y !== '-' ? parseFloat(sMis.y) : null
+    const stockPrice = sZ ?? sY ?? null
+
+    const R = 0.015  // 台灣無風險利率（年化 1.5%）
 
     // Join and map fields
     const rows = warrants.map(r => {
@@ -3798,7 +3845,6 @@ app.get('/api/warrant/search', async (req, res) => {
       const mis    = priceMap[code] || {}
       const zVal   = mis.z && mis.z !== '-' ? parseFloat(mis.z) : null
       const yVal   = mis.y && mis.y !== '-' ? parseFloat(mis.y) : null
-      // 今日有成交用現價，否則顯示昨收（參考價）
       const price  = zVal ?? yVal ?? null
       const change = zVal != null && yVal != null ? +(zVal - yVal).toFixed(2) : null
       const changePct = change != null && yVal != null && yVal !== 0
@@ -3811,9 +3857,34 @@ app.get('/api/warrant/search', async (req, res) => {
         ? `${expiryDate.getFullYear()}/${String(expiryDate.getMonth()+1).padStart(2,'0')}/${String(expiryDate.getDate()).padStart(2,'0')}`
         : r['最後交易日'] || ''
 
-      const ratio = parseFloat(r['最新標的履約配發數量(每仟單位權證)']) || null
+      const ratioRaw = parseFloat(r['最新標的履約配發數量(每仟單位權證)']) || null
+      const ratio  = ratioRaw ? +(ratioRaw / 1000).toFixed(4) : null
       const strike = parseFloat(r['最新履約價格(元)/履約指數']) || null
       const issuer = WARRANT_ISSUERS.find(i => (r['權證簡稱'] || '').includes(i)) || ''
+
+      // ── 衍生指標計算 ──────────────────────────────
+      const isCall = wtype === 'call'
+      const T = daysLeft ? daysLeft / 365 : null  // 距到期年分
+
+      // 溢價率 = (履約價 + 權證價/行使比例 - 標的現價) / 標的現價 × 100
+      const premiumPct = (stockPrice && price && ratio && strike)
+        ? +((strike + price / ratio - stockPrice) / stockPrice * 100).toFixed(2) : null
+
+      // 槓桿 = 標的現價 × 行使比例 / 權證價
+      const leverage = (stockPrice && price && ratio && price > 0)
+        ? +(stockPrice * ratio / price).toFixed(2) : null
+
+      // IV（Black-Scholes 反推，用每股等值換算）
+      const optPrice = (price && ratio) ? price / ratio : null
+      const iv = (stockPrice && strike && T && optPrice)
+        ? calcIV(stockPrice, strike, T, R, optPrice, isCall) : null
+
+      // Delta（Black-Scholes，結果已乘行使比例轉成「每張權證對股價的敏感度」）
+      const sigmaDec = iv ? iv / 100 : null
+      const bsDelta  = (stockPrice && strike && T && sigmaDec)
+        ? calcDelta(stockPrice, strike, T, R, sigmaDec, isCall) : null
+      const delta = (bsDelta != null && ratio)
+        ? +(bsDelta * ratio).toFixed(4) : null
 
       return {
         warrantNo:  code,
@@ -3824,16 +3895,16 @@ app.get('/api/warrant/search', async (req, res) => {
         issuer,
         strike,
         expiry:     expiryStr,
-        ratio:      ratio ? +(ratio / 1000).toFixed(4) : null,
+        ratio,
         price,
         noTrade:    zVal == null && yVal != null,
         change,
         changePct,
         volume,
-        premiumPct: null,
-        iv:         null,
-        leverage:   null,
-        delta:      null,
+        premiumPct,
+        iv,
+        leverage,
+        delta,
         daysLeft,
       }
     }).filter(Boolean)

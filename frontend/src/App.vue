@@ -2665,6 +2665,10 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               <th class="text-right px-3 py-2.5 font-medium cursor-pointer hover:text-gray-300 whitespace-nowrap" @click="warrantSort('price')">現價{{ wSortIcon('price') }}</th>
               <th class="text-right px-3 py-2.5 font-medium cursor-pointer hover:text-gray-300 whitespace-nowrap" @click="warrantSort('changePct')">漲跌%{{ wSortIcon('changePct') }}</th>
               <th class="text-right px-3 py-2.5 font-medium cursor-pointer hover:text-gray-300 whitespace-nowrap" @click="warrantSort('volume')">成交量{{ wSortIcon('volume') }}</th>
+              <th class="text-right px-3 py-2.5 font-medium cursor-pointer hover:text-gray-300 whitespace-nowrap hidden lg:table-cell" @click="warrantSort('premiumPct')">溢價率{{ wSortIcon('premiumPct') }}</th>
+              <th class="text-right px-3 py-2.5 font-medium cursor-pointer hover:text-gray-300 whitespace-nowrap hidden lg:table-cell" @click="warrantSort('leverage')">槓桿{{ wSortIcon('leverage') }}</th>
+              <th class="text-right px-3 py-2.5 font-medium cursor-pointer hover:text-gray-300 whitespace-nowrap hidden lg:table-cell" @click="warrantSort('delta')">Delta{{ wSortIcon('delta') }}</th>
+              <th class="text-right px-3 py-2.5 font-medium cursor-pointer hover:text-gray-300 whitespace-nowrap hidden xl:table-cell" @click="warrantSort('iv')">IV%{{ wSortIcon('iv') }}</th>
               <th class="px-3 py-2.5 font-medium whitespace-nowrap">工具</th>
             </tr>
           </thead>
@@ -2696,6 +2700,19 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <span v-else>{{ row.changePct != null ? (row.changePct > 0 ? '+' : '') + row.changePct.toFixed(2) + '%' : '—' }}</span>
               </td>
               <td class="px-3 py-2 text-right text-gray-300">{{ row.volume ? row.volume.toLocaleString() : '—' }}</td>
+              <td class="px-3 py-2 text-right hidden lg:table-cell"
+                  :class="row.premiumPct != null && row.premiumPct < 0 ? 'text-green-400' : row.premiumPct != null && row.premiumPct < 5 ? 'text-yellow-400' : 'text-gray-400'">
+                {{ row.premiumPct != null ? (row.premiumPct > 0 ? '+' : '') + row.premiumPct.toFixed(2) + '%' : '—' }}
+              </td>
+              <td class="px-3 py-2 text-right text-gray-300 hidden lg:table-cell">
+                {{ row.leverage != null ? row.leverage.toFixed(1) + 'x' : '—' }}
+              </td>
+              <td class="px-3 py-2 text-right text-gray-300 hidden lg:table-cell">
+                {{ row.delta != null ? row.delta.toFixed(4) : '—' }}
+              </td>
+              <td class="px-3 py-2 text-right text-gray-400 hidden xl:table-cell">
+                {{ row.iv != null ? row.iv.toFixed(1) + '%' : '—' }}
+              </td>
               <td class="px-3 py-2">
                 <div class="flex gap-1 justify-center">
                   <a :href="`https://warrant.pscnet.com.tw/wSettle.aspx?wid=${row.warrantNo}`" target="_blank" rel="noopener"
