@@ -353,7 +353,7 @@ async function fetchMovers() {
   moversLoading.value = true
   moversError.value   = ''
   try {
-    const r = await fetch(`${API}/api/market/movers?limit=20`)
+    const r = await fetch(`${API}/api/market/movers?limit=50`)
     const d = await r.json()
     if (d.error) throw new Error(d.error)
     moversGainers.value   = d.gainers || []
@@ -2804,7 +2804,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
         <!-- 漲幅排行 -->
         <div class="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
           <div class="px-4 py-3 border-b border-gray-800 flex items-center gap-2">
-            <span class="text-red-400 font-semibold text-sm">▲ 漲幅排行 TOP 20</span>
+            <span class="text-red-400 font-semibold text-sm">▲ 漲幅排行 TOP 50</span>
           </div>
           <table class="w-full text-sm">
             <thead>
@@ -2813,6 +2813,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <th class="px-3 py-2 text-left">代號／名稱</th>
                 <th class="px-3 py-2 text-right">現價</th>
                 <th class="px-3 py-2 text-right">漲跌幅</th>
+                <th class="px-3 py-2 text-right">成交量(張)</th>
               </tr>
             </thead>
             <tbody>
@@ -2825,6 +2826,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 </td>
                 <td class="px-3 py-2 text-right text-red-300 font-mono">{{ r.price }}</td>
                 <td class="px-3 py-2 text-right font-bold text-red-400">+{{ r.changePct.toFixed(2) }}%</td>
+                <td class="px-3 py-2 text-right text-gray-400 font-mono text-xs">{{ r.volume.toLocaleString() }}</td>
               </tr>
             </tbody>
           </table>
@@ -2833,7 +2835,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
         <!-- 跌幅排行 -->
         <div class="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
           <div class="px-4 py-3 border-b border-gray-800 flex items-center gap-2">
-            <span class="text-green-400 font-semibold text-sm">▼ 跌幅排行 TOP 20</span>
+            <span class="text-green-400 font-semibold text-sm">▼ 跌幅排行 TOP 50</span>
           </div>
           <table class="w-full text-sm">
             <thead>
@@ -2842,6 +2844,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <th class="px-3 py-2 text-left">代號／名稱</th>
                 <th class="px-3 py-2 text-right">現價</th>
                 <th class="px-3 py-2 text-right">漲跌幅</th>
+                <th class="px-3 py-2 text-right">成交量(張)</th>
               </tr>
             </thead>
             <tbody>
@@ -2854,6 +2857,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 </td>
                 <td class="px-3 py-2 text-right text-green-300 font-mono">{{ r.price }}</td>
                 <td class="px-3 py-2 text-right font-bold text-green-400">{{ r.changePct.toFixed(2) }}%</td>
+                <td class="px-3 py-2 text-right text-gray-400 font-mono text-xs">{{ r.volume.toLocaleString() }}</td>
               </tr>
             </tbody>
           </table>
