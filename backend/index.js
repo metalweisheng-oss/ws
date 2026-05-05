@@ -3630,6 +3630,93 @@ function runPython(scriptArgs, onData) {
   })
 }
 
+// ── 即時漲跌幅排行 ────────────────────────────────────────────
+const _moversCache = { data: null, ts: 0 }
+const MOVERS_CACHE_TTL = 30 * 1000
+
+function fetchMisRaw(exChList, timeoutMs = 10000) {
+  return new Promise((resolve, reject) => {
+    const exCh = exChList.join('|')
+    const url = `https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=${encodeURIComponent(exCh)}&json=1&delay=0`
+    const req = https.get(url, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' } }, (r) => {
+      const chunks = []
+      r.on('data', c => chunks.push(c))
+      r.on('end', () => {
+        try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf8'))) }
+        catch(e) { reject(e) }
+      })
+    }).on('error', reject)
+    setTimeout(() => { req.destroy(); reject(new Error('MIS timeout')) }, timeoutMs)
+  })
+}
+
+app.get('/api/market/movers', async (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit) || 20, 50)
+  const now = Date.now()
+
+  if (_moversCache.data && now - _moversCache.ts < MOVERS_CACHE_TTL) {
+    const { gainers, losers, total, updatedAt } = _moversCache.data
+    return res.json({ gainers: gainers.slice(0, limit), losers: losers.slice(0, limit), total, updatedAt, cached: true })
+  }
+
+  try {
+    const { rows: stockRows } = await pool.query(
+      `SELECT DISTINCT ON (stock_no) stock_no, stock_name FROM market_daily ORDER BY stock_no, trade_date DESC`
+    )
+
+    // Try both tse_ and otc_ — MIS ignores whichever doesn't exist
+    const exChAll = stockRows.flatMap(r => [`tse_${r.stock_no}.tw`, `otc_${r.stock_no}.tw`])
+    const nameMap = {}
+    for (const r of stockRows) nameMap[r.stock_no] = r.stock_name
+
+    // Batch into groups of 60 stocks (120 ex_ch strings)
+    const BATCH_SIZE = 60
+    const batches = []
+    for (let i = 0; i < stockRows.length; i += BATCH_SIZE) {
+      const slice = stockRows.slice(i, i + BATCH_SIZE)
+      batches.push(slice.flatMap(r => [`tse_${r.stock_no}.tw`, `otc_${r.stock_no}.tw`]))
+    }
+
+    const results = await Promise.all(batches.map(b => fetchMisRaw(b).catch(() => null)))
+
+    const movers = []
+    const seen = new Set()
+    for (const mis of results) {
+      for (const item of mis?.msgArray || []) {
+        if (seen.has(item.c)) continue
+        seen.add(item.c)
+        const z = item.z && item.z !== '-' ? parseFloat(item.z) : null
+        const y = item.y && item.y !== '-' ? parseFloat(item.y) : null
+        if (z == null || y == null || y === 0) continue
+        const vol = parseInt(item.v) || 0
+        if (vol === 0) continue
+        const changePct = +((z - y) / y * 100).toFixed(2)
+        movers.push({
+          stockNo: item.c,
+          stockName: nameMap[item.c] || item.n || item.c,
+          price: z,
+          prevClose: y,
+          change: +(z - y).toFixed(2),
+          changePct,
+          volume: vol,
+        })
+      }
+    }
+
+    movers.sort((a, b) => b.changePct - a.changePct)
+    const gainers = movers.slice(0, 50)
+    const losers = [...movers].reverse().slice(0, 50)
+    const updatedAt = new Date().toISOString()
+
+    _moversCache.data = { gainers, losers, total: movers.length, updatedAt }
+    _moversCache.ts = now
+
+    res.json({ gainers: gainers.slice(0, limit), losers: losers.slice(0, limit), total: movers.length, updatedAt })
+  } catch(e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
 // 個股即時報價
 app.get('/api/fubon/quote', async (req, res) => {
   const symbol = (req.query.symbol || '2330').trim()

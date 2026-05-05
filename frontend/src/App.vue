@@ -283,6 +283,8 @@ function selectTab(t) {
   if (t === 'conc')     loadConcentration()
   if (t === 'screener') loadScreener()
   if (t === 'warrant') { warrantRows.value = []; warrantError.value = ''; warrantStockName.value = '' }
+  if (t === 'movers') startMoversAutoRefresh()
+  else stopMoversAutoRefresh()
 }
 
 // ── 權證查詢 ──────────────────────────────────────────
@@ -337,6 +339,42 @@ const warrantPutCount  = computed(() => warrantRows.value.filter(r => r.type ===
 
 function wChangePctColor(v) { return v == null ? 'text-gray-500' : +v > 0 ? 'text-red-400' : +v < 0 ? 'text-green-400' : 'text-gray-400' }
 function wSortIcon(col) { return warrantSortCol.value === col ? (warrantSortDesc.value ? ' ▼' : ' ▲') : '' }
+
+// ── 漲跌排行 ─────────────────────────────────────────
+const moversGainers   = ref([])
+const moversLosers    = ref([])
+const moversTotal     = ref(0)
+const moversLoading   = ref(false)
+const moversError     = ref('')
+const moversUpdatedAt = ref('')
+let   moversTimer     = null
+
+async function fetchMovers() {
+  moversLoading.value = true
+  moversError.value   = ''
+  try {
+    const r = await fetch(`${API}/api/market/movers?limit=20`)
+    const d = await r.json()
+    if (d.error) throw new Error(d.error)
+    moversGainers.value   = d.gainers || []
+    moversLosers.value    = d.losers  || []
+    moversTotal.value     = d.total   || 0
+    moversUpdatedAt.value = d.updatedAt ? new Date(d.updatedAt).toLocaleTimeString('zh-TW') : ''
+  } catch(e) {
+    moversError.value = e.message
+  } finally {
+    moversLoading.value = false
+  }
+}
+
+function startMoversAutoRefresh() {
+  fetchMovers()
+  moversTimer = setInterval(fetchMovers, 60000)
+}
+function stopMoversAutoRefresh() {
+  clearInterval(moversTimer)
+  moversTimer = null
+}
 
 // ── 日報表 ────────────────────────────────────────
 const reportStockNo = ref('2059')
@@ -763,7 +801,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
 
     <!-- 分頁切換 -->
     <div class="border-b border-gray-800 px-6 flex gap-1">
-      <button v-for="t in [{ id:'monitor', label:'即時監控' }, { id:'db', label:'歷史資料' }, { id:'report', label:'日報表' }, { id:'breadth', label:'漲跌家數' }, { id:'chips', label:'台指期籌碼' }, { id:'sector', label:'強勢族群' }, { id:'conc', label:'大股東吃貨' }, { id:'screener', label:'台股選股' }, { id:'inst', label:'三大法人' }, { id:'warrant', label:'權證' }]" :key="t.id"
+      <button v-for="t in [{ id:'monitor', label:'即時監控' }, { id:'db', label:'歷史資料' }, { id:'report', label:'日報表' }, { id:'breadth', label:'漲跌家數' }, { id:'chips', label:'台指期籌碼' }, { id:'sector', label:'強勢族群' }, { id:'conc', label:'大股東吃貨' }, { id:'screener', label:'台股選股' }, { id:'inst', label:'三大法人' }, { id:'warrant', label:'權證' }, { id:'movers', label:'漲跌排行' }]" :key="t.id"
               @click="selectTab(t.id)"
               class="px-4 py-3 text-sm font-medium transition border-b-2 -mb-px"
               :class="tab === t.id ? 'border-purple-500 text-purple-400' : 'border-transparent text-gray-500 hover:text-gray-300'">
@@ -2736,6 +2774,94 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
 
       <!-- 資料來源 -->
       <div v-if="warrantRows.length" class="text-right text-xs text-gray-700">資料來源：TWSE OpenAPI + MIS  每日盤後更新</div>
+    </div>
+
+    <!-- ══ 漲跌排行 ══════════════════════════════════════════ -->
+    <div v-if="tab === 'movers'" class="max-w-6xl mx-auto px-4 py-6 space-y-4">
+
+      <!-- 標題列 -->
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <h2 class="text-lg font-semibold text-white">即時漲跌排行</h2>
+          <span v-if="moversTotal" class="text-xs text-gray-500">共 {{ moversTotal }} 支有成交</span>
+          <span v-if="moversUpdatedAt" class="text-xs text-gray-600">更新：{{ moversUpdatedAt }}</span>
+        </div>
+        <button @click="fetchMovers" :disabled="moversLoading"
+                class="px-4 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 border border-gray-700 text-sm text-gray-300 transition disabled:opacity-50">
+          {{ moversLoading ? '載入中...' : '立即刷新' }}
+        </button>
+      </div>
+
+      <!-- 錯誤 -->
+      <div v-if="moversError" class="bg-red-900/30 border border-red-800 rounded-xl px-4 py-3 text-sm text-red-400">{{ moversError }}</div>
+
+      <!-- Loading skeleton -->
+      <div v-if="moversLoading && !moversGainers.length" class="text-center py-20 text-gray-500 text-sm">資料載入中，請稍候...</div>
+
+      <!-- 兩欄排行表 -->
+      <div v-if="moversGainers.length || moversLosers.length" class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+        <!-- 漲幅排行 -->
+        <div class="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
+          <div class="px-4 py-3 border-b border-gray-800 flex items-center gap-2">
+            <span class="text-red-400 font-semibold text-sm">▲ 漲幅排行 TOP 20</span>
+          </div>
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="text-xs text-gray-500 border-b border-gray-800">
+                <th class="px-3 py-2 text-left w-8">#</th>
+                <th class="px-3 py-2 text-left">代號／名稱</th>
+                <th class="px-3 py-2 text-right">現價</th>
+                <th class="px-3 py-2 text-right">漲跌幅</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(r, i) in moversGainers" :key="r.stockNo"
+                  class="border-b border-gray-800/50 hover:bg-gray-800/30 transition">
+                <td class="px-3 py-2 text-gray-600 text-xs">{{ i + 1 }}</td>
+                <td class="px-3 py-2">
+                  <div class="text-white font-medium">{{ r.stockName }}</div>
+                  <div class="text-xs text-gray-500">{{ r.stockNo }}</div>
+                </td>
+                <td class="px-3 py-2 text-right text-red-300 font-mono">{{ r.price }}</td>
+                <td class="px-3 py-2 text-right font-bold text-red-400">+{{ r.changePct.toFixed(2) }}%</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- 跌幅排行 -->
+        <div class="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
+          <div class="px-4 py-3 border-b border-gray-800 flex items-center gap-2">
+            <span class="text-green-400 font-semibold text-sm">▼ 跌幅排行 TOP 20</span>
+          </div>
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="text-xs text-gray-500 border-b border-gray-800">
+                <th class="px-3 py-2 text-left w-8">#</th>
+                <th class="px-3 py-2 text-left">代號／名稱</th>
+                <th class="px-3 py-2 text-right">現價</th>
+                <th class="px-3 py-2 text-right">漲跌幅</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(r, i) in moversLosers" :key="r.stockNo"
+                  class="border-b border-gray-800/50 hover:bg-gray-800/30 transition">
+                <td class="px-3 py-2 text-gray-600 text-xs">{{ i + 1 }}</td>
+                <td class="px-3 py-2">
+                  <div class="text-white font-medium">{{ r.stockName }}</div>
+                  <div class="text-xs text-gray-500">{{ r.stockNo }}</div>
+                </td>
+                <td class="px-3 py-2 text-right text-green-300 font-mono">{{ r.price }}</td>
+                <td class="px-3 py-2 text-right font-bold text-green-400">{{ r.changePct.toFixed(2) }}%</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+      </div>
+
+      <div class="text-right text-xs text-gray-700">資料來源：TWSE MIS  每 60 秒自動刷新</div>
     </div>
 
   </div>
