@@ -2,7 +2,7 @@
 富邦 SDK 登入封裝 — 供其他模組共用
 """
 from fubon_neo.sdk import FubonSDK, Mode
-from .config import FUBON_ID, FUBON_API_KEY
+from .config import FUBON_ID, FUBON_API_KEY, FUBON_CERT, FUBON_CERT_PASS
 
 _sdk = None
 
@@ -12,7 +12,7 @@ def get_sdk(mode: Mode = Mode.Normal) -> FubonSDK:
         return _sdk
 
     sdk = FubonSDK()
-    result = sdk.apikey_dma_login(FUBON_ID, FUBON_API_KEY)
+    result = sdk.apikey_login(FUBON_ID, FUBON_API_KEY, FUBON_CERT, FUBON_CERT_PASS)
     if not result.is_success:
         raise RuntimeError(f"Fubon 登入失敗: {result.message}")
 

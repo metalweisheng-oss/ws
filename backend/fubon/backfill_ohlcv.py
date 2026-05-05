@@ -16,7 +16,14 @@ from .config import DATABASE_URL
 
 
 def get_db():
-    return psycopg2.connect(DATABASE_URL)
+    from urllib.parse import urlparse, unquote
+    u = urlparse(DATABASE_URL)
+    return psycopg2.connect(
+        host=u.hostname, port=u.port or 5432,
+        dbname=u.path.lstrip('/'),
+        user=unquote(u.username), password=unquote(u.password),
+        sslmode='require'
+    )
 
 
 def backfill(days: int = 200, target_stock: str = None):
@@ -56,7 +63,7 @@ def backfill(days: int = 200, target_stock: str = None):
                 symbol=stock_no,
                 timeframe="D",
                 **{"from": from_date, "to": to_date}
-            ).get("data", {}).get("candles", [])
+            ).get("data", [])
 
             if not candles:
                 continue
@@ -67,7 +74,7 @@ def backfill(days: int = 200, target_stock: str = None):
                 high  = c.get("high")
                 low   = c.get("low")
                 close = c.get("close")
-                vol   = c.get("volume")
+                vol   = c.get("volume")  # 單位：股（shares）
 
                 if not close or not date:
                     continue
@@ -83,7 +90,7 @@ def backfill(days: int = 200, target_stock: str = None):
                     "open":     open_,
                     "high":     high,
                     "low":      low,
-                    "volume":   int(vol * 1000) if vol else None,
+                    "volume":   int(vol) if vol else None,
                     "stock_no": stock_no,
                     "date":     date,
                 })
