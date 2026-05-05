@@ -3302,7 +3302,7 @@ app.get('/api/inst/history', async (req, res) => {
     if (!stockNo) return res.status(400).json({ error: '請輸入股票代號' })
     const days = Math.min(parseInt(req.query.days) || 30, 200)
 
-    // 從 DB 取法人資料（含 close/volume，不加日期下限，讓 LIMIT 決定筆數）
+    // 從 DB 取法人資料（不加日期下限，讓 LIMIT 決定筆數）
     // 多取一筆以計算最舊那筆的漲跌%
     const { rows } = await pool.query(`
       SELECT trade_date, stock_name, close, volume,
@@ -3323,16 +3323,67 @@ app.get('/api/inst/history', async (req, res) => {
         : String(d).length === 10 ? String(d) : new Date(d).toISOString().slice(0, 10)
     })
 
+    // 從 TWSE/TPEX STOCK_DAY API 抓正確歷史收盤（DB 的 OHLCV 可能不準確）
+    const closeMap = {}  // 'YYYY-MM-DD' → close price
+    const n = s => parseFloat(String(s || '0').replace(/,/g, ''))
+    const monthsNeeded = Math.ceil(days / 20) + 1
+    const now = new Date(Date.now() + 8 * 3600000)
+    const twseMonths = []
+    const tpexMonths = []
+    for (let m = 0; m < monthsNeeded; m++) {
+      const d = new Date(now)
+      d.setMonth(d.getMonth() - m)
+      const y = d.getUTCFullYear(), mo = String(d.getUTCMonth()+1).padStart(2,'0')
+      twseMonths.push(`${y}${mo}01`)
+      tpexMonths.push(`${y-1911}/${mo}`)
+    }
+
+    // 先試 TWSE STOCK_DAY
+    let isTpex = false
+    const twseResults = await Promise.all(twseMonths.map(dm =>
+      fetchUrl(`https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockNo=${stockNo}&date=${dm}&response=json`).catch(() => null)
+    ))
+    for (const data of twseResults) {
+      if (data?.stat === 'OK' && data.data?.length) {
+        for (const row of data.data) {
+          const parts = String(row[0]).split('/')
+          if (parts.length !== 3) continue
+          const dk = `${parseInt(parts[0])+1911}-${parts[1].padStart(2,'0')}-${parts[2].padStart(2,'0')}`
+          const c = n(row[6])
+          if (c > 0) closeMap[dk] = c
+        }
+      }
+    }
+    // 若 TWSE 無資料 → 試 TPEX st43
+    if (!Object.keys(closeMap).length) {
+      isTpex = true
+      const tpexResults = await Promise.all(tpexMonths.map(dm =>
+        fetchUrl(`https://www.tpex.org.tw/web/stock/aftertrading/daily_trading_info/st43_result.php?l=zh-tw&o=json&d=${dm}&stkno=${stockNo}`).catch(() => null)
+      ))
+      for (const data of tpexResults) {
+        for (const row of data?.tables?.[0]?.data || []) {
+          const parts = String(row[0]).split('/')
+          if (parts.length !== 3) continue
+          const dk = `${parseInt(parts[0])+1911}-${parts[1].padStart(2,'0')}-${parts[2].padStart(2,'0')}`
+          const c = n(row[6])
+          if (c > 0) closeMap[dk] = c
+        }
+      }
+    }
+
     const toLot = v => v != null ? Math.round(+v / 1000) : null
     const result = []
     const displayRows = rows.slice(0, days)
+    // 建立按日期排序的 closeMap key list 供計算前一日收盤
     for (let i = 0; i < displayRows.length; i++) {
       const r        = displayRows[i]
       const dateStr  = dateStrs[i]
-      const close    = r.close != null ? +r.close : null
-      const prevRow  = rows[i + 1]
-      const prevClose = prevRow?.close != null ? +prevRow.close : null
-      const changePct = (close != null && prevClose != null)
+      const close    = closeMap[dateStr] ?? (r.close != null ? +r.close : null)
+      const prevDateStr = dateStrs[i + 1]
+      const prevClose = prevDateStr
+        ? (closeMap[prevDateStr] ?? (rows[i + 1]?.close != null ? +rows[i + 1].close : null))
+        : null
+      const changePct = (close != null && prevClose != null && prevClose !== 0)
         ? +((close - prevClose) / prevClose * 100).toFixed(2) : null
       result.push({
         trade_date:   dateStr,
