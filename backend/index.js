@@ -3774,24 +3774,58 @@ function calcDelta(S, K, T, r, sigma, isCall) {
   return +((isCall ? normCDF(d1) : normCDF(d1) - 1)).toFixed(4)
 }
 
-// In-memory cache for large TWSE warrant/company OpenAPI datasets (10-min TTL)
-const _warrantApiCache = { basic: null, company: null, ts: 0 }
-const WARRANT_CACHE_TTL = 10 * 60 * 1000
+// In-memory cache for large TWSE warrant/company OpenAPI datasets (1-hour TTL, stale-while-revalidate)
+const _warrantApiCache = { basic: null, company: null, ts: 0, refreshing: false }
+const WARRANT_CACHE_TTL = 60 * 60 * 1000
+
+function _refreshWarrantCache() {
+  if (_warrantApiCache.refreshing) return
+  _warrantApiCache.refreshing = true
+  Promise.all([
+    fetchUrl('https://openapi.twse.com.tw/v1/opendata/t187ap37_L'),
+    fetchUrl('https://openapi.twse.com.tw/v1/opendata/t187ap03_L'),
+  ]).then(([basicRaw, companyRaw]) => {
+    _warrantApiCache.basic = basicRaw
+    _warrantApiCache.company = companyRaw
+    _warrantApiCache.ts = Date.now()
+    _warrantApiCache.refreshing = false
+    console.log('[warrant cache] refreshed', new Date().toISOString())
+  }).catch(e => {
+    _warrantApiCache.refreshing = false
+    console.error('[warrant cache] refresh failed', e.message)
+  })
+}
 
 async function getWarrantBaseData() {
   const now = Date.now()
-  if (_warrantApiCache.basic && (now - _warrantApiCache.ts) < WARRANT_CACHE_TTL) {
+  const stale = !_warrantApiCache.basic || (now - _warrantApiCache.ts) >= WARRANT_CACHE_TTL
+
+  if (!stale) {
     return { basicRaw: _warrantApiCache.basic, companyRaw: _warrantApiCache.company }
   }
+
+  // Have stale data: return immediately and refresh in background
+  if (_warrantApiCache.basic) {
+    _refreshWarrantCache()
+    return { basicRaw: _warrantApiCache.basic, companyRaw: _warrantApiCache.company }
+  }
+
+  // Cold start: must wait for first fetch
+  _warrantApiCache.refreshing = true
   const [basicRaw, companyRaw] = await Promise.all([
     fetchUrl('https://openapi.twse.com.tw/v1/opendata/t187ap37_L'),
     fetchUrl('https://openapi.twse.com.tw/v1/opendata/t187ap03_L'),
   ])
-  _warrantApiCache.basic   = basicRaw
+  _warrantApiCache.basic = basicRaw
   _warrantApiCache.company = companyRaw
-  _warrantApiCache.ts      = now
+  _warrantApiCache.ts = Date.now()
+  _warrantApiCache.refreshing = false
+  console.log('[warrant cache] cold-start loaded', new Date().toISOString())
   return { basicRaw, companyRaw }
 }
+
+// Pre-warm cache on startup so first user request is instant
+setTimeout(() => _refreshWarrantCache(), 5000)
 
 app.get('/api/warrant/search', async (req, res) => {
   const { stockNo, type = 'all' } = req.query
