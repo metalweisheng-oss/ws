@@ -1,0 +1,48 @@
+[2026-05-05 00:51:26.110324 +08:00 INFO] [apikey_dma_login] personal_id="D122054524"
+[2026-05-05 00:51:26.132645 +08:00 INFO] [apikey_dma_login] Loaded permissions from XPSAZBIZS: {StockAccounting, MarketData}
+[2026-05-05 18:50:39.589906 +08:00 INFO] [apikey_dma_login] personal_id="D122054524"
+[2026-05-05 18:50:39.704449 +08:00 INFO] [apikey_dma_login] Loaded permissions from XPSAZBIZS: {StockAccounting, MarketData}
+[2026-05-05 19:08:26.108500 +08:00 INFO] [apikey_dma_login] personal_id="D122054524"
+[2026-05-05 19:08:26.128651 +08:00 INFO] [apikey_dma_login] Loaded permissions from XPSAZBIZS: {MarketData, StockAccounting}
+[2026-05-05 19:19:53.661182 +08:00 INFO] [apikey_login] personal_id="D122054524"
+[2026-05-05 19:19:53.678797 +08:00 INFO] API Key account requires certificate validation
+[2026-05-05 19:19:53.716654 +08:00 INFO] [apikey_login] Loaded permissions from XPSAZBIZS: {MarketData, StockAccounting}
+[2026-05-05 19:19:53.763947 +08:00 INFO] [future_option_mapping]: 46.873375ms
+[2026-05-05 19:19:53.783267 +08:00 INFO] [future_option_mapping]: 18.721958ms
+[2026-05-05 19:19:53.883091 +08:00 INFO] [future_option_mapping]: 99.735292ms
+[2026-05-05 19:19:53.909863 +08:00 INFO] [future_option_mapping]: 24.736625ms
+[2026-05-05 19:20:06.721528 +08:00 INFO] [apikey_login] personal_id="D122054524"
+[2026-05-05 19:20:06.746738 +08:00 INFO] API Key account requires certificate validation
+[2026-05-05 19:20:06.763214 +08:00 INFO] [apikey_login] Loaded permissions from XPSAZBIZS: {StockAccounting, MarketData}
+[2026-05-05 19:20:06.845025 +08:00 INFO] [future_option_mapping]: 81.784542ms
+[2026-05-05 19:20:06.866613 +08:00 INFO] [future_option_mapping]: 21.032541ms
+[2026-05-05 19:20:06.974959 +08:00 INFO] [future_option_mapping]: 108.254458ms
+[2026-05-05 19:20:06.994993 +08:00 INFO] [future_option_mapping]: 17.948084ms
+[2026-05-05 19:21:00.357321 +08:00 INFO] [apikey_login] personal_id="D122054524"
+[2026-05-05 19:21:00.389115 +08:00 INFO] API Key account requires certificate validation
+[2026-05-05 19:21:00.545343 +08:00 INFO] [apikey_login] Loaded permissions from XPSAZBIZS: {StockAccounting, MarketData}
+[2026-05-05 19:21:01.811009 +08:00 INFO] [future_option_mapping]: 1.2655795s
+[2026-05-05 19:21:01.957148 +08:00 INFO] [future_option_mapping]: 145.523458ms
+[2026-05-05 19:21:03.015546 +08:00 INFO] [future_option_mapping]: 1.05822925s
+[2026-05-05 19:21:03.418676 +08:00 INFO] [future_option_mapping]: 401.064458ms
+[2026-05-05 19:21:28.423716 +08:00 INFO] [apikey_login] personal_id="D122054524"
+[2026-05-05 19:21:28.498828 +08:00 INFO] API Key account requires certificate validation
+[2026-05-05 19:21:28.583084 +08:00 INFO] [apikey_login] Loaded permissions from XPSAZBIZS: {StockAccounting, MarketData}
+[2026-05-05 19:21:30.311463 +08:00 INFO] [future_option_mapping]: 1.728295s
+[2026-05-05 19:21:30.331203 +08:00 INFO] [future_option_mapping]: 19.194708ms
+[2026-05-05 19:21:34.481198 +08:00 INFO] [future_option_mapping]: 4.149773833s
+[2026-05-05 19:21:34.729106 +08:00 INFO] [future_option_mapping]: 245.711083ms
+[2026-05-05 19:21:55.950500 +08:00 INFO] [apikey_login] personal_id="D122054524"
+[2026-05-05 19:21:56.144488 +08:00 INFO] API Key account requires certificate validation
+[2026-05-05 19:21:56.170683 +08:00 INFO] [apikey_login] Loaded permissions from XPSAZBIZS: {MarketData, StockAccounting}
+[2026-05-05 19:21:58.367773 +08:00 INFO] [future_option_mapping]: 2.196993833s
+[2026-05-05 19:21:58.395129 +08:00 INFO] [future_option_mapping]: 26.826ms
+[2026-05-05 19:22:02.181453 +08:00 INFO] [future_option_mapping]: 3.786105s
+[2026-05-05 19:22:02.556862 +08:00 INFO] [future_option_mapping]: 373.316ms
+[2026-05-05 19:22:47.725213 +08:00 INFO] [apikey_login] personal_id="D122054524"
+[2026-05-05 19:22:47.772375 +08:00 INFO] API Key account requires certificate validation
+[2026-05-05 19:22:47.799492 +08:00 INFO] [apikey_login] Loaded permissions from XPSAZBIZS: {StockAccounting, MarketData}
+[2026-05-05 19:22:48.442121 +08:00 INFO] [future_option_mapping]: 642.580416ms
+[2026-05-05 19:22:48.598950 +08:00 INFO] [future_option_mapping]: 156.28275ms
+[2026-05-05 19:22:51.046135 +08:00 INFO] [future_option_mapping]: 2.446985083s
+[2026-05-05 19:22:51.404437 +08:00 INFO] [future_option_mapping]: 355.952541ms
