@@ -287,6 +287,7 @@ function selectTab(t) {
 
 // ── 權證查詢 ──────────────────────────────────────────
 const warrantStockNo   = ref('')
+const warrantStockCode = ref('')
 const warrantType      = ref('all')
 const warrantLoading   = ref(false)
 const warrantError     = ref('')
@@ -301,13 +302,15 @@ async function searchWarrant() {
   warrantError.value   = ''
   warrantRows.value    = []
   warrantStockName.value = ''
+  warrantStockCode.value = ''
   try {
-    const r = await fetch(`${API}/api/warrant/search?stockNo=${warrantStockNo.value.trim()}&type=${warrantType.value}`)
+    const r = await fetch(`${API}/api/warrant/search?stockNo=${encodeURIComponent(warrantStockNo.value.trim())}&type=${warrantType.value}`)
     const d = await r.json()
     if (d.error) throw new Error(d.error)
-    if (!d.rows.length) throw new Error(`查無 ${warrantStockNo.value} 的有效權證，請確認代號`)
+    if (!d.rows.length) throw new Error(`查無「${warrantStockNo.value}」的有效權證，請確認代號或名稱`)
     warrantRows.value      = d.rows
     warrantStockName.value = d.stockName || warrantStockNo.value
+    warrantStockCode.value = d.stockCode || ''
   } catch(e) {
     warrantError.value = e.message
   } finally {
@@ -2616,9 +2619,9 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
       <!-- 搜尋列 -->
       <div class="bg-gray-900 rounded-xl border border-gray-800 px-5 py-4 flex flex-wrap gap-3 items-end">
         <div>
-          <div class="text-xs text-gray-500 mb-1">標的代號</div>
-          <input v-model="warrantStockNo" @keyup.enter="searchWarrant" type="text" placeholder="例：2330"
-                 class="w-28 bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-purple-500" />
+          <div class="text-xs text-gray-500 mb-1">標的代號／名稱</div>
+          <input v-model="warrantStockNo" @keyup.enter="searchWarrant" type="text" placeholder="例：2330 或 台積電"
+                 class="w-36 bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-purple-500" />
         </div>
         <div>
           <div class="text-xs text-gray-500 mb-1">類型</div>
@@ -2644,7 +2647,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
 
       <!-- 摘要列 -->
       <div v-if="warrantRows.length" class="bg-gray-900 rounded-xl border border-gray-800 px-5 py-3 flex flex-wrap gap-4 items-center text-sm">
-        <span class="text-white font-semibold">{{ warrantStockName }} ({{ warrantStockNo }})</span>
+        <span class="text-white font-semibold">{{ warrantStockName }} ({{ warrantStockCode || warrantStockNo }})</span>
         <span class="text-gray-500">共 {{ warrantRows.length }} 檔</span>
         <span class="px-2 py-0.5 rounded-full text-xs font-bold bg-red-500/20 text-red-400 border border-red-800">認購 {{ warrantCallCount }}</span>
         <span class="px-2 py-0.5 rounded-full text-xs font-bold bg-green-500/20 text-green-400 border border-green-800">認售 {{ warrantPutCount }}</span>

@@ -3829,20 +3829,42 @@ setTimeout(() => _refreshWarrantCache(), 5000)
 
 app.get('/api/warrant/search', async (req, res) => {
   const { stockNo, type = 'all' } = req.query
-  if (!stockNo) return res.status(400).json({ error: '請輸入標的代號' })
+  if (!stockNo) return res.status(400).json({ error: '請輸入標的代號或名稱' })
 
   try {
     const { basicRaw, companyRaw } = await getWarrantBaseData()
 
-    // Build code -> short name from TWSE listed company list (公司代號 -> 公司簡稱)
+    // Build code <-> name maps from TWSE listed company list
     const codeToName = {}
+    const nameToCode = {}  // normalized lowercase name -> code
     for (const row of Array.isArray(companyRaw) ? companyRaw : []) {
       const code = (row['公司代號'] || '').trim()
       const name = (row['公司簡稱'] || '').trim()
-      if (code && name) codeToName[code] = name
+      if (code && name) {
+        codeToName[code] = name
+        nameToCode[name] = code
+      }
     }
-    const stockName = codeToName[stockNo] || ''
-    if (!stockName) return res.json({ rows: [], stockName: '', total: 0 })
+
+    // Resolve input to a stock code: try direct code match, then exact name, then partial name
+    let resolvedCode = ''
+    let resolvedName = ''
+    const input = stockNo.trim()
+    if (codeToName[input]) {
+      resolvedCode = input
+      resolvedName = codeToName[input]
+    } else if (nameToCode[input]) {
+      resolvedCode = nameToCode[input]
+      resolvedName = input
+    } else {
+      // Partial name match (e.g. "台積" → "台積電")
+      const hit = Object.keys(nameToCode).find(n => n.includes(input))
+      if (hit) { resolvedCode = nameToCode[hit]; resolvedName = hit }
+    }
+
+    if (!resolvedCode) return res.json({ rows: [], stockName: '', stockCode: '', total: 0 })
+    const stockName = resolvedName
+    const resolvedStockNo = resolvedCode
 
     const today = new Date()
     const todayRoc = String((today.getFullYear() - 1911)).padStart(3, '0')
@@ -3867,7 +3889,7 @@ app.get('/api/warrant/search', async (req, res) => {
     for (let i = 0; i < allCodes.length; i += 100) batches.push(allCodes.slice(i, i + 100))
     const [batchResults, stockMis] = await Promise.all([
       Promise.all(batches.map(batch => fetchMisBatch(batch).catch(() => null))),
-      fetchMisBatch([stockNo]).catch(() => null),
+      fetchMisBatch([resolvedStockNo]).catch(() => null),
     ])
     const priceMap = {}
     for (const mis of batchResults) {
@@ -3955,7 +3977,7 @@ app.get('/api/warrant/search', async (req, res) => {
     }).filter(Boolean)
 
     rows.sort((a, b) => (b.volume || 0) - (a.volume || 0))
-    res.json({ rows, stockName, total: rows.length })
+    res.json({ rows, stockName, stockCode: resolvedStockNo, total: rows.length })
   } catch(e) {
     res.status(500).json({ error: e.message })
   }
