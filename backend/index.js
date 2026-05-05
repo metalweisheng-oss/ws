@@ -3716,10 +3716,10 @@ function rocToGregorian(rocStr) {
   return new Date(y, m, d)
 }
 
-const fetchMisBatch = (codes) => new Promise((resolve, reject) => {
+const fetchMisBatch = (codes, timeoutMs = 6000) => new Promise((resolve, reject) => {
   const exCh = codes.map(c => `tse_${c}.tw`).join('|')
   const url = `https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=${encodeURIComponent(exCh)}&json=1&delay=0`
-  https.get(url, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36' } }, (r) => {
+  const req = https.get(url, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36' } }, (r) => {
     const chunks = []
     r.on('data', c => chunks.push(c))
     r.on('end', () => {
@@ -3727,6 +3727,7 @@ const fetchMisBatch = (codes) => new Promise((resolve, reject) => {
       catch(e) { reject(e) }
     })
   }).on('error', reject)
+  setTimeout(() => { req.destroy(); reject(new Error('MIS timeout')) }, timeoutMs)
 })
 
 // ── Black-Scholes 計算函式 ────────────────────────────────
@@ -3751,14 +3752,20 @@ function bsPrice(S, K, T, r, sigma, isCall) {
 
 function calcIV(S, K, T, r, marketPrice, isCall) {
   if (!S || !K || !T || marketPrice <= 0) return null
-  let lo = 0.001, hi = 15
-  for (let i = 0; i < 200; i++) {
-    const mid = (lo + hi) / 2
-    const diff = bsPrice(S, K, T, r, mid, isCall) - marketPrice
-    if (Math.abs(diff) < 1e-6) return +( mid * 100).toFixed(2)
-    if (diff > 0) hi = mid; else lo = mid
+  const sqrtT = Math.sqrt(T)
+  let sigma = 0.5
+  for (let i = 0; i < 20; i++) {
+    const d1 = (Math.log(S / K) + (r + sigma * sigma / 2) * T) / (sigma * sqrtT)
+    const price = bsPrice(S, K, T, r, sigma, isCall)
+    const vega  = S * Math.exp(-d1 * d1 / 2) / Math.sqrt(2 * Math.PI) * sqrtT
+    if (vega < 1e-10) break
+    const diff = price - marketPrice
+    if (Math.abs(diff) < 1e-7) break
+    sigma -= diff / vega
+    if (sigma <= 0.001) sigma = 0.001
+    if (sigma > 15) sigma = 15
   }
-  return +((lo + hi) / 2 * 100).toFixed(2)
+  return sigma > 0 ? +(sigma * 100).toFixed(2) : null
 }
 
 function calcDelta(S, K, T, r, sigma, isCall) {
@@ -3813,11 +3820,17 @@ app.get('/api/warrant/search', async (req, res) => {
       r['標的證券/指數'] === stockName && r['最後交易日'] >= todayRoc
     )
 
-    const allCodes = warrants.map(r => r['權證代號'])
+    // 先按 type 過濾，再查 MIS，減少不必要的網路請求
+    const filteredWarrants = type === 'all' ? warrants : warrants.filter(r => {
+      const wtype = r['權證類型']?.includes('售') ? 'put' : 'call'
+      return wtype === type
+    })
 
-    // Batch-query MIS for warrant prices — all batches in parallel
+    const allCodes = filteredWarrants.map(r => r['權證代號'])
+
+    // Batch-query MIS for warrant prices — all batches in parallel (batch size 100)
     const batches = []
-    for (let i = 0; i < allCodes.length; i += 50) batches.push(allCodes.slice(i, i + 50))
+    for (let i = 0; i < allCodes.length; i += 100) batches.push(allCodes.slice(i, i + 100))
     const [batchResults, stockMis] = await Promise.all([
       Promise.all(batches.map(batch => fetchMisBatch(batch).catch(() => null))),
       fetchMisBatch([stockNo]).catch(() => null),
@@ -3836,11 +3849,9 @@ app.get('/api/warrant/search', async (req, res) => {
     const R = 0.015  // 台灣無風險利率（年化 1.5%）
 
     // Join and map fields
-    const rows = warrants.map(r => {
+    const rows = filteredWarrants.map(r => {
       const code = r['權証代号'] || r['權證代號']
       const wtype = r['權證類型']?.includes('售') ? 'put' : 'call'
-      if (type === 'call' && wtype !== 'call') return null
-      if (type === 'put'  && wtype !== 'put')  return null
 
       const mis    = priceMap[code] || {}
       const zVal   = mis.z && mis.z !== '-' ? parseFloat(mis.z) : null
