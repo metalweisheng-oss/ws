@@ -3259,6 +3259,36 @@ app.post('/api/sync/screener', async (req, res) => {
     .catch(e => console.error('[screener] sync+run 失敗:', e.message))
 })
 
+// 診斷用：測試單一股票的 OHLCV 回填是否正常工作
+app.get('/api/sync/test-ohlcv', async (req, res) => {
+  const stockNo = (req.query.stockNo || '2330').trim()
+  const n = s => parseFloat(String(s || '0').replace(/,/g, ''))
+  const results = []
+  try {
+    const now = new Date(Date.now() + 8 * 3600000)
+    for (let m = 0; m < 2; m++) {
+      const d = new Date(now); d.setMonth(d.getMonth() - m)
+      const dateStr8 = `${d.getUTCFullYear()}${String(d.getUTCMonth()+1).padStart(2,'0')}01`
+      const data = await fetchUrl(`https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockNo=${stockNo}&date=${dateStr8}&response=json`)
+      if (data?.stat === 'OK' && data.data?.length) {
+        for (const row of data.data) {
+          const parts = String(row[0]).split('/')
+          if (parts.length !== 3) continue
+          const dateKey = `${parseInt(parts[0])+1911}-${parts[1].padStart(2,'0')}-${parts[2].padStart(2,'0')}`
+          const close = n(row[6])
+          if (!close || isNaN(close)) continue
+          const { rowCount } = await pool.query(
+            `UPDATE market_daily SET close=$1 WHERE stock_no=$2 AND trade_date=$3`,
+            [close, stockNo, dateKey]
+          )
+          results.push({ date: dateKey, close, rowCount })
+        }
+      }
+    }
+    res.json({ ok: true, stockNo, results })
+  } catch(e) { res.status(500).json({ error: e.message, results }) }
+})
+
 app.post('/api/sync/backfill-market', async (req, res) => {
   const days = Math.min(parseInt(req.query.days) || 20, 250)
   res.json({ ok: true, message: `市場日線回填已開始（${days} 個交易日）` })
