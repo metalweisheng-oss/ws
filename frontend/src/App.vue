@@ -462,6 +462,8 @@ const reportLoading = ref(false)
 const reportData    = ref(null)
 const reportError   = ref('')
 const postAnalysis  = ref(null)
+const pmLoading     = ref(false)
+const pmStatus      = ref('')
 
 // ── 台指期籌碼 ────────────────────────────────────
 const chipsLoading = ref(false)
@@ -857,14 +859,40 @@ function viewPostMarket(stockNo) {
 }
 
 async function triggerPostMarket() {
+  if (pmLoading.value) return
+  pmLoading.value = true
+  pmStatus.value  = '送出請求中...'
   try {
     await fetch(`${API}/api/sync/post-market`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ date: reportDate.value }),
     })
-    setTimeout(() => generateReport(), 8000)
-  } catch(e) { console.error(e) }
+    // 輪詢直到產生完成（最多等 30 秒）
+    let attempts = 0
+    const poll = async () => {
+      attempts++
+      pmStatus.value = `分析產生中... (${attempts * 3}s)`
+      try {
+        const r = await fetch(`${API}/api/post-market-analysis?stockNo=${reportStockNo.value}&date=${reportDate.value}`).then(r => r.json())
+        if (r?.indicators?.length) {
+          postAnalysis.value = r
+          pmLoading.value    = false
+          pmStatus.value     = ''
+          return
+        }
+      } catch {}
+      if (attempts < 10) setTimeout(poll, 3000)
+      else {
+        pmStatus.value  = '產生逾時，請稍後再試'
+        pmLoading.value = false
+      }
+    }
+    setTimeout(poll, 3000)
+  } catch(e) {
+    pmStatus.value  = '請求失敗：' + e.message
+    pmLoading.value = false
+  }
 }
 
 function fmtNum(v) { return v != null ? (+v).toLocaleString() : '—' }
@@ -1528,9 +1556,20 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
           </p>
         </div>
 
-        <div v-else-if="reportData" class="rounded-2xl border border-gray-800 bg-gray-900 p-4 text-center text-xs text-gray-600">
-          盤後技術指標分析尚未產生（每日 18:40 自動更新，或手動同步）
-          <button @click="triggerPostMarket" class="ml-2 text-emerald-600 hover:text-emerald-400 underline">立即產生</button>
+        <div v-else-if="reportData" class="rounded-2xl border border-gray-800 bg-gray-900 p-4 space-y-2">
+          <div class="text-xs text-gray-600 text-center">
+            盤後技術指標分析尚未產生（每日 18:40 自動更新）
+          </div>
+          <div class="flex items-center justify-center gap-3">
+            <button @click="triggerPostMarket" :disabled="pmLoading"
+                    class="px-4 py-1.5 rounded-lg text-xs font-medium transition"
+                    :class="pmLoading
+                      ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
+                      : 'bg-emerald-800 hover:bg-emerald-700 text-emerald-300'">
+              {{ pmLoading ? '產生中...' : '立即產生' }}
+            </button>
+            <span v-if="pmStatus" class="text-xs text-gray-500 animate-pulse">{{ pmStatus }}</span>
+          </div>
         </div>
 
         <!-- 綜合分析 -->
