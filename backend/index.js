@@ -1391,6 +1391,15 @@ app.get('/api/sector-analysis', async (req, res) => {
     // 今日 → 記憶體快取
     if (sectorCache.date === today && sectorCache.data) return res.json(sectorCache.data)
 
+    // Railway 重啟後 cache 遺失：先從 DB 找今日快照
+    const todayDbDate = `${today.slice(0,4)}-${today.slice(4,6)}-${today.slice(6,8)}`
+    const { rows: todayRows } = await pool.query('SELECT data FROM sector_snapshots WHERE trade_date=$1', [todayDbDate])
+    if (todayRows.length) {
+      sectorCache = { date: today, data: todayRows[0].data }
+      return res.json(todayRows[0].data)
+    }
+
+    // DB 也沒有 → 即時計算
     const result = await computeSectorData()
     sectorCache = { date: today, data: result }
     saveSectorSnapshot(result).catch(e => console.error('[sector_snapshots] 儲存失敗:', e.message))
@@ -3562,15 +3571,28 @@ cron.schedule('30 15 * * 1-5', async () => {
   }
 }, { timezone: 'Asia/Taipei' })
 
+async function runSectorSnapshot() {
+  const today = new Date(Date.now() + 8*3600000).toISOString().slice(0,10).replace(/-/g,'')
+  // 已有今日快照就跳過
+  const dbDate = `${today.slice(0,4)}-${today.slice(4,6)}-${today.slice(6,8)}`
+  const { rows } = await pool.query('SELECT 1 FROM sector_snapshots WHERE trade_date=$1', [dbDate])
+  if (rows.length) { console.log(`[sector_snapshots] ${today} 已有快照，略過`); return }
+  const result = await computeSectorData()
+  sectorCache = { date: today, data: result }
+  await saveSectorSnapshot(result)
+  console.log(`[sector_snapshots] ${today} 快照儲存完成`)
+}
+
 cron.schedule('35 15 * * 1-5', async () => {
   console.log('[cron] 15:35 強勢族群快照')
-  try {
-    const today = new Date(Date.now() + 8*3600000).toISOString().slice(0,10).replace(/-/g,'')
-    const result = await computeSectorData()
-    sectorCache = { date: today, data: result }
-    await saveSectorSnapshot(result)
-    console.log(`[sector_snapshots] ${today} 快照儲存完成`)
-  } catch(e) { console.error('[sector_snapshots] 快照儲存失敗:', e.message) }
+  try { await runSectorSnapshot() }
+  catch(e) { console.error('[sector_snapshots] 15:35 失敗:', e.message) }
+}, { timezone: 'Asia/Taipei' })
+
+// 15:50 補試（15:35 TWSE 可能還沒準備好）
+cron.schedule('50 15 * * 1-5', async () => {
+  try { await runSectorSnapshot() }
+  catch(e) { console.error('[sector_snapshots] 15:50 補試失敗:', e.message) }
 }, { timezone: 'Asia/Taipei' })
 
 // 17:30 台指期籌碼補試（TAIFEX OpenAPI 有時晚發，15:30 沒拿到今日資料時再補一次）
