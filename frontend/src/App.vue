@@ -297,6 +297,7 @@ function selectTab(t) {
   if (t === 'warrant') { warrantRows.value = []; warrantError.value = ''; warrantStockName.value = '' }
   if (t === 'movers') startMoversAutoRefresh()
   else stopMoversAutoRefresh()
+  if (t === 'buyback') fetchBuyback()
 }
 
 // ── 權證查詢 ──────────────────────────────────────────
@@ -412,6 +413,46 @@ function startMoversAutoRefresh() {
 function stopMoversAutoRefresh() {
   clearInterval(moversTimer)
   moversTimer = null
+}
+
+// ── 庫藏股買回 ───────────────────────────────────────
+const buybackRows    = ref([])
+const buybackLoading = ref(false)
+const buybackError   = ref('')
+const buybackUpdated = ref('')
+const buybackFilter  = ref('all')  // 'all' | '上市' | '上櫃'
+const buybackSearch  = ref('')     // 代碼或名稱關鍵字
+
+async function fetchBuyback() {
+  if (buybackLoading.value) return
+  buybackLoading.value = true
+  buybackError.value   = ''
+  try {
+    const r = await fetch(`${API}/api/market/buyback`)
+    const d = await r.json()
+    if (!r.ok) throw new Error(d.error || 'API error')
+    buybackRows.value    = d.rows || []
+    buybackUpdated.value = d.updatedAt || ''
+  } catch(e) {
+    buybackError.value = e.message
+  } finally {
+    buybackLoading.value = false
+  }
+}
+
+const buybackFiltered = computed(() => {
+  let rows = buybackRows.value
+  if (buybackFilter.value !== 'all') rows = rows.filter(r => r.market === buybackFilter.value)
+  if (buybackSearch.value.trim()) {
+    const kw = buybackSearch.value.trim()
+    rows = rows.filter(r => r.stockNo.includes(kw) || r.stockName.includes(kw))
+  }
+  return rows
+})
+
+function buybackPurposeLabel(code) {
+  const map = { '1': '轉讓員工', '2': '維護股東', '3': '員工股票', '4': '可轉債', '5': '員工認股', '8': '限制股票' }
+  return map[code] || code
 }
 
 // ── 日報表 ────────────────────────────────────────
@@ -839,7 +880,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
 
     <!-- 分頁切換 -->
     <div class="border-b border-gray-800 px-6 flex gap-1">
-      <button v-for="t in [{ id:'monitor', label:'即時監控' }, { id:'db', label:'歷史資料' }, { id:'report', label:'日報表' }, { id:'breadth', label:'漲跌家數' }, { id:'chips', label:'台指期籌碼' }, { id:'sector', label:'強勢族群' }, { id:'conc', label:'大股東吃貨' }, { id:'screener', label:'台股選股' }, { id:'inst', label:'三大法人' }, { id:'warrant', label:'權證' }, { id:'movers', label:'漲跌排行' }]" :key="t.id"
+      <button v-for="t in [{ id:'monitor', label:'即時監控' }, { id:'db', label:'歷史資料' }, { id:'report', label:'日報表' }, { id:'breadth', label:'漲跌家數' }, { id:'chips', label:'台指期籌碼' }, { id:'sector', label:'強勢族群' }, { id:'conc', label:'大股東吃貨' }, { id:'screener', label:'台股選股' }, { id:'inst', label:'三大法人' }, { id:'warrant', label:'權證' }, { id:'movers', label:'漲跌排行' }, { id:'buyback', label:'庫藏股' }]" :key="t.id"
               @click="selectTab(t.id)"
               class="px-4 py-3 text-sm font-medium transition border-b-2 -mb-px"
               :class="tab === t.id ? 'border-purple-500 text-purple-400' : 'border-transparent text-gray-500 hover:text-gray-300'">
@@ -2968,6 +3009,111 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
 
       <div class="text-right text-xs text-gray-700">
         {{ moversRealtime ? '今日即時：TWSE MIS，每 60 秒自動刷新' : '歷史資料：DB market_daily' }}
+      </div>
+    </div>
+
+    <!-- ══ 庫藏股買回 ══════════════════════════════════════════ -->
+    <div v-if="tab === 'buyback'" class="max-w-7xl mx-auto px-4 py-6 space-y-4">
+
+      <!-- 標題列 -->
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div class="flex items-center gap-3">
+          <h2 class="text-lg font-semibold text-white">庫藏股買回公告</h2>
+          <span class="text-xs text-gray-500">資料來源：MOPS 公開資訊觀測站</span>
+        </div>
+        <button @click="fetchBuyback" :disabled="buybackLoading"
+          class="px-3 py-1.5 text-xs rounded bg-purple-700 hover:bg-purple-600 text-white disabled:opacity-50">
+          {{ buybackLoading ? '載入中...' : '重新整理' }}
+        </button>
+      </div>
+
+      <!-- 篩選列 -->
+      <div class="flex flex-wrap gap-3 items-center">
+        <div class="flex gap-1">
+          <button v-for="m in ['all', '上市', '上櫃']" :key="m"
+            @click="buybackFilter = m"
+            class="px-3 py-1 text-xs rounded border"
+            :class="buybackFilter === m ? 'bg-purple-700 border-purple-500 text-white' : 'border-gray-600 text-gray-400 hover:border-gray-400'">
+            {{ m === 'all' ? '全部' : m }}
+          </button>
+        </div>
+        <input v-model="buybackSearch" placeholder="搜尋代碼或名稱…"
+          class="px-3 py-1 text-xs rounded bg-gray-800 border border-gray-600 text-gray-200 placeholder-gray-600 w-40">
+        <span class="text-xs text-gray-600 ml-auto">
+          共 {{ buybackFiltered.length }} 筆
+          <template v-if="buybackUpdated"> · 更新於 {{ new Date(buybackUpdated).toLocaleString('zh-TW') }}</template>
+        </span>
+      </div>
+
+      <!-- 錯誤 -->
+      <div v-if="buybackError" class="text-red-400 text-sm">{{ buybackError }}</div>
+
+      <!-- 載入中 -->
+      <div v-if="buybackLoading && !buybackRows.length" class="text-center py-16 text-gray-500">
+        載入庫藏股資料中，請稍候...（初次載入約需 10-20 秒）
+      </div>
+
+      <!-- 空白提示 -->
+      <div v-if="!buybackLoading && !buybackRows.length && !buybackError"
+        class="text-center py-16 text-gray-600 text-sm">
+        尚無資料，請點擊「重新整理」載入
+      </div>
+
+      <!-- 主表格 -->
+      <div v-if="buybackFiltered.length" class="overflow-x-auto rounded-lg border border-gray-700">
+        <table class="w-full text-xs">
+          <thead class="bg-gray-800 text-gray-400">
+            <tr>
+              <th class="px-3 py-2 text-left">市場</th>
+              <th class="px-3 py-2 text-left">代碼</th>
+              <th class="px-3 py-2 text-left">公司名稱</th>
+              <th class="px-3 py-2 text-center">決議日</th>
+              <th class="px-3 py-2 text-center">預定買回區間</th>
+              <th class="px-3 py-2 text-center">買回價格區間（元）</th>
+              <th class="px-3 py-2 text-right">預定買回張數</th>
+              <th class="px-3 py-2 text-center">目的</th>
+              <th class="px-3 py-2 text-center">狀態</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-800">
+            <tr v-for="r in buybackFiltered" :key="r.stockNo + r.resolveDate"
+              class="hover:bg-gray-800/50 transition">
+              <td class="px-3 py-2">
+                <span class="text-xs px-1.5 py-0.5 rounded"
+                  :class="r.market === '上市' ? 'bg-blue-900/50 text-blue-300' : 'bg-green-900/50 text-green-300'">
+                  {{ r.market }}
+                </span>
+              </td>
+              <td class="px-3 py-2 font-mono font-semibold text-yellow-300">{{ r.stockNo }}</td>
+              <td class="px-3 py-2 text-white font-medium">{{ r.stockName }}</td>
+              <td class="px-3 py-2 text-center text-gray-300 font-mono">{{ r.resolveDate }}</td>
+              <td class="px-3 py-2 text-center text-gray-300 font-mono whitespace-nowrap">
+                {{ r.periodStart }} ~ {{ r.periodEnd }}
+              </td>
+              <td class="px-3 py-2 text-center font-mono">
+                <span class="text-green-400">{{ r.minPrice }}</span>
+                <span class="text-gray-500"> ~ </span>
+                <span class="text-red-400">{{ r.maxPrice }}</span>
+              </td>
+              <td class="px-3 py-2 text-right font-mono text-purple-300">
+                {{ r.plannedLots.toLocaleString() }}
+              </td>
+              <td class="px-3 py-2 text-center text-gray-400 text-xs">
+                {{ buybackPurposeLabel(r.purpose) }}
+              </td>
+              <td class="px-3 py-2 text-center">
+                <span class="px-1.5 py-0.5 rounded text-xs"
+                  :class="r.completed ? 'bg-gray-700 text-gray-400' : 'bg-emerald-900/50 text-emerald-300'">
+                  {{ r.completed ? '執行完畢' : '執行中' }}
+                </span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="text-right text-xs text-gray-700">
+        資料範圍：近 6 個月董事會決議 · 上市 + 上櫃 · MOPS t35sc09 · 每 2 小時快取
       </div>
     </div>
 

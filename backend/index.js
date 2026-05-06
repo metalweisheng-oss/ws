@@ -4174,6 +4174,124 @@ app.get('/api/warrant/search', async (req, res) => {
   }
 })
 
+// ── 庫藏股買回 ──────────────────────────────────────────────
+const _buybackCache = { data: null, ts: 0 }
+const BUYBACK_CACHE_TTL = 2 * 60 * 60 * 1000  // 2 hours
+
+function toRocDate(d) {
+  const roc = d.getFullYear() - 1911
+  const m   = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${roc}${m}${day}`  // e.g. "1141107"
+}
+
+async function fetchMopsBuyback(typek, d1, d2) {
+  const body = JSON.stringify({
+    apiName: 'ajax_t35sc09',
+    parameters: { encodeURIComponent: 1, step: 1, firstin: 1, off: 1, TYPEK: typek, d1, d2, RD: '1', chBox_N: 'on' }
+  })
+  const redirectJson = await new Promise((resolve, reject) => {
+    const opts = {
+      hostname: 'mops.twse.com.tw', path: '/mops/api/redirectToOld', method: 'POST',
+      headers: {
+        'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body),
+        'User-Agent': 'Mozilla/5.0', 'Referer': 'https://mops.twse.com.tw/mops/'
+      }
+    }
+    const req = https.request(opts, res => {
+      const chunks = []
+      res.on('data', c => chunks.push(c))
+      res.on('end', () => {
+        try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf8'))) }
+        catch(e) { reject(e) }
+      })
+    })
+    req.on('error', reject)
+    req.write(body)
+    req.end()
+  })
+
+  const url = redirectJson?.result?.url
+  if (!url) throw new Error(`MOPS redirectToOld no URL for ${typek}`)
+
+  const html = await new Promise((resolve, reject) => {
+    https.get(url, { headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://mopsov.twse.com.tw/mops/' } }, res => {
+      const chunks = []
+      res.on('data', c => chunks.push(c))
+      res.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')))
+    }).on('error', reject)
+  })
+
+  // Find the large data table (skip title/control tables)
+  const tableRe = /<table[^>]*>([\s\S]*?)<\/table>/gi
+  let dataTable = null, m
+  while ((m = tableRe.exec(html)) !== null) {
+    if ((m[1].match(/<tr/gi) || []).length > 10) { dataTable = m[1]; break }
+  }
+  if (!dataTable) return []
+
+  const trRe = /<tr[^>]*>([\s\S]*?)<\/tr>/gi
+  const rows = []; let rm
+  while ((rm = trRe.exec(dataTable)) !== null) rows.push(rm[1])
+
+  const result = []
+  for (const row of rows.slice(2)) {  // skip 2 header rows
+    const cells = []
+    const tdRe = /<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi
+    let tm
+    while ((tm = tdRe.exec(row)) !== null) {
+      cells.push(tm[1].replace(/<[^>]+>/g, '').replace(/&nbsp;/g, '').trim().replace(/\s+/g, ' '))
+    }
+    if (cells.length >= 11 && cells[1] && /^\d{4,6}$/.test(cells[1])) {
+      const sharesRaw = parseInt((cells[6] || '0').replace(/,/g, '')) || 0
+      result.push({
+        market:      typek === 'sii' ? '上市' : '上櫃',
+        stockNo:     cells[1],
+        stockName:   cells[2],
+        resolveDate: cells[3],
+        purpose:     cells[4],
+        plannedShares: sharesRaw,
+        plannedLots:   Math.round(sharesRaw / 1000),
+        minPrice:    cells[7],
+        maxPrice:    cells[8],
+        periodStart: cells[9],
+        periodEnd:   cells[10],
+        completed:   cells[11] === 'Y',
+        executedPct: cells[15] || '',
+      })
+    }
+  }
+  return result
+}
+
+app.get('/api/market/buyback', async (req, res) => {
+  const months = Math.min(parseInt(req.query.months) || 6, 24)
+  const now = Date.now()
+
+  if (_buybackCache.data && (now - _buybackCache.ts) < BUYBACK_CACHE_TTL) {
+    return res.json(_buybackCache.data)
+  }
+
+  try {
+    const from = new Date(); from.setMonth(from.getMonth() - months)
+    const d1 = toRocDate(from)
+    const d2 = toRocDate(new Date())
+
+    const [sii, otc] = await Promise.all([
+      fetchMopsBuyback('sii', d1, d2).catch(e => { console.error('[buyback] sii:', e.message); return [] }),
+      fetchMopsBuyback('otc', d1, d2).catch(e => { console.error('[buyback] otc:', e.message); return [] }),
+    ])
+
+    const rows = [...sii, ...otc].sort((a, b) => b.resolveDate.localeCompare(a.resolveDate))
+    const result = { rows, total: rows.length, d1, d2, updatedAt: new Date().toISOString() }
+    _buybackCache.data = result
+    _buybackCache.ts = now
+    res.json(result)
+  } catch(e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
 const PORT = process.env.PORT || 3000
 app.listen(PORT, () => {
   console.log(`Backend running on http://localhost:${PORT}`)
