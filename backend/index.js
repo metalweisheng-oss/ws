@@ -803,11 +803,15 @@ app.get('/api/stock/monitor/stream', (req, res) => {
     if (txt && !txt.includes('NotOpenSSLWarning')) console.error('[fubon-monitor]', txt)
   })
 
+  py.on('error', (e) => {
+    send({ type: 'error', checkTime: cstNow(), message: `監控進程啟動失敗：${e.message}` })
+  })
+
   py.on('exit', (code) => {
     send({ type: 'error', checkTime: cstNow(), message: `監控進程結束 (${code})，請重新整理` })
   })
 
-  req.on('close', () => py.kill())
+  req.on('close', () => { try { py.kill() } catch(e) {} })
 })
 
 // ── 回測：逐根模擬監控邏輯 ───────────────────────────
@@ -3663,6 +3667,7 @@ function runPython(scriptArgs, onData) {
     const out = []
     py.stdout.on('data', d => { out.push(d.toString()); if (onData) onData(d.toString()) })
     py.stderr.on('data', d => console.error('[python]', d.toString().trim()))
+    py.on('error', reject)
     py.on('close', code => code === 0 ? resolve(out.join('')) : reject(new Error(`exit ${code}`)))
   })
 }
@@ -3879,7 +3884,8 @@ app.get('/api/fubon/stream', (req, res) => {
     })
   })
   py.stderr.on('data', d => console.error('[fubon-stream]', d.toString().trim()))
-  req.on('close', () => py.kill())
+  py.on('error', e => console.error('[fubon-stream] spawn error:', e.message))
+  req.on('close', () => { try { py.kill() } catch(e) {} })
 })
 
 // ── 權證查詢 ──────────────────────────────────────────
