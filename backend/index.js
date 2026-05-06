@@ -702,97 +702,111 @@ app.get('/api/stock/monitor/stream', (req, res) => {
   res.flushHeaders()
 
   const send = (data) => res.write(`data: ${JSON.stringify(data)}\n\n`)
-
-  // 防重複通知：同訊號同小時只發一次
   let lastNotifyKey = ''
 
-  const check = async () => {
+  // 每次收到富邦 WebSocket 報價時呼叫（rows = 今日1分K，quote = 最新即時報價）
+  function processCandles(rows, quote) {
     const checkTime = cstNow()
 
     if (!isMarketOpen()) {
       send({ type: 'check', checkTime, signal: 'closed', message: '盤後 / 休市中', price: null })
       return
     }
+    if (!rows.length) {
+      send({ type: 'check', checkTime, signal: 'no_data', message: '今日尚無成交' })
+      return
+    }
 
-    try {
-      const json = await fetchUrl(
-        `https://query1.finance.yahoo.com/v8/finance/chart/${getSymbol(stockNo)}?interval=1m&range=1d`
-      )
-      const result = json.chart.result?.[0]
-      if (!result?.timestamp) { send({ type: 'check', checkTime, signal: 'no_data', message: '無資料' }); return }
+    const avgVol  = rows.reduce((s, r) => s + r.volume, 0) / rows.length
+    const dayLow  = Math.min(...rows.map(r => r.low))
+    const dayHigh = Math.max(...rows.map(r => r.high))
+    const last    = rows[rows.length - 1]
+    const prev    = rows[rows.length - 2]
 
-      const q = result.indicators.quote[0]
-      const rows = result.timestamp
-        .map((ts, i) => ({ ts, open: q.open[i], high: q.high[i], low: q.low[i], close: q.close[i], volume: q.volume[i] }))
-        .filter(r => r.close != null && r.volume > 0)
+    // 即時報價優先，再 fallback 最新 K 棒收盤
+    const currentPrice = (quote?.price != null) ? quote.price : last.close
 
-      if (!rows.length) { send({ type: 'check', checkTime, signal: 'no_data', message: '今日尚無成交' }); return }
+    const dt = new Date(last.ts * 1000)
+    const dataTime = `${String((dt.getUTCHours() + 8) % 24).padStart(2,'0')}:${String(dt.getUTCMinutes()).padStart(2,'0')}`
 
-      const avgVol  = rows.reduce((s, r) => s + r.volume, 0) / rows.length
-      const dayLow  = Math.min(...rows.map(r => r.low))
-      const dayHigh = Math.max(...rows.map(r => r.high))
-      const last    = rows[rows.length - 1]
-      const prev    = rows[rows.length - 2]
+    const volRatio   = +(last.volume / avgVol).toFixed(2)
+    const nearLow    = (last.low  - dayLow)  / dayLow  < 0.05
+    const nearHigh   = (dayHigh   - last.high) / dayHigh < 0.05
+    const reversal   = prev && last.close > prev.close
 
-      const dt = new Date(last.ts * 1000)
-      const dataTime = `${String((dt.getUTCHours() + 8) % 24).padStart(2,'0')}:${String(dt.getUTCMinutes()).padStart(2,'0')}`
+    const macdResult  = calcMACD(rows.map(r => r.close))
+    const macdDiv     = detectDivergence(rows, macdResult)
+    const macdTopDiv  = detectTopDivergence(rows, macdResult)
+    const macdPayload = macdResult ? {
+      line: macdResult.line, sig: macdResult.sig, hist: macdResult.hist,
+      divergence: macdDiv, topDivergence: macdTopDiv,
+    } : null
 
-      const volRatio   = +(last.volume / avgVol).toFixed(2)
-      const nearLow    = (last.low  - dayLow)  / dayLow  < 0.05
-      const nearHigh   = (dayHigh   - last.high) / dayHigh < 0.05
-      const reversal   = prev && last.close > prev.close
+    const longLowerShadow = hasLongLowerShadow(last)
+    const aboveMa5        = isAboveMa5(rows)
+    const { signal, message } = classifySignal({ volRatio, nearLow, nearHigh, reversal, macdDiv, macdTopDiv, dayLow, dayHigh, longLowerShadow, aboveMa5 })
 
-      const macdResult   = calcMACD(rows.map(r => r.close))
-      const macdDiv      = detectDivergence(rows, macdResult)
-      const macdTopDiv   = detectTopDivergence(rows, macdResult)
-      const macdPayload  = macdResult ? {
-        line: macdResult.line, sig: macdResult.sig, hist: macdResult.hist,
-        divergence: macdDiv, topDivergence: macdTopDiv,
-      } : null
+    send({ type: 'check', checkTime, dataTime, signal, message,
+           price: currentPrice, dayHigh, dayLow,
+           volume: last.volume, avgVolume: Math.round(avgVol), volRatio,
+           macd: macdPayload })
 
-      const longLowerShadow = hasLongLowerShadow(last)
-      const aboveMa5        = isAboveMa5(rows)
-      const { signal, message } = classifySignal({ volRatio, nearLow, nearHigh, reversal, macdDiv, macdTopDiv, dayLow, dayHigh, longLowerShadow, aboveMa5 })
-
-      const payload = { type: 'check', checkTime, dataTime, signal, message,
-                        price: last.close, dayHigh, dayLow,
-                        volume: last.volume, avgVolume: Math.round(avgVol), volRatio,
-                        macd: macdPayload }
-      send(payload)
-
-      // Telegram 通知 + DB 寫入（同小時同訊號不重複）
-      const notifySignals = ['entry', 'warning', 'exit_warning']
-      if (notifySignals.includes(signal)) {
-        const notifyKey = `${new Date().getUTCHours()}-${signal}`
-        if (notifyKey !== lastNotifyKey) {
-          lastNotifyKey = notifyKey
-          const emoji = { entry: '🚨', warning: '⚠️', exit_warning: '🟠' }[signal] || '📢'
-          sendTelegram(
-            `${emoji} <b>${stockName} ${stockNo} 訊號</b>\n` +
-            `${message}\n\n` +
-            `現價：<b>${last.close}</b>\n` +
-            `量比：<b>${volRatio}x</b>\n` +
-            `日低：${dayLow}　日高：${dayHigh}\n` +
-            `資料時間：${dataTime}`
-          )
-        }
+    const notifySignals = ['entry', 'warning', 'exit_warning']
+    if (notifySignals.includes(signal)) {
+      const notifyKey = `${new Date().getUTCHours()}-${signal}`
+      if (notifyKey !== lastNotifyKey) {
+        lastNotifyKey = notifyKey
+        const emoji = { entry: '🚨', warning: '⚠️', exit_warning: '🟠' }[signal] || '📢'
+        sendTelegram(
+          `${emoji} <b>${stockName} ${stockNo} 訊號</b>\n` +
+          `${message}\n\n` +
+          `現價：<b>${currentPrice}</b>\n` +
+          `量比：<b>${volRatio}x</b>\n` +
+          `日低：${dayLow}　日高：${dayHigh}\n` +
+          `資料時間：${dataTime}`
+        )
         saveSignal({
           stockNo, stockName,
           signalTime: new Date(last.ts * 1000),
           signalType: signal,
-          price: last.close, volRatio, dayLow, dayHigh, message,
+          price: currentPrice, volRatio, dayLow, dayHigh, message,
           macd: macdPayload, source: 'realtime',
         })
       }
-
-    } catch (e) {
-      send({ type: 'error', checkTime, message: e.message })
     }
   }
 
-  check()
-  const timer = setInterval(check, 30 * 1000)
-  req.on('close', () => clearInterval(timer))
+  // 啟動富邦即時監控 Python 進程
+  const py = spawn('python3', ['-m', 'fubon.monitor', stockNo], {
+    cwd: path.join(__dirname),
+    env: { ...process.env }
+  })
+
+  let buf = ''
+  py.stdout.on('data', chunk => {
+    buf += chunk.toString()
+    const lines = buf.split('\n')
+    buf = lines.pop()  // 最後一段可能不完整，留著等下次
+    for (const line of lines) {
+      if (!line.trim()) continue
+      try {
+        const msg = JSON.parse(line)
+        if (msg.type === 'candles') processCandles(msg.rows || [], msg.quote || {})
+        else if (msg.type === 'error') send({ type: 'error', checkTime: cstNow(), message: msg.message })
+      } catch(e) {}
+    }
+  })
+
+  py.stderr.on('data', d => {
+    const txt = d.toString().trim()
+    if (txt && !txt.includes('NotOpenSSLWarning')) console.error('[fubon-monitor]', txt)
+  })
+
+  py.on('exit', (code) => {
+    send({ type: 'error', checkTime: cstNow(), message: `監控進程結束 (${code})，請重新整理` })
+  })
+
+  req.on('close', () => py.kill())
 })
 
 // ── 回測：逐根模擬監控邏輯 ───────────────────────────
