@@ -359,19 +359,34 @@ const moversTotal     = ref(0)
 const moversLoading   = ref(false)
 const moversError     = ref('')
 const moversUpdatedAt = ref('')
+const moversDate      = ref('')        // '' = 今日即時，'YYYY-MM-DD' = 歷史
+const moversDates     = ref([])        // 可選日期清單
+const moversRealtime  = ref(true)
 let   moversTimer     = null
+
+async function fetchMoversDates() {
+  try {
+    const r = await fetch(`${API}/api/market/movers/dates`)
+    const d = await r.json()
+    moversDates.value = d.dates || []
+  } catch(e) {}
+}
 
 async function fetchMovers() {
   moversLoading.value = true
   moversError.value   = ''
   try {
-    const r = await fetch(`${API}/api/market/movers?limit=50`)
+    const qs = moversDate.value ? `?date=${moversDate.value}&limit=50` : '?limit=50'
+    const r = await fetch(`${API}/api/market/movers${qs}`)
     const d = await r.json()
     if (d.error) throw new Error(d.error)
     moversGainers.value   = d.gainers || []
     moversLosers.value    = d.losers  || []
     moversTotal.value     = d.total   || 0
-    moversUpdatedAt.value = d.updatedAt ? new Date(d.updatedAt).toLocaleTimeString('zh-TW') : ''
+    moversRealtime.value  = d.realtime ?? true
+    moversUpdatedAt.value = d.updatedAt
+      ? new Date(d.updatedAt).toLocaleTimeString('zh-TW')
+      : (d.date || '')
   } catch(e) {
     moversError.value = e.message
   } finally {
@@ -379,7 +394,18 @@ async function fetchMovers() {
   }
 }
 
+function onMoversDateChange() {
+  // 歷史模式停止自動刷新
+  clearInterval(moversTimer)
+  moversTimer = null
+  fetchMovers()
+  if (!moversDate.value) {
+    moversTimer = setInterval(fetchMovers, 60000)
+  }
+}
+
 function startMoversAutoRefresh() {
+  fetchMoversDates()
   fetchMovers()
   moversTimer = setInterval(fetchMovers, 60000)
 }
@@ -2845,15 +2871,25 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
     <div v-if="tab === 'movers'" class="max-w-6xl mx-auto px-4 py-6 space-y-4">
 
       <!-- 標題列 -->
-      <div class="flex items-center justify-between">
-        <div class="flex items-center gap-3">
-          <h2 class="text-lg font-semibold text-white">即時漲跌排行</h2>
-          <span v-if="moversTotal" class="text-xs text-gray-500">共 {{ moversTotal }} 支有成交</span>
-          <span v-if="moversUpdatedAt" class="text-xs text-gray-600">更新：{{ moversUpdatedAt }}</span>
-        </div>
+      <div class="flex flex-wrap items-center gap-3">
+        <h2 class="text-lg font-semibold text-white">漲跌排行</h2>
+
+        <!-- 日期選單 -->
+        <select v-model="moversDate" @change="onMoversDateChange"
+                class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-purple-500">
+          <option value="">今日即時</option>
+          <option v-for="d in moversDates" :key="d" :value="d">{{ d }}</option>
+        </select>
+
+        <span v-if="moversTotal" class="text-xs text-gray-500">共 {{ moversTotal }} 支</span>
+        <span v-if="moversUpdatedAt" class="text-xs text-gray-600">
+          {{ moversRealtime ? '更新：' : '交易日：' }}{{ moversUpdatedAt }}
+        </span>
+        <span v-if="moversRealtime && !moversDate" class="text-xs text-green-600 animate-pulse">● 即時</span>
+
         <button @click="fetchMovers" :disabled="moversLoading"
-                class="px-4 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 border border-gray-700 text-sm text-gray-300 transition disabled:opacity-50">
-          {{ moversLoading ? '載入中...' : '立即刷新' }}
+                class="ml-auto px-4 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 border border-gray-700 text-sm text-gray-300 transition disabled:opacity-50">
+          {{ moversLoading ? '載入中...' : '刷新' }}
         </button>
       </div>
 
@@ -2930,7 +2966,9 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
 
       </div>
 
-      <div class="text-right text-xs text-gray-700">資料來源：TWSE MIS  每 60 秒自動刷新</div>
+      <div class="text-right text-xs text-gray-700">
+        {{ moversRealtime ? '今日即時：TWSE MIS，每 60 秒自動刷新' : '歷史資料：DB market_daily' }}
+      </div>
     </div>
 
   </div>

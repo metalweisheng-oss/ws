@@ -3687,13 +3687,71 @@ function fetchMisRaw(exChList, timeoutMs = 10000) {
   })
 }
 
-app.get('/api/market/movers', async (req, res) => {
-  const limit = Math.min(parseInt(req.query.limit) || 20, 50)
-  const now = Date.now()
+// 取 market_daily 有資料的交易日清單
+app.get('/api/market/movers/dates', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT DISTINCT trade_date FROM market_daily ORDER BY trade_date DESC LIMIT 90`
+    )
+    res.json({ dates: rows.map(r => r.trade_date.toISOString().slice(0, 10)) })
+  } catch(e) {
+    res.status(500).json({ error: e.message })
+  }
+})
 
+app.get('/api/market/movers', async (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit) || 50, 50)
+  const dateParam = req.query.date || ''   // YYYY-MM-DD；空 = 今日即時
+
+  // ── 歷史日期：從 DB 計算 ─────────────────────────────
+  if (dateParam) {
+    try {
+      const { rows } = await pool.query(`
+        WITH today AS (
+          SELECT stock_no, stock_name, close, volume
+          FROM market_daily
+          WHERE trade_date = $1 AND close > 0 AND volume > 0
+        ),
+        prev AS (
+          SELECT DISTINCT ON (stock_no) stock_no, close AS prev_close
+          FROM market_daily
+          WHERE trade_date < $1 AND close > 0
+          ORDER BY stock_no, trade_date DESC
+        )
+        SELECT t.stock_no, t.stock_name,
+               t.close AS price, t.volume,
+               p.prev_close,
+               ROUND(((t.close - p.prev_close) / p.prev_close * 100)::numeric, 2) AS change_pct,
+               ROUND((t.close - p.prev_close)::numeric, 2) AS change
+        FROM today t
+        JOIN prev p ON p.stock_no = t.stock_no
+        WHERE t.volume > 0
+        ORDER BY change_pct DESC
+      `, [dateParam])
+
+      const movers = rows.map(r => ({
+        stockNo:    r.stock_no,
+        stockName:  r.stock_name,
+        price:      parseFloat(r.price),
+        prevClose:  parseFloat(r.prev_close),
+        change:     parseFloat(r.change),
+        changePct:  parseFloat(r.change_pct),
+        volume:     parseInt(r.volume),
+      }))
+
+      const gainers = movers.slice(0, limit)
+      const losers  = [...movers].reverse().slice(0, limit)
+      return res.json({ gainers, losers, total: movers.length, date: dateParam, realtime: false })
+    } catch(e) {
+      return res.status(500).json({ error: e.message })
+    }
+  }
+
+  // ── 今日即時：TWSE MIS ───────────────────────────────
+  const now = Date.now()
   if (_moversCache.data && now - _moversCache.ts < MOVERS_CACHE_TTL) {
     const { gainers, losers, total, updatedAt } = _moversCache.data
-    return res.json({ gainers: gainers.slice(0, limit), losers: losers.slice(0, limit), total, updatedAt, cached: true })
+    return res.json({ gainers: gainers.slice(0, limit), losers: losers.slice(0, limit), total, updatedAt, realtime: true, cached: true })
   }
 
   try {
@@ -3701,12 +3759,9 @@ app.get('/api/market/movers', async (req, res) => {
       `SELECT DISTINCT ON (stock_no) stock_no, stock_name FROM market_daily ORDER BY stock_no, trade_date DESC`
     )
 
-    // Try both tse_ and otc_ — MIS ignores whichever doesn't exist
-    const exChAll = stockRows.flatMap(r => [`tse_${r.stock_no}.tw`, `otc_${r.stock_no}.tw`])
     const nameMap = {}
     for (const r of stockRows) nameMap[r.stock_no] = r.stock_name
 
-    // Batch into groups of 60 stocks (120 ex_ch strings)
     const BATCH_SIZE = 60
     const batches = []
     for (let i = 0; i < stockRows.length; i += BATCH_SIZE) {
@@ -3731,24 +3786,22 @@ app.get('/api/market/movers', async (req, res) => {
         movers.push({
           stockNo: item.c,
           stockName: nameMap[item.c] || item.n || item.c,
-          price: z,
-          prevClose: y,
+          price: z, prevClose: y,
           change: +(z - y).toFixed(2),
-          changePct,
-          volume: vol,
+          changePct, volume: vol,
         })
       }
     }
 
     movers.sort((a, b) => b.changePct - a.changePct)
     const gainers = movers.slice(0, 50)
-    const losers = [...movers].reverse().slice(0, 50)
+    const losers  = [...movers].reverse().slice(0, 50)
     const updatedAt = new Date().toISOString()
 
     _moversCache.data = { gainers, losers, total: movers.length, updatedAt }
     _moversCache.ts = now
 
-    res.json({ gainers: gainers.slice(0, limit), losers: losers.slice(0, limit), total: movers.length, updatedAt })
+    res.json({ gainers: gainers.slice(0, limit), losers: losers.slice(0, limit), total: movers.length, updatedAt, realtime: true })
   } catch(e) {
     res.status(500).json({ error: e.message })
   }
