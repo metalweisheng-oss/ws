@@ -30,8 +30,9 @@ const SIGNAL_META = {
 
 // 每檔股票各自的狀態
 const stocks = reactive(
-  Object.fromEntries(STOCKS.map(s => [s.no, { latest: null, logs: [], connected: false, sse: null }]))
+  Object.fromEntries(STOCKS.map(s => [s.no, { latest: null, logs: [], ticks: [], connected: false, sse: null }]))
 )
+const selectedTickStock = ref('')
 
 function startOne(stockNo) {
   const st = stocks[stockNo]
@@ -40,6 +41,17 @@ function startOne(stockNo) {
   st.connected = true
   st.sse.onmessage = (e) => {
     const data = JSON.parse(e.data)
+    if (data.type === 'tick') {
+      // 初始歷史批次：整批加到尾端（不 unshift，保持時序）
+      if (data.init) {
+        st.ticks.push(data)
+        if (st.ticks.length > 300) st.ticks.shift()
+      } else {
+        st.ticks.unshift(data)
+        if (st.ticks.length > 300) st.ticks.pop()
+      }
+      return
+    }
     st.latest = data
     st.logs.unshift({ ...data, id: Date.now() })
     if (st.logs.length > 30) st.logs.pop()
@@ -827,7 +839,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
           📨 測試 Telegram
         </button>
         <span v-if="telegramStatus" class="text-sm text-cyan-400 self-center">{{ telegramStatus }}</span>
-        <span class="text-xs text-gray-600 self-center">每 30 秒自動更新</span>
+        <span class="text-xs text-gray-600 self-center">富邦 WebSocket 即時行情</span>
       </div>
 
       <!-- 訊號說明 -->
@@ -844,8 +856,10 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
       <!-- 4 檔個股卡片 -->
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div v-for="s in STOCKS" :key="s.no"
-             class="rounded-2xl border p-4 transition-all"
-             :class="stocks[s.no].latest ? SIGNAL_META[stocks[s.no].latest.signal]?.border || 'border-gray-800' : 'border-gray-800'">
+             class="rounded-2xl border p-4 transition-all cursor-pointer"
+             :class="[stocks[s.no].latest ? SIGNAL_META[stocks[s.no].latest.signal]?.border || 'border-gray-800' : 'border-gray-800',
+                      selectedTickStock === s.no ? 'ring-1 ring-purple-500' : '']"
+             @click="selectedTickStock = selectedTickStock === s.no ? '' : s.no">
 
           <!-- 股票標題 -->
           <div class="flex items-center justify-between mb-3">
@@ -855,8 +869,12 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               <span class="font-bold text-white">{{ s.name }}</span>
               <span class="text-xs text-gray-500 font-mono">{{ s.no }}</span>
             </div>
-            <div v-if="stocks[s.no].latest" class="text-right text-xs text-gray-600 font-mono">
-              {{ stocks[s.no].latest.checkTime }}
+            <div class="flex items-center gap-2">
+              <span class="text-xs text-gray-600 font-mono">{{ stocks[s.no].latest?.checkTime }}</span>
+              <span class="text-xs px-1.5 py-0.5 rounded border"
+                    :class="selectedTickStock === s.no ? 'border-purple-600 text-purple-400' : 'border-gray-700 text-gray-600'">
+                分時
+              </span>
             </div>
           </div>
 
@@ -914,6 +932,53 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               <span class="flex-shrink-0">{{ log.checkTime }}</span>
             </div>
           </div>
+        </div>
+      </div>
+
+      <!-- 分時明細面板 -->
+      <div v-if="selectedTickStock" class="bg-gray-900 border border-purple-900/50 rounded-xl overflow-hidden">
+        <div class="px-4 py-3 border-b border-gray-800 flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <span class="text-sm font-semibold text-white">
+              {{ STOCKS.find(s => s.no === selectedTickStock)?.name }} ({{ selectedTickStock }}) 分時明細
+            </span>
+            <span class="text-xs text-gray-500">{{ stocks[selectedTickStock]?.ticks?.length || 0 }} 筆</span>
+          </div>
+          <button @click="selectedTickStock = ''" class="text-gray-600 hover:text-gray-400 text-xs px-2 py-1 rounded border border-gray-700">關閉</button>
+        </div>
+
+        <div class="overflow-y-auto" style="max-height:340px">
+          <table class="w-full text-xs font-mono">
+            <thead class="sticky top-0 bg-gray-900 border-b border-gray-800">
+              <tr class="text-gray-500">
+                <th class="px-3 py-2 text-left">時間</th>
+                <th class="px-3 py-2 text-right">成交價</th>
+                <th class="px-3 py-2 text-right">量(張)</th>
+                <th class="px-3 py-2 text-center">外/內盤</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template v-if="stocks[selectedTickStock]?.ticks?.length">
+                <tr v-for="(t, i) in stocks[selectedTickStock].ticks" :key="i"
+                    class="border-b border-gray-800/40 hover:bg-gray-800/30">
+                  <td class="px-3 py-1.5 text-gray-500">{{ t.time }}</td>
+                  <td class="px-3 py-1.5 text-right font-semibold"
+                      :class="t.side === 'buy' ? 'text-red-400' : t.side === 'sell' ? 'text-green-400' : 'text-gray-300'">
+                    {{ t.price }}
+                  </td>
+                  <td class="px-3 py-1.5 text-right text-gray-400">{{ t.volume }}</td>
+                  <td class="px-3 py-1.5 text-center">
+                    <span v-if="t.side === 'buy'"  class="text-red-400">外盤</span>
+                    <span v-else-if="t.side === 'sell'" class="text-green-400">內盤</span>
+                    <span v-else class="text-gray-700">—</span>
+                  </td>
+                </tr>
+              </template>
+              <tr v-else>
+                <td colspan="4" class="px-3 py-6 text-center text-gray-600">等待成交資料...</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </div>
 

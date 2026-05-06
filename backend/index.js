@@ -792,6 +792,7 @@ app.get('/api/stock/monitor/stream', (req, res) => {
       try {
         const msg = JSON.parse(line)
         if (msg.type === 'candles') processCandles(msg.rows || [], msg.quote || {})
+        else if (msg.type === 'tick')  send(msg)   // 分時明細直接轉發
         else if (msg.type === 'error') send({ type: 'error', checkTime: cstNow(), message: msg.message })
       } catch(e) {}
     }
