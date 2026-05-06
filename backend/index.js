@@ -4313,6 +4313,316 @@ app.get('/api/market/buyback', async (req, res) => {
   }
 })
 
+// ── 盤後技術指標分析 ───────────────────────────────────────────────────────
+const PM_STOCKS = ['2059','3293','3008','9105','6274','3017','3037','8046']
+
+;(async () => {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS post_market_analysis (
+        stock_no      VARCHAR(10),
+        trade_date    DATE,
+        indicators    JSONB,
+        summary       TEXT,
+        bullish_count INT DEFAULT 0,
+        bearish_count INT DEFAULT 0,
+        created_at    TIMESTAMPTZ DEFAULT NOW(),
+        PRIMARY KEY (stock_no, trade_date)
+      )
+    `)
+    console.log('[post_market] 資料表就緒')
+  } catch (e) {
+    console.error('[post_market] 建表失敗:', e.message)
+  }
+})()
+
+function pmCalcRSI(closes, period = 14) {
+  if (closes.length < period + 1) return null
+  let ag = 0, al = 0
+  for (let i = 1; i <= period; i++) {
+    const d = closes[i] - closes[i-1]
+    if (d > 0) ag += d; else al -= d
+  }
+  ag /= period; al /= period
+  for (let i = period + 1; i < closes.length; i++) {
+    const d = closes[i] - closes[i-1]
+    ag = (ag*(period-1) + Math.max(d,0)) / period
+    al = (al*(period-1) + Math.max(-d,0)) / period
+  }
+  const rsi = al === 0 ? 100 : 100 - 100/(1 + ag/al)
+  let ag2 = 0, al2 = 0
+  for (let i = 1; i <= period; i++) {
+    const d = closes[i] - closes[i-1]
+    if (d > 0) ag2 += d; else al2 -= d
+  }
+  ag2 /= period; al2 /= period
+  for (let i = period + 1; i < closes.length - 1; i++) {
+    const d = closes[i] - closes[i-1]
+    ag2 = (ag2*(period-1) + Math.max(d,0)) / period
+    al2 = (al2*(period-1) + Math.max(-d,0)) / period
+  }
+  const prev = al2 === 0 ? 100 : 100 - 100/(1 + ag2/al2)
+  return { rsi: +rsi.toFixed(2), prev: +prev.toFixed(2) }
+}
+
+function pmCalcKD(hlcRows, period = 9) {
+  if (hlcRows.length < period + 3) return null
+  const rsvArr = []
+  for (let i = period - 1; i < hlcRows.length; i++) {
+    const sl = hlcRows.slice(i - period + 1, i + 1)
+    const hi = Math.max(...sl.map(r => r.high))
+    const lo = Math.min(...sl.map(r => r.low))
+    rsvArr.push(hi === lo ? 50 : (hlcRows[i].close - lo) / (hi - lo) * 100)
+  }
+  let k = 50, d = 50
+  const ks = [], ds = []
+  for (const rsv of rsvArr) {
+    k = (k*2 + rsv) / 3; d = (d*2 + k) / 3
+    ks.push(k); ds.push(d)
+  }
+  const n = ks.length
+  if (n < 2) return null
+  return {
+    k: +ks[n-1].toFixed(2), d: +ds[n-1].toFixed(2),
+    prevK: +ks[n-2].toFixed(2), prevD: +ds[n-2].toFixed(2),
+    goldCross:  ks[n-2] < ds[n-2] && ks[n-1] >= ds[n-1],
+    deathCross: ks[n-2] > ds[n-2] && ks[n-1] <= ds[n-1],
+  }
+}
+
+function pmCalcBB(closes, period = 20, mult = 2) {
+  if (closes.length < period + 1) return null
+  const sl = closes.slice(-period)
+  const ma = sl.reduce((s,v) => s+v, 0) / period
+  const sd = Math.sqrt(sl.reduce((s,v) => s+(v-ma)**2, 0) / period)
+  const up = ma + mult*sd, lo = ma - mult*sd
+  const p = closes[closes.length-1], pp = closes[closes.length-2]
+  const bw = up - lo
+  return {
+    upper: +up.toFixed(2), mid: +ma.toFixed(2), lower: +lo.toFixed(2),
+    pctB:         bw > 0 ? +((p-lo)/bw*100).toFixed(1) : 50,
+    breakUpper:   p > up,
+    breakLower:   p < lo,
+    bounceFromLower: pp <= lo*1.015 && p > pp && p >= lo,
+  }
+}
+
+async function generatePostMarketAnalysis(stockNo, dateStr) {
+  const res = await pool.query(
+    `SELECT trade_date, close, open_p, high, low, volume, inst_foreign, inst_trust, inst_dealer
+     FROM market_daily WHERE stock_no=$1 AND trade_date<=$2
+     ORDER BY trade_date DESC LIMIT 70`,
+    [stockNo, dateStr]
+  )
+  const data = res.rows.reverse()
+  if (data.length < 15) return null
+
+  const closes  = data.map(r => +r.close)
+  const volumes = data.map(r => +r.volume)
+  const hlcRows = data.map(r => ({ high: +r.high, low: +r.low, close: +r.close }))
+  const price   = closes[closes.length-1]
+  const openP   = +data[data.length-1].open_p || price
+  const prevClose = closes[closes.length-2]
+  const maFn = (arr, n) => arr.length >= n ? arr.slice(-n).reduce((s,v)=>s+v,0)/n : null
+  const signals = []
+
+  // ── MA ──
+  const ma5  = maFn(closes, 5),  ma10 = maFn(closes, 10)
+  const ma20 = maFn(closes, 20), ma60 = maFn(closes, 60)
+
+  if (ma5 != null) {
+    if (price > ma5 && prevClose <= ma5)
+      signals.push({ type:'bullish', ind:'MA5', msg:`站回5日均線 (MA5:${ma5.toFixed(1)})` })
+    else if (price > ma5)
+      signals.push({ type:'neutral', ind:'MA5', msg:`收盤站上5日均線 (MA5:${ma5.toFixed(1)})` })
+    else if (price < ma5 && prevClose >= ma5)
+      signals.push({ type:'bearish', ind:'MA5', msg:`跌破5日均線 (MA5:${ma5.toFixed(1)})` })
+    else
+      signals.push({ type:'bearish', ind:'MA5', msg:`收盤低於5日均線 (MA5:${ma5.toFixed(1)})` })
+  }
+  if (ma20 != null) {
+    if (price > ma20 && prevClose <= ma20)
+      signals.push({ type:'bullish', ind:'MA20', msg:`站回20日均線，中期轉強 (MA20:${ma20.toFixed(1)})` })
+    else if (price > ma20)
+      signals.push({ type:'neutral', ind:'MA20', msg:`收盤站上20日均線 (MA20:${ma20.toFixed(1)})` })
+    else if (price < ma20 && prevClose >= ma20)
+      signals.push({ type:'bearish', ind:'MA20', msg:`跌破20日均線，中期轉弱 (MA20:${ma20.toFixed(1)})` })
+    else
+      signals.push({ type:'bearish', ind:'MA20', msg:`收盤低於20日均線 (MA20:${ma20.toFixed(1)})` })
+  }
+  if (ma60 != null) {
+    if (price > ma60 && prevClose <= ma60)
+      signals.push({ type:'bullish', ind:'MA60', msg:`站上60日均線，長期轉多 (MA60:${ma60.toFixed(1)})` })
+    else if (price > ma60)
+      signals.push({ type:'neutral', ind:'MA60', msg:`收盤站上60日均線（長線多頭）` })
+    else
+      signals.push({ type:'bearish', ind:'MA60', msg:`收盤低於60日均線（長線偏空）` })
+  }
+  if (ma5 != null && ma10 != null && ma20 != null) {
+    if (ma5 > ma10 && ma10 > ma20)
+      signals.push({ type:'bullish', ind:'均線排列', msg:'多頭排列 (MA5>MA10>MA20)' })
+    else if (ma5 < ma10 && ma10 < ma20)
+      signals.push({ type:'bearish', ind:'均線排列', msg:'空頭排列 (MA5<MA10<MA20)' })
+  }
+
+  // ── MACD ──
+  const macdR = calcMACD(closes)
+  if (macdR) {
+    const macdP = calcMACD(closes.slice(0,-1))
+    const gc       = macdP && macdP.line <= macdP.sig && macdR.line > macdR.sig
+    const dc       = macdP && macdP.line >= macdP.sig && macdR.line < macdR.sig
+    const histUp   = macdP && macdP.hist < 0 && macdR.hist >= 0
+    const histDown = macdP && macdP.hist > 0 && macdR.hist <= 0
+
+    if (gc)
+      signals.push({ type:'bullish', ind:'MACD', msg:`黃金交叉 (DIF:${macdR.line} DEA:${macdR.sig})` })
+    else if (dc)
+      signals.push({ type:'bearish', ind:'MACD', msg:`死亡交叉 (DIF:${macdR.line} DEA:${macdR.sig})` })
+    else if (macdR.line > macdR.sig && macdR.line > 0)
+      signals.push({ type:'bullish', ind:'MACD', msg:`多頭區間 (DIF:${macdR.line} DEA:${macdR.sig})` })
+    else if (macdR.line < macdR.sig)
+      signals.push({ type:'bearish', ind:'MACD', msg:`空頭區間 (DIF:${macdR.line} DEA:${macdR.sig})` })
+
+    if (histUp)   signals.push({ type:'bullish', ind:'MACD柱', msg:'柱狀體由負轉正（動能翻多）' })
+    if (histDown) signals.push({ type:'bearish', ind:'MACD柱', msg:'柱狀體由正轉負（動能翻空）' })
+
+    if (detectDivergence(hlcRows, macdR))
+      signals.push({ type:'bullish', ind:'MACD背離', msg:'底背離（股價低點創新低但MACD柱未創低）' })
+    if (detectTopDivergence(hlcRows, macdR))
+      signals.push({ type:'bearish', ind:'MACD背離', msg:'頂背離（股價高點創新高但MACD柱未創高）' })
+  }
+
+  // ── RSI(14) ──
+  const rsiR = pmCalcRSI(closes, 14)
+  if (rsiR) {
+    const { rsi, prev } = rsiR
+    if      (rsi < 30)               signals.push({ type:'bearish', ind:'RSI(14)', msg:`超賣區 (RSI:${rsi})` })
+    else if (prev < 30 && rsi >= 30) signals.push({ type:'bullish', ind:'RSI(14)', msg:`從超賣回升 (RSI:${rsi})` })
+    else if (rsi > 70)               signals.push({ type:'bearish', ind:'RSI(14)', msg:`超買區，注意回調 (RSI:${rsi})` })
+    else if (prev < 50 && rsi >= 50) signals.push({ type:'bullish', ind:'RSI(14)', msg:`站回強勢區 50 以上 (RSI:${rsi})` })
+    else if (rsi >= 50)              signals.push({ type:'neutral', ind:'RSI(14)', msg:`強勢區間 (RSI:${rsi})` })
+    else                             signals.push({ type:'neutral', ind:'RSI(14)', msg:`弱勢區間 (RSI:${rsi})` })
+  }
+
+  // ── KD(9,3,3) ──
+  const kdR = pmCalcKD(hlcRows, 9)
+  if (kdR) {
+    const { k, d, prevK, goldCross, deathCross } = kdR
+    if      (goldCross  && prevK < 20) signals.push({ type:'bullish', ind:'KD', msg:`低檔黃金交叉 (K:${k} D:${d})` })
+    else if (goldCross)                signals.push({ type:'bullish', ind:'KD', msg:`黃金交叉 (K:${k} D:${d})` })
+    else if (deathCross && prevK > 80) signals.push({ type:'bearish', ind:'KD', msg:`高檔死亡交叉 (K:${k} D:${d})` })
+    else if (deathCross)               signals.push({ type:'bearish', ind:'KD', msg:`死亡交叉 (K:${k} D:${d})` })
+    else if (k < 20)                   signals.push({ type:'bearish', ind:'KD', msg:`超賣區 (K:${k} D:${d})` })
+    else if (k > 80)                   signals.push({ type:'bearish', ind:'KD', msg:`超買區，注意回調 (K:${k} D:${d})` })
+    else if (k > d)                    signals.push({ type:'neutral', ind:'KD', msg:`K>D 多方格局 (K:${k} D:${d})` })
+    else                               signals.push({ type:'neutral', ind:'KD', msg:`K<D 空方格局 (K:${k} D:${d})` })
+  }
+
+  // ── Bollinger Bands(20,2) ──
+  const bbR = pmCalcBB(closes, 20, 2)
+  if (bbR) {
+    if      (bbR.breakUpper)      signals.push({ type:'bullish', ind:'布林帶', msg:`突破上軌 (收:${price} 上軌:${bbR.upper})` })
+    else if (bbR.bounceFromLower) signals.push({ type:'bullish', ind:'布林帶', msg:`下軌反彈 (下軌:${bbR.lower} %B:${bbR.pctB}%)` })
+    else if (bbR.breakLower)      signals.push({ type:'bearish', ind:'布林帶', msg:`跌破下軌 (收:${price} 下軌:${bbR.lower})` })
+    else if (bbR.pctB > 80)       signals.push({ type:'neutral', ind:'布林帶', msg:`接近上軌 (%B:${bbR.pctB}%)` })
+    else if (bbR.pctB < 20)       signals.push({ type:'neutral', ind:'布林帶', msg:`接近下軌 (%B:${bbR.pctB}%)` })
+  }
+
+  // ── 成交量 ──
+  const vol20 = volumes.length > 21 ? volumes.slice(-21,-1).reduce((s,v)=>s+v,0)/20 : null
+  if (vol20 && vol20 > 0) {
+    const ratio = +(volumes[volumes.length-1] / vol20).toFixed(2)
+    const bull  = price > openP
+    if      (ratio >= 2  && bull)  signals.push({ type:'bullish', ind:'成交量', msg:`爆量長紅 (量比:${ratio}x)` })
+    else if (ratio >= 1.5 && bull) signals.push({ type:'bullish', ind:'成交量', msg:`放量上漲 (量比:${ratio}x)` })
+    else if (ratio >= 2  && !bull) signals.push({ type:'bearish', ind:'成交量', msg:`爆量下跌，留意出貨 (量比:${ratio}x)` })
+    else if (ratio >= 1.5)         signals.push({ type:'neutral', ind:'成交量', msg:`量能放大 (量比:${ratio}x)` })
+    else if (ratio < 0.6)          signals.push({ type:'neutral', ind:'成交量', msg:`量能萎縮 (量比:${ratio}x)` })
+  }
+
+  // ── 三大法人 ──
+  const last = data[data.length-1]
+  const fNet = +last.inst_foreign || 0, tNet = +last.inst_trust || 0
+  let fDays = 0, tDays = 0
+  for (let i = data.length-1; i >= 0 && (+data[i].inst_foreign||0) > 0; i--) fDays++
+  for (let i = data.length-1; i >= 0 && (+data[i].inst_trust  ||0) > 0; i--) tDays++
+  if (fNet !== 0) {
+    if      (fDays >= 3) signals.push({ type:'bullish', ind:'外資', msg:`連續買超 ${fDays} 日 (今日${Math.round(fNet/1000)}張)` })
+    else if (fNet > 0)   signals.push({ type:'neutral', ind:'外資', msg:`今日買超 ${Math.round(fNet/1000)} 張` })
+    else                 signals.push({ type:'bearish', ind:'外資', msg:`今日賣超 ${Math.round(Math.abs(fNet)/1000)} 張` })
+  }
+  if (tNet !== 0) {
+    if      (tDays >= 3) signals.push({ type:'bullish', ind:'投信', msg:`連續買超 ${tDays} 日 (今日${Math.round(tNet/1000)}張)` })
+    else if (tNet > 0)   signals.push({ type:'neutral', ind:'投信', msg:`今日買超 ${Math.round(tNet/1000)} 張` })
+    else                 signals.push({ type:'bearish', ind:'投信', msg:`今日賣超 ${Math.round(Math.abs(tNet)/1000)} 張` })
+  }
+
+  const bullC = signals.filter(s => s.type === 'bullish').length
+  const bearC = signals.filter(s => s.type === 'bearish').length
+  let summary
+  if      (bullC >= bearC + 2) summary = `技術面偏多，共 ${bullC} 項強勢訊號，短線可積極追蹤。`
+  else if (bearC >= bullC + 2) summary = `技術面偏空，共 ${bearC} 項弱勢訊號，建議謹慎或觀望。`
+  else                          summary = `多空訊號交錯，技術面中性，待方向明確再介入。`
+
+  await pool.query(`
+    INSERT INTO post_market_analysis (stock_no, trade_date, indicators, summary, bullish_count, bearish_count)
+    VALUES ($1,$2,$3,$4,$5,$6)
+    ON CONFLICT (stock_no, trade_date) DO UPDATE SET
+      indicators=$3, summary=$4, bullish_count=$5, bearish_count=$6, created_at=NOW()
+  `, [stockNo, dateStr, JSON.stringify(signals), summary, bullC, bearC])
+
+  return { signals, summary, bullishCount: bullC, bearishCount: bearC }
+}
+
+async function generateAllPostMarket(dateStr) {
+  const d = dateStr || new Date(Date.now()+8*3600000).toISOString().slice(0,10)
+  console.log(`[post_market] 產生 ${d} 盤後分析...`)
+  for (const sno of PM_STOCKS) {
+    try {
+      const r = await generatePostMarketAnalysis(sno, d)
+      if (r) console.log(`[post_market] ${sno} 完成 多${r.bullishCount} 空${r.bearishCount}`)
+      else   console.log(`[post_market] ${sno} 資料不足，跳過`)
+    } catch(e) { console.error(`[post_market] ${sno} 失敗:`, e.message) }
+  }
+  console.log('[post_market] 全部完成')
+}
+
+app.get('/api/post-market-analysis', async (req, res) => {
+  const { stockNo, date } = req.query
+  if (!stockNo) return res.status(400).json({ error: 'stockNo required' })
+  const targetDate = date || new Date(Date.now()+8*3600000).toISOString().slice(0,10)
+  try {
+    const { rows } = await pool.query(
+      `SELECT * FROM post_market_analysis WHERE stock_no=$1 AND trade_date=$2`,
+      [stockNo, targetDate]
+    )
+    if (!rows.length) return res.json({ stockNo, date: targetDate, indicators: [], summary: null, bullishCount: 0, bearishCount: 0 })
+    const r = rows[0]
+    res.json({
+      stockNo: r.stock_no,
+      stockName: STOCK_NAMES[r.stock_no] || r.stock_no,
+      date: r.trade_date?.toISOString?.()?.slice(0,10) || String(r.trade_date),
+      indicators: r.indicators || [],
+      summary: r.summary,
+      bullishCount: r.bullish_count,
+      bearishCount: r.bearish_count,
+    })
+  } catch(e) { res.status(500).json({ error: e.message }) }
+})
+
+app.post('/api/sync/post-market', async (req, res) => {
+  const { date } = req.body || {}
+  const d = date || new Date(Date.now()+8*3600000).toISOString().slice(0,10)
+  res.json({ ok: true, message: `盤後分析開始產生 (${d})` })
+  generateAllPostMarket(d)
+})
+
+cron.schedule('40 18 * * 1-5', async () => {
+  console.log('[cron] 18:40 盤後技術指標分析')
+  try { await generateAllPostMarket() }
+  catch(e) { console.error('[cron] 18:40 盤後分析失敗:', e.message) }
+}, { timezone: 'Asia/Taipei' })
+
 const PORT = process.env.PORT || 3000
 app.listen(PORT, () => {
   console.log(`Backend running on http://localhost:${PORT}`)

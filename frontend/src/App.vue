@@ -461,6 +461,7 @@ const reportDate    = ref('2026-04-28')
 const reportLoading = ref(false)
 const reportData    = ref(null)
 const reportError   = ref('')
+const postAnalysis  = ref(null)
 
 // ── 台指期籌碼 ────────────────────────────────────
 const chipsLoading = ref(false)
@@ -832,16 +833,38 @@ async function generateReport() {
   reportLoading.value = true
   reportError.value   = ''
   reportData.value    = null
+  postAnalysis.value  = null
   try {
-    const r = await fetch(`${API}/api/daily-report?stockNo=${reportStockNo.value}&date=${reportDate.value}`)
-    const d = await r.json()
-    if (d.error) throw new Error(d.error)
-    reportData.value = d
+    const [r, pa] = await Promise.all([
+      fetch(`${API}/api/daily-report?stockNo=${reportStockNo.value}&date=${reportDate.value}`).then(r => r.json()),
+      fetch(`${API}/api/post-market-analysis?stockNo=${reportStockNo.value}&date=${reportDate.value}`).then(r => r.json()).catch(() => null),
+    ])
+    if (r.error) throw new Error(r.error)
+    reportData.value   = r
+    postAnalysis.value = pa?.indicators?.length ? pa : null
   } catch(e) {
     reportError.value = '報表生成失敗：' + e.message
   } finally {
     reportLoading.value = false
   }
+}
+
+function viewPostMarket(stockNo) {
+  reportStockNo.value = stockNo
+  reportDate.value = new Date(Date.now() + 8*3600000).toISOString().slice(0, 10)
+  tab.value = 'report'
+  nextTick(() => generateReport())
+}
+
+async function triggerPostMarket() {
+  try {
+    await fetch(`${API}/api/sync/post-market`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ date: reportDate.value }),
+    })
+    setTimeout(() => generateReport(), 8000)
+  } catch(e) { console.error(e) }
 }
 
 function fmtNum(v) { return v != null ? (+v).toLocaleString() : '—' }
@@ -998,6 +1021,14 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               <span class="flex-1 truncate" :class="SIGNAL_META[log.signal]?.text || 'text-gray-500'">{{ log.message }}</span>
               <span class="flex-shrink-0">{{ log.checkTime }}</span>
             </div>
+          </div>
+
+          <!-- 盤後分析快捷 -->
+          <div class="mt-3 pt-2.5 border-t border-gray-800/60">
+            <button @click.stop="viewPostMarket(s.no)"
+                    class="w-full text-xs py-1.5 rounded-lg bg-gray-800 hover:bg-emerald-900/50 text-gray-500 hover:text-emerald-300 border border-gray-700 hover:border-emerald-800 transition-all">
+              📊 查看盤後分析
+            </button>
           </div>
         </div>
       </div>
@@ -1455,6 +1486,51 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
             <span class="text-orange-400 shrink-0">{{ s.signal_type }}</span>
             <span class="text-gray-300">{{ s.message }}</span>
           </div>
+        </div>
+
+        <!-- 盤後技術指標分析 -->
+        <div v-if="postAnalysis" class="rounded-2xl border border-emerald-900 bg-gray-900 p-5 space-y-3">
+          <div class="flex items-center justify-between">
+            <h3 class="text-sm font-semibold text-emerald-300">🔬 盤後技術指標分析</h3>
+            <div class="flex gap-2 text-xs">
+              <span class="bg-green-900/50 text-green-400 px-2 py-0.5 rounded-full">強勢 {{ postAnalysis.bullishCount }}</span>
+              <span class="bg-red-900/50 text-red-400 px-2 py-0.5 rounded-full">弱勢 {{ postAnalysis.bearishCount }}</span>
+            </div>
+          </div>
+
+          <!-- 指標訊號列表 -->
+          <div class="space-y-1.5">
+            <div v-for="(item, i) in postAnalysis.indicators" :key="i"
+                 class="flex items-center gap-2.5 text-xs rounded-lg px-3 py-2 border"
+                 :class="{
+                   'bg-green-950/40 border-green-900/40': item.type === 'bullish',
+                   'bg-red-950/40 border-red-900/40':     item.type === 'bearish',
+                   'bg-gray-800/50 border-gray-700/30':   item.type === 'neutral',
+                 }">
+              <span class="shrink-0 w-1.5 h-1.5 rounded-full"
+                    :class="{ 'bg-green-400': item.type==='bullish', 'bg-red-400': item.type==='bearish', 'bg-gray-500': item.type==='neutral' }"></span>
+              <span class="font-semibold shrink-0 w-20 truncate"
+                    :class="{ 'text-green-400': item.type==='bullish', 'text-red-400': item.type==='bearish', 'text-gray-500': item.type==='neutral' }">
+                {{ item.ind }}
+              </span>
+              <span class="flex-1"
+                    :class="{ 'text-green-300': item.type==='bullish', 'text-red-300': item.type==='bearish', 'text-gray-400': item.type==='neutral' }">
+                {{ item.msg }}
+              </span>
+              <span v-if="item.type === 'bullish'" class="shrink-0 text-green-500">▲</span>
+              <span v-else-if="item.type === 'bearish'" class="shrink-0 text-red-500">▼</span>
+            </div>
+          </div>
+
+          <!-- 綜合判斷 -->
+          <p v-if="postAnalysis.summary" class="text-xs text-gray-400 border-t border-gray-800 pt-2 mt-1">
+            💡 {{ postAnalysis.summary }}
+          </p>
+        </div>
+
+        <div v-else-if="reportData" class="rounded-2xl border border-gray-800 bg-gray-900 p-4 text-center text-xs text-gray-600">
+          盤後技術指標分析尚未產生（每日 18:40 自動更新，或手動同步）
+          <button @click="triggerPostMarket" class="ml-2 text-emerald-600 hover:text-emerald-400 underline">立即產生</button>
         </div>
 
         <!-- 綜合分析 -->
