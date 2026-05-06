@@ -1772,6 +1772,22 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
             </div>
           </div>
 
+          <!-- 三大法人現貨買賣超 -->
+          <div v-if="chipsRows[0].inst_foreign_net_amt || chipsRows[0].inst_trust_net_amt || chipsRows[0].inst_dealer_net_amt"
+               class="grid grid-cols-3 gap-3 mb-4">
+            <div v-for="item in [
+              { label:'外資現貨買賣超', amt: chipsRows[0].inst_foreign_net_amt },
+              { label:'投信現貨買賣超', amt: chipsRows[0].inst_trust_net_amt },
+              { label:'自營現貨買賣超', amt: chipsRows[0].inst_dealer_net_amt },
+            ]" :key="item.label" class="bg-gray-800 rounded-xl p-3 text-center space-y-1">
+              <div class="text-xs text-gray-500">{{ item.label }}</div>
+              <div class="text-base font-bold font-mono"
+                   :class="+item.amt > 0 ? 'text-green-400' : +item.amt < 0 ? 'text-red-400' : 'text-gray-500'">
+                {{ +item.amt > 0 ? '+' : '' }}{{ (+item.amt / 1e8).toFixed(1) }} 億
+              </div>
+            </div>
+          </div>
+
           <!-- 大額交易人 + OI -->
           <div class="grid grid-cols-3 gap-3">
             <div class="bg-gray-800 rounded-xl p-3 text-center">

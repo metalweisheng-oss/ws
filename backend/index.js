@@ -1834,6 +1834,12 @@ const TAIFEX_BASE = 'https://openapi.taifex.com.tw/v1'
         updated_at       TIMESTAMPTZ DEFAULT NOW()
       )
     `)
+    await pool.query(`
+      ALTER TABLE futures_chips
+        ADD COLUMN IF NOT EXISTS inst_foreign_net_amt BIGINT DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS inst_trust_net_amt   BIGINT DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS inst_dealer_net_amt  BIGINT DEFAULT 0
+    `)
     console.log('[futures_chips] 資料表就緒')
   } catch (e) {
     console.error('[futures_chips] 建表失敗:', e.message)
@@ -1855,11 +1861,19 @@ async function isTradingDay(dateStr) {
 async function syncFuturesChips() {
   console.log('[futures_chips] 開始同步台指期籌碼...')
   try {
-    const [instData, largeData, pcData] = await Promise.all([
+    const [instData, largeData, pcData, bfiData] = await Promise.all([
       fetchUrl(TAIFEX_BASE + '/MarketDataOfMajorInstitutionalTradersDetailsOfFuturesContractsBytheDate'),
       fetchUrl(TAIFEX_BASE + '/OpenInterestOfLargeTradersFutures'),
       fetchUrl(TAIFEX_BASE + '/PutCallRatio'),
+      fetchUrl('https://www.twse.com.tw/rwd/zh/fund/BFI82U?response=json').catch(() => null),
     ])
+
+    const bfiRows = bfiData?.data || []
+    const parseBfi = (str) => parseInt((str || '').replace(/,/g, '')) || 0
+    const instForeignAmt = parseBfi(bfiRows.find(r => r[0]?.includes('外資及陸資') && !r[0]?.includes('自營'))?.[3])
+    const instTrustAmt   = parseBfi(bfiRows.find(r => r[0] === '投信')?.[3])
+    const instDealerAmt  = parseBfi(bfiRows.find(r => r[0]?.includes('自行買賣'))?.[3]) +
+                           parseBfi(bfiRows.find(r => r[0]?.includes('避險'))?.[3])
 
     const tx = instData.filter(r => r.ContractCode === '臺股期貨')
     if (!tx.length) { console.log('[futures_chips] 無台指期資料（可能休市）'); return false }
@@ -1923,14 +1937,16 @@ async function syncFuturesChips() {
         trust_tx_long, trust_tx_short, trust_tx_net,
         dealer_tx_long, dealer_tx_short, dealer_tx_net,
         large_top5_long, large_top5_short, large_top10_long, large_top10_short, oi_market,
-        pc_volume_ratio, pc_oi_ratio, put_oi, call_oi, updated_at
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,NOW())
+        pc_volume_ratio, pc_oi_ratio, put_oi, call_oi,
+        inst_foreign_net_amt, inst_trust_net_amt, inst_dealer_net_amt, updated_at
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,NOW())
       ON CONFLICT (trade_date) DO UPDATE SET
         foreign_tx_long=$2, foreign_tx_short=$3, foreign_tx_net=$4,
         trust_tx_long=$5,   trust_tx_short=$6,   trust_tx_net=$7,
         dealer_tx_long=$8,  dealer_tx_short=$9,  dealer_tx_net=$10,
         large_top5_long=$11, large_top5_short=$12, large_top10_long=$13, large_top10_short=$14, oi_market=$15,
-        pc_volume_ratio=$16, pc_oi_ratio=$17, put_oi=$18, call_oi=$19, updated_at=NOW()
+        pc_volume_ratio=$16, pc_oi_ratio=$17, put_oi=$18, call_oi=$19,
+        inst_foreign_net_amt=$20, inst_trust_net_amt=$21, inst_dealer_net_amt=$22, updated_at=NOW()
     `, [
       tradeDate,
       foreign.long, foreign.short, foreign.net,
@@ -1945,6 +1961,7 @@ async function syncFuturesChips() {
       latestPC ? parseFloat(latestPC['PutCallOIRatio%'])     : null,
       latestPC ? parseInt(latestPC.PutOI)  : 0,
       latestPC ? parseInt(latestPC.CallOI) : 0,
+      instForeignAmt, instTrustAmt, instDealerAmt,
     ])
     console.log(`[futures_chips] ${tradeDate} 同步完成`)
 
@@ -1954,11 +1971,15 @@ async function syncFuturesChips() {
     }
 
     const fmt = n => (n >= 0 ? '+' : '') + n.toLocaleString()
+    const fmtBil = n => (n >= 0 ? '+' : '') + (n / 1e8).toFixed(1) + '億'
     const msg =
       `📊 <b>台指期籌碼快訊</b> ${tradeDate}\n` +
       `外資　多 ${foreign.long.toLocaleString()} 空 ${foreign.short.toLocaleString()} 淨 <b>${fmt(foreign.net)}</b>\n` +
       `投信　多 ${trust.long.toLocaleString()} 空 ${trust.short.toLocaleString()} 淨 <b>${fmt(trust.net)}</b>\n` +
       `自營　多 ${dealer.long.toLocaleString()} 空 ${dealer.short.toLocaleString()} 淨 <b>${fmt(dealer.net)}</b>\n` +
+      (instForeignAmt || instTrustAmt || instDealerAmt
+        ? `\n現貨買賣超　外資 <b>${fmtBil(instForeignAmt)}</b>　投信 <b>${fmtBil(instTrustAmt)}</b>　自營 <b>${fmtBil(instDealerAmt)}</b>\n`
+        : '') +
       (latestPC ? `PC量比 <b>${latestPC['PutCallVolumeRatio%']}</b>　PC未平倉 <b>${latestPC['PutCallOIRatio%']}</b>\n` : '') +
       (largeTX.Top5Buy ? `大額前5　多 ${parseInt(largeTX.Top5Buy).toLocaleString()} 空 ${parseInt(largeTX.Top5Sell).toLocaleString()}\n` : '') +
       (largeTX.Top10Buy ? `大額前10　多 ${parseInt(largeTX.Top10Buy).toLocaleString()} 空 ${parseInt(largeTX.Top10Sell).toLocaleString()}` : '')
