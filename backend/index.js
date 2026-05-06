@@ -1,3 +1,11 @@
+process.on('uncaughtException', (err) => {
+  console.error('[FATAL] uncaughtException:', err.stack || err.message)
+  process.exit(1)
+})
+process.on('unhandledRejection', (reason) => {
+  console.error('[FATAL] unhandledRejection:', reason?.stack || reason?.message || reason)
+})
+
 const express = require('express')
 const cors = require('cors')
 const https = require('https')
