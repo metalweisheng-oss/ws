@@ -473,7 +473,7 @@ function volRatio3dClass(r) {
 }
 function rowBgClass(r) {
   const limitRatio = r.limitBidVol && r.volume ? r.limitBidVol / r.volume : 0
-  if (limitRatio > 2) {
+  if (limitRatio > 1.6) {
     const ratio1d = r.prevVol ? r.volume / r.prevVol : null
     const ratio3d = r.volMa3 ? r.volume / r.volMa3 : null
     if (ratio1d !== null && ratio1d >= 2 && ratio3d !== null && ratio3d >= 2)
@@ -495,7 +495,7 @@ const limitSqueezeList = computed(() => {
   return moversGainers.value.filter(r => {
     // 條件3: 漲停中且漲停委買比 > 2
     if (r.changePct < 9.5) return false
-    if (!r.limitBidVol || r.limitBidVol / r.volume <= 2) return false
+    if (!r.limitBidVol || r.limitBidVol / r.volume <= 1.6) return false
     // 條件2: 今日量縮一半以上
     if (!r.prevVol || r.volume / r.prevVol >= 0.5) return false
     // 條件1: 前一日帶量長紅
@@ -3178,15 +3178,15 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
           <div class="flex items-center gap-2"><span class="text-gray-400">■ 灰色</span><span>0.5 ～ 2　正常</span></div>
           <div class="flex items-center gap-2"><span class="text-orange-400 font-bold">■ 橘色粗體</span><span>&lt; 0.5　縮量</span></div>
           <div class="font-semibold text-gray-500 col-span-full mt-1">列背景</div>
-          <div class="flex items-center gap-2"><span class="px-2 py-0.5 rounded bg-red-900/40 text-red-300">紅底（爆量漲停）</span><span>漲停委買比 &gt; 2 且 1日量比 ≥ 2 且 3日量比 ≥ 2</span></div>
-          <div class="flex items-center gap-2"><span class="px-2 py-0.5 rounded bg-blue-900/40 text-blue-300">藍底（量縮漲停）</span><span>漲停委買比 &gt; 2 且（1日量比 &lt; 0.5 或 3日量比 &lt; 0.5）</span></div>
+          <div class="flex items-center gap-2"><span class="px-2 py-0.5 rounded bg-red-900/40 text-red-300">紅底（爆量漲停）</span><span>漲停委買比 &gt; 1.6 且 1日量比 ≥ 2 且 3日量比 ≥ 2</span></div>
+          <div class="flex items-center gap-2"><span class="px-2 py-0.5 rounded bg-blue-900/40 text-blue-300">藍底（量縮漲停）</span><span>漲停委買比 &gt; 1.6 且（1日量比 &lt; 0.5 或 3日量比 &lt; 0.5）</span></div>
           <div class="font-semibold text-gray-500 col-span-full mt-1">漲停委買量（括號內數字）</div>
-          <div class="flex items-center gap-2"><span class="text-green-400">■ 綠色</span><span>漲停委買比 &gt; 2　強力鎖籌</span></div>
-          <div class="flex items-center gap-2"><span class="text-gray-500">■ 灰色</span><span>漲停委買比 ≤ 2　一般委買</span></div>
+          <div class="flex items-center gap-2"><span class="text-green-400">■ 綠色</span><span>漲停委買比 &gt; 1.6　強力鎖籌</span></div>
+          <div class="flex items-center gap-2"><span class="text-gray-500">■ 灰色</span><span>漲停委買比 ≤ 1.6　一般委買</span></div>
           <div class="font-semibold text-gray-500 col-span-full mt-1">量縮漲停觀察區（符合全部條件才列入）</div>
           <div class="flex items-center gap-2 col-span-full"><span class="text-blue-400">①</span><span>昨日帶量長紅：收 &gt; 開 且 昨日量 ≥ 昨日3日均量 × 1.2</span></div>
           <div class="flex items-center gap-2 col-span-full"><span class="text-blue-400">②</span><span>今日量縮一半以上：1日量比 &lt; 0.5</span></div>
-          <div class="flex items-center gap-2 col-span-full"><span class="text-blue-400">③</span><span>漲停委買比 &gt; 2（目前仍封板未打開）</span></div>
+          <div class="flex items-center gap-2 col-span-full"><span class="text-blue-400">③</span><span>漲停委買比 &gt; 1.6（目前仍封板未打開）</span></div>
         </div>
       </div>
 
@@ -3194,7 +3194,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
       <div v-if="limitSqueezeList.length" class="bg-gray-900 border border-blue-900/50 rounded-xl overflow-hidden">
         <div class="px-4 py-3 border-b border-blue-900/40 flex items-center gap-2">
           <span class="text-blue-400 font-semibold text-sm">▲ 量縮漲停觀察</span>
-          <span class="text-xs text-gray-500">昨日帶量長紅 + 今日量縮一半 + 漲停委買比 &gt; 2</span>
+          <span class="text-xs text-gray-500">昨日帶量長紅 + 今日量縮一半 + 漲停委買比 &gt; 1.6</span>
           <span class="ml-auto text-xs text-blue-600">{{ limitSqueezeList.length }} 支</span>
         </div>
         <table class="w-full text-sm">
@@ -3279,8 +3279,8 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 </td>
                 <td class="px-3 py-2 text-right text-gray-400 font-mono text-xs">{{ r.volMa3 != null ? r.volMa3.toLocaleString() : '-' }}</td>
                 <td class="px-3 py-2 text-right text-gray-500 font-mono text-xs">{{ r.prevVol != null ? r.prevVol.toLocaleString() : '-' }}</td>
-                <td class="px-3 py-2 text-right font-mono text-xs" :class="r.limitBidVol && r.limitBidVol / r.volume > 2 ? 'text-red-300' : 'text-gray-400'">
-                  {{ r.volume.toLocaleString() }}<span v-if="r.limitBidVol" :class="r.limitBidVol / r.volume > 2 ? 'text-green-400' : 'text-gray-500'"> ({{ r.limitBidVol.toLocaleString() }})</span>
+                <td class="px-3 py-2 text-right font-mono text-xs" :class="r.limitBidVol && r.limitBidVol / r.volume > 1.6 ? 'text-red-300' : 'text-gray-400'">
+                  {{ r.volume.toLocaleString() }}<span v-if="r.limitBidVol" :class="r.limitBidVol / r.volume > 1.6 ? 'text-green-400' : 'text-gray-500'"> ({{ r.limitBidVol.toLocaleString() }})</span>
                 </td>
                 <td class="px-3 py-2 text-right font-mono text-xs" :class="volRatio1dClass(r)">
                   {{ r.prevVol ? (r.volume / r.prevVol).toFixed(2) : '-' }}
@@ -3329,8 +3329,8 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 </td>
                 <td class="px-3 py-2 text-right text-gray-400 font-mono text-xs">{{ r.volMa3 != null ? r.volMa3.toLocaleString() : '-' }}</td>
                 <td class="px-3 py-2 text-right text-gray-500 font-mono text-xs">{{ r.prevVol != null ? r.prevVol.toLocaleString() : '-' }}</td>
-                <td class="px-3 py-2 text-right font-mono text-xs" :class="r.limitBidVol && r.limitBidVol / r.volume > 2 ? 'text-red-300' : 'text-gray-400'">
-                  {{ r.volume.toLocaleString() }}<span v-if="r.limitBidVol" :class="r.limitBidVol / r.volume > 2 ? 'text-green-400' : 'text-gray-500'"> ({{ r.limitBidVol.toLocaleString() }})</span>
+                <td class="px-3 py-2 text-right font-mono text-xs" :class="r.limitBidVol && r.limitBidVol / r.volume > 1.6 ? 'text-red-300' : 'text-gray-400'">
+                  {{ r.volume.toLocaleString() }}<span v-if="r.limitBidVol" :class="r.limitBidVol / r.volume > 1.6 ? 'text-green-400' : 'text-gray-500'"> ({{ r.limitBidVol.toLocaleString() }})</span>
                 </td>
                 <td class="px-3 py-2 text-right font-mono text-xs" :class="volRatio1dClass(r)">
                   {{ r.prevVol ? (r.volume / r.prevVol).toFixed(2) : '-' }}
