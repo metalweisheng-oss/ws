@@ -3249,6 +3249,25 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
 
       </div>
 
+      <!-- 顏色規則說明 -->
+      <div class="bg-gray-900 border border-gray-800 rounded-xl px-4 py-3 text-xs text-gray-400 space-y-2">
+        <div class="font-semibold text-gray-300 mb-1">顏色規則說明</div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-1">
+          <div class="font-semibold text-gray-500 col-span-full">1日量比（今日量 ÷ 昨日量）</div>
+          <div class="flex items-center gap-2"><span class="text-yellow-400 font-bold">■ 黃色粗體</span><span>≥ 2　爆量</span></div>
+          <div class="flex items-center gap-2"><span class="text-gray-400">■ 灰色</span><span>0.5 ～ 2　正常</span></div>
+          <div class="flex items-center gap-2"><span class="text-red-400">■ 紅色</span><span>0.3 ～ 0.5　縮量</span></div>
+          <div class="flex items-center gap-2"><span class="text-purple-400 font-bold">■ 紫色粗體</span><span>&lt; 0.3　極度縮量</span></div>
+          <div class="font-semibold text-gray-500 col-span-full mt-1">3日量比（今日量 ÷ 3日均量）</div>
+          <div class="flex items-center gap-2"><span class="text-yellow-400 font-bold">■ 黃色粗體</span><span>≥ 2　爆量</span></div>
+          <div class="flex items-center gap-2"><span class="text-gray-400">■ 灰色</span><span>0.5 ～ 2　正常</span></div>
+          <div class="flex items-center gap-2"><span class="text-orange-400">■ 橘色</span><span>&lt; 0.5　縮量</span></div>
+          <div class="font-semibold text-gray-500 col-span-full mt-1">列背景</div>
+          <div class="flex items-center gap-2"><span class="px-2 py-0.5 rounded bg-red-900/40 text-red-300">紅底</span><span>漲停委買量 ÷ 今日成交量 &gt; 2</span></div>
+          <div class="flex items-center gap-2"><span class="px-2 py-0.5 rounded bg-yellow-900/40 text-yellow-300">黃底</span><span>1日量比 ≥ 2（爆量）</span></div>
+        </div>
+      </div>
+
       <div class="text-right text-xs text-gray-700">
         {{ moversRealtime ? '今日即時：TWSE MIS，每 60 秒自動刷新' : '歷史資料：DB market_daily' }}
       </div>
