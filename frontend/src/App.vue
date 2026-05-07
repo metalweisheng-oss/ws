@@ -3134,7 +3134,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <th class="px-3 py-2 text-left">代號／名稱</th>
                 <th class="px-3 py-2 text-right">昨日價格</th>
                 <th class="px-3 py-2 text-right">現價</th>
-                <th class="px-3 py-2 text-right">漲跌幅</th>
+                <th class="px-3 py-2 text-right">漲跌幅(漲停天數)</th>
                 <th class="px-3 py-2 text-right">3日均量</th>
                 <th class="px-3 py-2 text-right">1日量</th>
                 <th class="px-3 py-2 text-right">成交量</th>
@@ -3152,7 +3152,9 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 </td>
                 <td class="px-3 py-2 text-right text-gray-400 font-mono text-xs">{{ r.prevClose != null ? r.prevClose.toFixed(2) : '-' }}</td>
                 <td class="px-3 py-2 text-right text-red-300 font-mono">{{ r.price }}</td>
-                <td class="px-3 py-2 text-right font-bold text-red-400">+{{ r.changePct.toFixed(2) }}%</td>
+                <td class="px-3 py-2 text-right font-bold text-red-400">
+                  +{{ r.changePct.toFixed(2) }}%<span v-if="r.limitDays" class="text-yellow-400"> ({{ r.limitDays }})</span>
+                </td>
                 <td class="px-3 py-2 text-right text-gray-400 font-mono text-xs">{{ r.volMa3 != null ? r.volMa3.toLocaleString() : '-' }}</td>
                 <td class="px-3 py-2 text-right text-gray-500 font-mono text-xs">{{ r.prevVol != null ? r.prevVol.toLocaleString() : '-' }}</td>
                 <td class="px-3 py-2 text-right text-gray-400 font-mono text-xs">{{ r.volume.toLocaleString() }}</td>
@@ -3176,7 +3178,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <th class="px-3 py-2 text-left">代號／名稱</th>
                 <th class="px-3 py-2 text-right">昨日價格</th>
                 <th class="px-3 py-2 text-right">現價</th>
-                <th class="px-3 py-2 text-right">漲跌幅</th>
+                <th class="px-3 py-2 text-right">漲跌幅(漲停天數)</th>
                 <th class="px-3 py-2 text-right">3日均量</th>
                 <th class="px-3 py-2 text-right">1日量</th>
                 <th class="px-3 py-2 text-right">成交量</th>

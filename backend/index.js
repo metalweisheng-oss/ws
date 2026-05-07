@@ -3821,6 +3821,40 @@ app.get('/api/market/movers', async (req, res) => {
         prevVol:    r.prev_vol != null ? Math.round(parseInt(r.prev_vol) / 1000) : null,
       }))
 
+      // 計算連續漲停天數
+      const limitNos = movers.filter(m => m.changePct >= 9.5).map(m => m.stockNo)
+      if (limitNos.length > 0) {
+        try {
+          const { rows: limitRows } = await pool.query(`
+            WITH hist AS (
+              SELECT stock_no, trade_date, close,
+                     LAG(close) OVER (PARTITION BY stock_no ORDER BY trade_date) AS prev_close
+              FROM market_daily
+              WHERE stock_no = ANY($1) AND close > 0
+                AND trade_date BETWEEN ($2::date - INTERVAL '20 days') AND $2::date
+            )
+            SELECT stock_no,
+                   CASE WHEN prev_close > 0 AND (close - prev_close) / prev_close >= 0.095 THEN 1 ELSE 0 END AS is_limit
+            FROM hist WHERE prev_close IS NOT NULL
+            ORDER BY stock_no, trade_date DESC
+          `, [limitNos, dateParam])
+          const byStock = {}
+          for (const r of limitRows) {
+            if (!byStock[r.stock_no]) byStock[r.stock_no] = []
+            byStock[r.stock_no].push(r)
+          }
+          for (const m of movers) {
+            if (m.changePct < 9.5) continue
+            let count = 0
+            for (const d of byStock[m.stockNo] || []) {
+              if (parseInt(d.is_limit)) count++
+              else break
+            }
+            if (count > 0) m.limitDays = count
+          }
+        } catch(e) { /* ignore */ }
+      }
+
       const gainers = movers.slice(0, limit)
       const losers  = [...movers].reverse().slice(0, limit)
       return res.json({ gainers, losers, total: movers.length, date: dateParam, realtime: false })
@@ -3905,6 +3939,42 @@ app.get('/api/market/movers', async (req, res) => {
     }
 
     movers.sort((a, b) => b.changePct - a.changePct)
+
+    // 計算連續漲停天數（今日從 MIS 確認 +1，再往前查 DB）
+    const limitNos = movers.filter(m => m.changePct >= 9.5).map(m => m.stockNo)
+    if (limitNos.length > 0) {
+      try {
+        const { rows: limitRows } = await pool.query(`
+          WITH hist AS (
+            SELECT stock_no, trade_date, close,
+                   LAG(close) OVER (PARTITION BY stock_no ORDER BY trade_date) AS prev_close
+            FROM market_daily
+            WHERE stock_no = ANY($1) AND close > 0
+              AND trade_date >= CURRENT_DATE - INTERVAL '20 days'
+              AND trade_date < CURRENT_DATE
+          )
+          SELECT stock_no,
+                 CASE WHEN prev_close > 0 AND (close - prev_close) / prev_close >= 0.095 THEN 1 ELSE 0 END AS is_limit
+          FROM hist WHERE prev_close IS NOT NULL
+          ORDER BY stock_no, trade_date DESC
+        `, [limitNos])
+        const byStock = {}
+        for (const r of limitRows) {
+          if (!byStock[r.stock_no]) byStock[r.stock_no] = []
+          byStock[r.stock_no].push(r)
+        }
+        for (const m of movers) {
+          if (m.changePct < 9.5) continue
+          let count = 1  // 今日
+          for (const d of byStock[m.stockNo] || []) {
+            if (parseInt(d.is_limit)) count++
+            else break
+          }
+          m.limitDays = count
+        }
+      } catch(e) { /* ignore */ }
+    }
+
     const gainers = movers.slice(0, 50)
     const losers  = [...movers].reverse().slice(0, 50)
     const updatedAt = new Date().toISOString()
