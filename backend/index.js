@@ -3927,12 +3927,27 @@ app.get('/api/market/movers', async (req, res) => {
         const vol = parseInt(item.v) || 0
         if (vol === 0) continue
         const changePct = +((z - y) / y * 100).toFixed(2)
+        // 漲停委買量：找委買五檔中價格等於漲停價的委買張數
+        let limitBidVol = null
+        const limitPrice = item.u && item.u !== '-' ? parseFloat(item.u) : null
+        if (limitPrice && item.b && item.g) {
+          const bidPs = item.b.split('_')
+          const bidQs = item.g.split('_')
+          let total = 0
+          for (let i = 0; i < bidPs.length; i++) {
+            if (Math.abs(parseFloat(bidPs[i]) - limitPrice) < 0.01) {
+              total += parseInt(bidQs[i]) || 0
+            }
+          }
+          if (total > 0) limitBidVol = total
+        }
         movers.push({
           stockNo: item.c,
           stockName: nameMap[item.c] || item.n || item.c,
           price: z, prevClose: y,
           change: +(z - y).toFixed(2),
           changePct, volume: vol,
+          limitBidVol,
           ma3:     maMap[item.c]?.ma3    ?? null,
           prevMa3: maMap[item.c]?.prevMa3 ?? null,
           volMa3:  maMap[item.c]?.volMa3  ?? null,
