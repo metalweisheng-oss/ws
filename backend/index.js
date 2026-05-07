@@ -3821,8 +3821,8 @@ app.get('/api/market/movers', async (req, res) => {
         prevVol:    r.prev_vol != null ? Math.round(parseInt(r.prev_vol) / 1000) : null,
       }))
 
-      // 計算連續漲停天數
-      const limitNos = movers.filter(m => m.changePct >= 9.5).map(m => m.stockNo)
+      // 計算連續漲停／跌停天數
+      const limitNos = movers.filter(m => m.changePct >= 9.5 || m.changePct <= -9.5).map(m => m.stockNo)
       if (limitNos.length > 0) {
         try {
           const { rows: limitRows } = await pool.query(`
@@ -3834,7 +3834,9 @@ app.get('/api/market/movers', async (req, res) => {
                 AND trade_date BETWEEN ($2::date - INTERVAL '20 days') AND $2::date
             )
             SELECT stock_no,
-                   CASE WHEN prev_close > 0 AND (close - prev_close) / prev_close >= 0.095 THEN 1 ELSE 0 END AS is_limit
+                   CASE WHEN prev_close > 0 AND (close - prev_close) / prev_close >= 0.095 THEN 1
+                        WHEN prev_close > 0 AND (close - prev_close) / prev_close <= -0.095 THEN -1
+                        ELSE 0 END AS limit_dir
             FROM hist WHERE prev_close IS NOT NULL
             ORDER BY stock_no, trade_date DESC
           `, [limitNos, dateParam])
@@ -3844,10 +3846,11 @@ app.get('/api/market/movers', async (req, res) => {
             byStock[r.stock_no].push(r)
           }
           for (const m of movers) {
-            if (m.changePct < 9.5) continue
+            const dir = m.changePct >= 9.5 ? 1 : m.changePct <= -9.5 ? -1 : 0
+            if (!dir) continue
             let count = 0
             for (const d of byStock[m.stockNo] || []) {
-              if (parseInt(d.is_limit)) count++
+              if (parseInt(d.limit_dir) === dir) count++
               else break
             }
             if (count > 0) m.limitDays = count
@@ -3940,8 +3943,8 @@ app.get('/api/market/movers', async (req, res) => {
 
     movers.sort((a, b) => b.changePct - a.changePct)
 
-    // 計算連續漲停天數（今日從 MIS 確認 +1，再往前查 DB）
-    const limitNos = movers.filter(m => m.changePct >= 9.5).map(m => m.stockNo)
+    // 計算連續漲停／跌停天數（今日從 MIS 確認 +1，再往前查 DB）
+    const limitNos = movers.filter(m => m.changePct >= 9.5 || m.changePct <= -9.5).map(m => m.stockNo)
     if (limitNos.length > 0) {
       try {
         const { rows: limitRows } = await pool.query(`
@@ -3954,7 +3957,9 @@ app.get('/api/market/movers', async (req, res) => {
               AND trade_date < CURRENT_DATE
           )
           SELECT stock_no,
-                 CASE WHEN prev_close > 0 AND (close - prev_close) / prev_close >= 0.095 THEN 1 ELSE 0 END AS is_limit
+                 CASE WHEN prev_close > 0 AND (close - prev_close) / prev_close >= 0.095 THEN 1
+                      WHEN prev_close > 0 AND (close - prev_close) / prev_close <= -0.095 THEN -1
+                      ELSE 0 END AS limit_dir
           FROM hist WHERE prev_close IS NOT NULL
           ORDER BY stock_no, trade_date DESC
         `, [limitNos])
@@ -3964,10 +3969,11 @@ app.get('/api/market/movers', async (req, res) => {
           byStock[r.stock_no].push(r)
         }
         for (const m of movers) {
-          if (m.changePct < 9.5) continue
+          const dir = m.changePct >= 9.5 ? 1 : m.changePct <= -9.5 ? -1 : 0
+          if (!dir) continue
           let count = 1  // 今日
           for (const d of byStock[m.stockNo] || []) {
-            if (parseInt(d.is_limit)) count++
+            if (parseInt(d.limit_dir) === dir) count++
             else break
           }
           m.limitDays = count
