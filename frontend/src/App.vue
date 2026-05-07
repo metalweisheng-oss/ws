@@ -86,7 +86,11 @@ const anyConnected = () => STOCKS.some(s => stocks[s.no].connected)
 function simulateChuanhu() {
   const st = stocks['2059']
   const now = new Date()
-  const hms = `${String((now.getUTCHours()+8)%24).padStart(2,'0')}:${String(now.getUTCMinutes()).padStart(2,'0')}:${String(now.getUTCSeconds()).padStart(2,'0')}`
+  const baseMin = (now.getUTCHours() + 8) * 60 + now.getUTCMinutes()
+  const hms = (offsetSec = 0) => {
+    const total = baseMin * 60 + now.getUTCSeconds() + offsetSec
+    return `${String(Math.floor(total/3600)%24).padStart(2,'0')}:${String(Math.floor(total/60)%60).padStart(2,'0')}:${String(total%60).padStart(2,'0')}`
+  }
   const fake = {
     signal: 'entry',
     message: '量比3.5x ＋ 接近日低 ＋ 長下影線（模擬測試）',
@@ -94,12 +98,28 @@ function simulateChuanhu() {
     dayHigh: 2510,
     dayLow: 2420,
     volRatio: 3.5,
-    checkTime: hms,
+    checkTime: hms(),
     macd: { line: -4.8, sig: -2.9, hist: -1.9, divergence: false },
   }
   st.latest = fake
   st.logs.unshift({ ...fake, id: Date.now() })
   if (st.logs.length > 30) st.logs.pop()
+
+  // 注入假分時資料（10筆，模擬放量下殺後反彈）
+  const fakeTicks = [
+    { type:'tick', time: hms(-90), price: 2500, volume: 8,  side: 'sell' },
+    { type:'tick', time: hms(-75), price: 2492, volume: 12, side: 'sell' },
+    { type:'tick', time: hms(-60), price: 2485, volume: 25, side: 'sell' },
+    { type:'tick', time: hms(-50), price: 2470, volume: 43, side: 'sell' },
+    { type:'tick', time: hms(-40), price: 2455, volume: 68, side: 'sell' },
+    { type:'tick', time: hms(-30), price: 2422, volume: 95, side: 'sell' },
+    { type:'tick', time: hms(-20), price: 2428, volume: 55, side: 'buy'  },
+    { type:'tick', time: hms(-12), price: 2440, volume: 38, side: 'buy'  },
+    { type:'tick', time: hms(-5),  price: 2452, volume: 29, side: 'buy'  },
+    { type:'tick', time: hms(0),   price: 2460, volume: 22, side: 'buy'  },
+  ]
+  st.ticks = fakeTicks.reverse()  // 最新在前
+  selectedTickStock.value = '2059'
 }
 
 // ── 歷史資料（DB 查詢）────────────────────────────
