@@ -3136,8 +3136,8 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <th class="px-3 py-2 text-right">現價</th>
                 <th class="px-3 py-2 text-right">漲跌幅</th>
                 <th class="px-3 py-2 text-right">3日均量</th>
-                <th class="px-3 py-2 text-right">前日量</th>
-                <th class="px-3 py-2 text-right">成交量(張)</th>
+                <th class="px-3 py-2 text-right">1日量</th>
+                <th class="px-3 py-2 text-right">成交量</th>
                 <th class="px-3 py-2 text-right">量比</th>
               </tr>
             </thead>
@@ -3178,8 +3178,8 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <th class="px-3 py-2 text-right">現價</th>
                 <th class="px-3 py-2 text-right">漲跌幅</th>
                 <th class="px-3 py-2 text-right">3日均量</th>
-                <th class="px-3 py-2 text-right">前日量</th>
-                <th class="px-3 py-2 text-right">成交量(張)</th>
+                <th class="px-3 py-2 text-right">1日量</th>
+                <th class="px-3 py-2 text-right">成交量</th>
                 <th class="px-3 py-2 text-right">量比</th>
               </tr>
             </thead>
