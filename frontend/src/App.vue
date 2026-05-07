@@ -460,16 +460,28 @@ function volRatio1dClass(r) {
   if (!r.prevVol) return 'text-gray-600'
   const ratio = r.volume / r.prevVol
   if (ratio < 0.3) return 'text-purple-400 font-bold'
-  if (ratio < 0.5) return 'text-red-400'
+  if (ratio < 0.5) return 'text-red-400 font-bold'
   if (ratio >= 2)  return 'text-yellow-400 font-bold'
   return 'text-gray-400'
 }
 function volRatio3dClass(r) {
   if (!r.volMa3) return 'text-gray-600'
   const ratio = r.volume / r.volMa3
-  if (ratio < 0.5) return 'text-orange-400'
+  if (ratio < 0.5) return 'text-orange-400 font-bold'
   if (ratio >= 2)  return 'text-yellow-400 font-bold'
   return 'text-gray-400'
+}
+function rowBgClass(r) {
+  const limitRatio = r.limitBidVol && r.volume ? r.limitBidVol / r.volume : 0
+  if (limitRatio > 2) {
+    const ratio1d = r.prevVol ? r.volume / r.prevVol : null
+    const ratio3d = r.volMa3 ? r.volume / r.volMa3 : null
+    if (ratio1d !== null && ratio1d >= 2 && ratio3d !== null && ratio3d >= 2)
+      return 'bg-red-900/25 hover:bg-red-900/35'
+    if ((ratio1d !== null && ratio1d < 0.5) || (ratio3d !== null && ratio3d < 0.5))
+      return 'bg-blue-900/25 hover:bg-blue-900/35'
+  }
+  return 'hover:bg-gray-800/30'
 }
 
 function fmtPrice(p) {
@@ -3145,15 +3157,15 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
           <div class="font-semibold text-gray-500 col-span-full">1日量比（今日量 ÷ 昨日量）</div>
           <div class="flex items-center gap-2"><span class="text-yellow-400 font-bold">■ 黃色粗體</span><span>≥ 2　爆量</span></div>
           <div class="flex items-center gap-2"><span class="text-gray-400">■ 灰色</span><span>0.5 ～ 2　正常</span></div>
-          <div class="flex items-center gap-2"><span class="text-red-400">■ 紅色</span><span>0.3 ～ 0.5　縮量</span></div>
+          <div class="flex items-center gap-2"><span class="text-red-400 font-bold">■ 紅色粗體</span><span>0.3 ～ 0.5　縮量</span></div>
           <div class="flex items-center gap-2"><span class="text-purple-400 font-bold">■ 紫色粗體</span><span>&lt; 0.3　極度縮量</span></div>
           <div class="font-semibold text-gray-500 col-span-full mt-1">3日量比（今日量 ÷ 3日均量）</div>
           <div class="flex items-center gap-2"><span class="text-yellow-400 font-bold">■ 黃色粗體</span><span>≥ 2　爆量</span></div>
           <div class="flex items-center gap-2"><span class="text-gray-400">■ 灰色</span><span>0.5 ～ 2　正常</span></div>
-          <div class="flex items-center gap-2"><span class="text-orange-400">■ 橘色</span><span>&lt; 0.5　縮量</span></div>
+          <div class="flex items-center gap-2"><span class="text-orange-400 font-bold">■ 橘色粗體</span><span>&lt; 0.5　縮量</span></div>
           <div class="font-semibold text-gray-500 col-span-full mt-1">列背景</div>
-          <div class="flex items-center gap-2"><span class="px-2 py-0.5 rounded bg-red-900/40 text-red-300">紅底</span><span>漲停委買量 ÷ 今日成交量 &gt; 2</span></div>
-          <div class="flex items-center gap-2"><span class="px-2 py-0.5 rounded bg-yellow-900/40 text-yellow-300">黃底</span><span>1日量比 ≥ 2（爆量）</span></div>
+          <div class="flex items-center gap-2"><span class="px-2 py-0.5 rounded bg-red-900/40 text-red-300">紅底（爆量漲停）</span><span>漲停委買比 &gt; 2 且 1日量比 ≥ 2 且 3日量比 ≥ 2</span></div>
+          <div class="flex items-center gap-2"><span class="px-2 py-0.5 rounded bg-blue-900/40 text-blue-300">藍底（量縮漲停）</span><span>漲停委買比 &gt; 2 且（1日量比 &lt; 0.5 或 3日量比 &lt; 0.5）</span></div>
         </div>
       </div>
 
@@ -3189,7 +3201,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
             <tbody>
               <tr v-for="(r, i) in moversGainers" :key="r.stockNo"
                   class="border-b border-gray-800/50 transition"
-                  :class="r.limitBidVol && r.limitBidVol / r.volume > 2 ? 'bg-red-900/25 hover:bg-red-900/35' : r.prevVol && r.volume / r.prevVol >= 2 ? 'bg-yellow-900/20 hover:bg-yellow-900/30' : 'hover:bg-gray-800/30'">
+                  :class="rowBgClass(r)">
                 <td class="px-3 py-2 text-gray-600 text-xs">{{ i + 1 }}</td>
                 <td class="px-3 py-2 cursor-pointer" @click="goToWarrant(r.stockNo)">
                   <div class="text-white font-medium hover:text-purple-400 transition">{{ r.stockName }}</div>
@@ -3239,7 +3251,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
             <tbody>
               <tr v-for="(r, i) in moversLosers" :key="r.stockNo"
                   class="border-b border-gray-800/50 transition"
-                  :class="r.limitBidVol && r.limitBidVol / r.volume > 2 ? 'bg-red-900/25 hover:bg-red-900/35' : r.prevVol && r.volume / r.prevVol >= 2 ? 'bg-yellow-900/20 hover:bg-yellow-900/30' : 'hover:bg-gray-800/30'">
+                  :class="rowBgClass(r)">
                 <td class="px-3 py-2 text-gray-600 text-xs">{{ i + 1 }}</td>
                 <td class="px-3 py-2 cursor-pointer" @click="goToWarrant(r.stockNo)">
                   <div class="text-white font-medium hover:text-purple-400 transition">{{ r.stockName }}</div>
