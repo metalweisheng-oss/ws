@@ -3314,6 +3314,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <th class="px-3 py-2 text-right">3日均量</th>
                 <th class="px-3 py-2 text-right">1日量</th>
                 <th class="px-3 py-2 text-right leading-tight">今日成交量<br><span class="text-gray-600">(漲停委買量)</span></th>
+                <th class="px-3 py-2 text-right cursor-help" title="漲停委買比 = 漲停委買量 ÷ 今日成交量&#10;&gt; 1.6　綠色（強力鎖籌）">漲停委買比 <span class="text-gray-600">?</span></th>
                 <th class="px-3 py-2 text-right cursor-help" title="1日量比 = 今日成交量 ÷ 昨日成交量&#10;≥ 2　黃色粗體（爆量）&#10;0.5～2　灰色&#10;0.3～0.5　紅色&#10;< 0.3　紫色粗體（極度縮量）">1日量比 <span class="text-gray-600">?</span></th>
                 <th class="px-3 py-2 text-right cursor-help" title="3日量比 = 今日成交量 ÷ 3日平均成交量&#10;≥ 2　黃色粗體（爆量）&#10;0.5～2　灰色&#10;< 0.5　橘色（縮量）">3日量比 <span class="text-gray-600">?</span></th>
               </tr>
@@ -3336,6 +3337,9 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <td class="px-3 py-2 text-right text-gray-500 font-mono text-xs">{{ r.prevVol != null ? r.prevVol.toLocaleString() : '-' }}</td>
                 <td class="px-3 py-2 text-right font-mono text-xs" :class="r.limitBidVol && r.limitBidVol / r.volume > 1.6 ? 'text-red-300' : 'text-gray-400'">
                   {{ r.volume.toLocaleString() }}<span v-if="r.limitBidVol" :class="r.limitBidVol / r.volume > 1.6 ? 'text-green-400' : 'text-gray-500'"> ({{ r.limitBidVol.toLocaleString() }})</span>
+                </td>
+                <td class="px-3 py-2 text-right font-mono text-xs" :class="r.limitBidVol && r.limitBidVol / r.volume > 1.6 ? 'text-green-400 font-bold' : 'text-gray-600'">
+                  {{ r.limitBidVol && r.volume ? (r.limitBidVol / r.volume).toFixed(2) : '-' }}
                 </td>
                 <td class="px-3 py-2 text-right font-mono text-xs" :class="volRatio1dClass(r)">
                   {{ r.prevVol ? (r.volume / r.prevVol).toFixed(2) : '-' }}
@@ -3364,6 +3368,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <th class="px-3 py-2 text-right">3日均量</th>
                 <th class="px-3 py-2 text-right">1日量</th>
                 <th class="px-3 py-2 text-right leading-tight">今日成交量<br><span class="text-gray-600">(漲停委買量)</span></th>
+                <th class="px-3 py-2 text-right cursor-help" title="漲停委買比 = 漲停委買量 ÷ 今日成交量&#10;&gt; 1.6　綠色（強力鎖籌）">漲停委買比 <span class="text-gray-600">?</span></th>
                 <th class="px-3 py-2 text-right cursor-help" title="1日量比 = 今日成交量 ÷ 昨日成交量&#10;≥ 2　黃色粗體（爆量）&#10;0.5～2　灰色&#10;0.3～0.5　紅色&#10;< 0.3　紫色粗體（極度縮量）">1日量比 <span class="text-gray-600">?</span></th>
                 <th class="px-3 py-2 text-right cursor-help" title="3日量比 = 今日成交量 ÷ 3日平均成交量&#10;≥ 2　黃色粗體（爆量）&#10;0.5～2　灰色&#10;< 0.5　橘色（縮量）">3日量比 <span class="text-gray-600">?</span></th>
               </tr>
@@ -3386,6 +3391,9 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <td class="px-3 py-2 text-right text-gray-500 font-mono text-xs">{{ r.prevVol != null ? r.prevVol.toLocaleString() : '-' }}</td>
                 <td class="px-3 py-2 text-right font-mono text-xs" :class="r.limitBidVol && r.limitBidVol / r.volume > 1.6 ? 'text-red-300' : 'text-gray-400'">
                   {{ r.volume.toLocaleString() }}<span v-if="r.limitBidVol" :class="r.limitBidVol / r.volume > 1.6 ? 'text-green-400' : 'text-gray-500'"> ({{ r.limitBidVol.toLocaleString() }})</span>
+                </td>
+                <td class="px-3 py-2 text-right font-mono text-xs" :class="r.limitBidVol && r.limitBidVol / r.volume > 1.6 ? 'text-green-400 font-bold' : 'text-gray-600'">
+                  {{ r.limitBidVol && r.volume ? (r.limitBidVol / r.volume).toFixed(2) : '-' }}
                 </td>
                 <td class="px-3 py-2 text-right font-mono text-xs" :class="volRatio1dClass(r)">
                   {{ r.prevVol ? (r.volume / r.prevVol).toFixed(2) : '-' }}
