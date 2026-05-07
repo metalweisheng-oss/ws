@@ -3164,32 +3164,6 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
         </button>
       </div>
 
-      <!-- 顏色規則說明 -->
-      <div class="bg-gray-900 border border-gray-800 rounded-xl px-4 py-3 text-xs text-gray-400 space-y-2">
-        <div class="font-semibold text-gray-300 mb-1">顏色規則說明</div>
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-1">
-          <div class="font-semibold text-gray-500 col-span-full">1日量比（今日量 ÷ 昨日量）</div>
-          <div class="flex items-center gap-2"><span class="text-yellow-400 font-bold">■ 黃色粗體</span><span>≥ 2　爆量</span></div>
-          <div class="flex items-center gap-2"><span class="text-gray-400">■ 灰色</span><span>0.5 ～ 2　正常</span></div>
-          <div class="flex items-center gap-2"><span class="text-red-400 font-bold">■ 紅色粗體</span><span>0.3 ～ 0.5　縮量</span></div>
-          <div class="flex items-center gap-2"><span class="text-purple-400 font-bold">■ 紫色粗體</span><span>&lt; 0.3　極度縮量</span></div>
-          <div class="font-semibold text-gray-500 col-span-full mt-1">3日量比（今日量 ÷ 3日均量）</div>
-          <div class="flex items-center gap-2"><span class="text-yellow-400 font-bold">■ 黃色粗體</span><span>≥ 2　爆量</span></div>
-          <div class="flex items-center gap-2"><span class="text-gray-400">■ 灰色</span><span>0.5 ～ 2　正常</span></div>
-          <div class="flex items-center gap-2"><span class="text-orange-400 font-bold">■ 橘色粗體</span><span>&lt; 0.5　縮量</span></div>
-          <div class="font-semibold text-gray-500 col-span-full mt-1">列背景</div>
-          <div class="flex items-center gap-2"><span class="px-2 py-0.5 rounded bg-red-900/40 text-red-300">紅底（爆量漲停）</span><span>漲停委買比 &gt; 1.6 且 1日量比 ≥ 2 且 3日量比 ≥ 2</span></div>
-          <div class="flex items-center gap-2"><span class="px-2 py-0.5 rounded bg-blue-900/40 text-blue-300">藍底（量縮漲停）</span><span>漲停委買比 &gt; 1.6 且（1日量比 &lt; 0.5 或 3日量比 &lt; 0.5）</span></div>
-          <div class="font-semibold text-gray-500 col-span-full mt-1">漲停委買量（括號內數字）</div>
-          <div class="flex items-center gap-2"><span class="text-green-400">■ 綠色</span><span>漲停委買比 &gt; 1.6　強力鎖籌</span></div>
-          <div class="flex items-center gap-2"><span class="text-gray-500">■ 灰色</span><span>漲停委買比 ≤ 1.6　一般委買</span></div>
-          <div class="font-semibold text-gray-500 col-span-full mt-1">量縮漲停觀察區（符合全部條件才列入）</div>
-          <div class="flex items-center gap-2 col-span-full"><span class="text-blue-400">①</span><span>昨日帶量長紅：收 &gt; 開 且 昨日量 ≥ 昨日3日均量 × 1.2</span></div>
-          <div class="flex items-center gap-2 col-span-full"><span class="text-blue-400">②</span><span>今日量縮一半以上：1日量比 &lt; 0.5</span></div>
-          <div class="flex items-center gap-2 col-span-full"><span class="text-blue-400">③</span><span>漲停委買比 &gt; 1.6（目前仍封板未打開）</span></div>
-        </div>
-      </div>
-
       <!-- 量縮漲停觀察 -->
       <div v-if="limitSqueezeList.length" class="bg-gray-900 border border-blue-900/50 rounded-xl overflow-hidden">
         <div class="px-4 py-3 border-b border-blue-900/40 flex items-center gap-2">
@@ -3232,6 +3206,32 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
             </tr>
           </tbody>
         </table>
+      </div>
+
+      <!-- 顏色規則說明 -->
+      <div class="bg-gray-900 border border-gray-800 rounded-xl px-4 py-3 text-xs text-gray-400 space-y-2">
+        <div class="font-semibold text-gray-300 mb-1">顏色規則說明</div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-1">
+          <div class="font-semibold text-gray-500 col-span-full">1日量比（今日量 ÷ 昨日量）</div>
+          <div class="flex items-center gap-2"><span class="text-yellow-400 font-bold">■ 黃色粗體</span><span>≥ 2　爆量</span></div>
+          <div class="flex items-center gap-2"><span class="text-gray-400">■ 灰色</span><span>0.5 ～ 2　正常</span></div>
+          <div class="flex items-center gap-2"><span class="text-red-400 font-bold">■ 紅色粗體</span><span>0.3 ～ 0.5　縮量</span></div>
+          <div class="flex items-center gap-2"><span class="text-purple-400 font-bold">■ 紫色粗體</span><span>&lt; 0.3　極度縮量</span></div>
+          <div class="font-semibold text-gray-500 col-span-full mt-1">3日量比（今日量 ÷ 3日均量）</div>
+          <div class="flex items-center gap-2"><span class="text-yellow-400 font-bold">■ 黃色粗體</span><span>≥ 2　爆量</span></div>
+          <div class="flex items-center gap-2"><span class="text-gray-400">■ 灰色</span><span>0.5 ～ 2　正常</span></div>
+          <div class="flex items-center gap-2"><span class="text-orange-400 font-bold">■ 橘色粗體</span><span>&lt; 0.5　縮量</span></div>
+          <div class="font-semibold text-gray-500 col-span-full mt-1">列背景</div>
+          <div class="flex items-center gap-2"><span class="px-2 py-0.5 rounded bg-red-900/40 text-red-300">紅底（爆量漲停）</span><span>漲停委買比 &gt; 1.6 且 1日量比 ≥ 2 且 3日量比 ≥ 2</span></div>
+          <div class="flex items-center gap-2"><span class="px-2 py-0.5 rounded bg-blue-900/40 text-blue-300">藍底（量縮漲停）</span><span>漲停委買比 &gt; 1.6 且（1日量比 &lt; 0.5 或 3日量比 &lt; 0.5）</span></div>
+          <div class="font-semibold text-gray-500 col-span-full mt-1">漲停委買量（括號內數字）</div>
+          <div class="flex items-center gap-2"><span class="text-green-400">■ 綠色</span><span>漲停委買比 &gt; 1.6　強力鎖籌</span></div>
+          <div class="flex items-center gap-2"><span class="text-gray-500">■ 灰色</span><span>漲停委買比 ≤ 1.6　一般委買</span></div>
+          <div class="font-semibold text-gray-500 col-span-full mt-1">量縮漲停觀察區（符合全部條件才列入）</div>
+          <div class="flex items-center gap-2 col-span-full"><span class="text-blue-400">①</span><span>昨日帶量長紅：收 &gt; 開 且 昨日量 ≥ 昨日3日均量 × 1.2</span></div>
+          <div class="flex items-center gap-2 col-span-full"><span class="text-blue-400">②</span><span>今日量縮一半以上：1日量比 &lt; 0.5</span></div>
+          <div class="flex items-center gap-2 col-span-full"><span class="text-blue-400">③</span><span>漲停委買比 &gt; 1.6（目前仍封板未打開）</span></div>
+        </div>
       </div>
 
       <!-- 錯誤 -->
