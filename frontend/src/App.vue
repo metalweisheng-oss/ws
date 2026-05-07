@@ -3160,7 +3160,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <td class="px-3 py-2 text-right text-gray-400 font-mono text-xs">{{ fmtPrice(r.prevClose) }}</td>
                 <td class="px-3 py-2 text-right text-red-300 font-mono">{{ fmtPrice(r.price) }}</td>
                 <td class="px-3 py-2 text-right font-bold text-red-400">
-                  +{{ r.changePct.toFixed(2) }}%<span v-if="r.limitDays" class="text-yellow-400"> ({{ r.limitDays }})</span>
+                  +{{ r.changePct.toFixed(1) }}%<span v-if="r.limitDays" class="text-yellow-400"> ({{ r.limitDays }})</span>
                 </td>
                 <td class="px-3 py-2 text-right text-gray-400 font-mono text-xs">{{ r.volMa3 != null ? r.volMa3.toLocaleString() : '-' }}</td>
                 <td class="px-3 py-2 text-right text-gray-500 font-mono text-xs">{{ r.prevVol != null ? r.prevVol.toLocaleString() : '-' }}</td>
@@ -3204,7 +3204,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <td class="px-3 py-2 text-right text-gray-400 font-mono text-xs">{{ fmtPrice(r.prevClose) }}</td>
                 <td class="px-3 py-2 text-right text-green-300 font-mono">{{ fmtPrice(r.price) }}</td>
                 <td class="px-3 py-2 text-right font-bold text-green-400">
-                  {{ r.changePct.toFixed(2) }}%<span v-if="r.limitDays" class="text-yellow-400"> ({{ r.limitDays }})</span>
+                  {{ r.changePct.toFixed(1) }}%<span v-if="r.limitDays" class="text-yellow-400"> ({{ r.limitDays }})</span>
                 </td>
                 <td class="px-3 py-2 text-right text-gray-400 font-mono text-xs">{{ r.volMa3 != null ? r.volMa3.toLocaleString() : '-' }}</td>
                 <td class="px-3 py-2 text-right text-gray-500 font-mono text-xs">{{ r.prevVol != null ? r.prevVol.toLocaleString() : '-' }}</td>
