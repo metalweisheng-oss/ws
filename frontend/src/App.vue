@@ -3126,6 +3126,8 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               <tr class="text-xs text-gray-500 border-b border-gray-800">
                 <th class="px-3 py-2 text-left w-8">#</th>
                 <th class="px-3 py-2 text-left">代號／名稱</th>
+                <th class="px-3 py-2 text-right">3日均價</th>
+                <th class="px-3 py-2 text-right">前日均價</th>
                 <th class="px-3 py-2 text-right">現價</th>
                 <th class="px-3 py-2 text-right">漲跌幅</th>
                 <th class="px-3 py-2 text-right">成交量(張)</th>
@@ -3139,6 +3141,8 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                   <div class="text-white font-medium">{{ r.stockName }}</div>
                   <div class="text-xs text-gray-500">{{ r.stockNo }}</div>
                 </td>
+                <td class="px-3 py-2 text-right text-gray-300 font-mono text-xs">{{ r.ma3 != null ? r.ma3.toFixed(2) : '-' }}</td>
+                <td class="px-3 py-2 text-right text-gray-500 font-mono text-xs">{{ r.prevMa3 != null ? r.prevMa3.toFixed(2) : '-' }}</td>
                 <td class="px-3 py-2 text-right text-red-300 font-mono">{{ r.price }}</td>
                 <td class="px-3 py-2 text-right font-bold text-red-400">+{{ r.changePct.toFixed(2) }}%</td>
                 <td class="px-3 py-2 text-right text-gray-400 font-mono text-xs">{{ r.volume.toLocaleString() }}</td>
@@ -3157,6 +3161,8 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               <tr class="text-xs text-gray-500 border-b border-gray-800">
                 <th class="px-3 py-2 text-left w-8">#</th>
                 <th class="px-3 py-2 text-left">代號／名稱</th>
+                <th class="px-3 py-2 text-right">3日均價</th>
+                <th class="px-3 py-2 text-right">前日均價</th>
                 <th class="px-3 py-2 text-right">現價</th>
                 <th class="px-3 py-2 text-right">漲跌幅</th>
                 <th class="px-3 py-2 text-right">成交量(張)</th>
@@ -3170,6 +3176,8 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                   <div class="text-white font-medium">{{ r.stockName }}</div>
                   <div class="text-xs text-gray-500">{{ r.stockNo }}</div>
                 </td>
+                <td class="px-3 py-2 text-right text-gray-300 font-mono text-xs">{{ r.ma3 != null ? r.ma3.toFixed(2) : '-' }}</td>
+                <td class="px-3 py-2 text-right text-gray-500 font-mono text-xs">{{ r.prevMa3 != null ? r.prevMa3.toFixed(2) : '-' }}</td>
                 <td class="px-3 py-2 text-right text-green-300 font-mono">{{ r.price }}</td>
                 <td class="px-3 py-2 text-right font-bold text-green-400">{{ r.changePct.toFixed(2) }}%</td>
                 <td class="px-3 py-2 text-right text-gray-400 font-mono text-xs">{{ r.volume.toLocaleString() }}</td>

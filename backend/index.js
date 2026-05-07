@@ -3775,14 +3775,32 @@ app.get('/api/market/movers', async (req, res) => {
           FROM market_daily
           WHERE trade_date < $1 AND close > 0
           ORDER BY stock_no, trade_date DESC
+        ),
+        hist AS (
+          SELECT stock_no, close::numeric,
+                 ROW_NUMBER() OVER (PARTITION BY stock_no ORDER BY trade_date DESC) AS rn
+          FROM market_daily
+          WHERE trade_date <= $1 AND close > 0
+        ),
+        ma AS (
+          SELECT stock_no,
+                 ROUND(AVG(CASE WHEN rn <= 3 THEN close END), 2)::float AS ma3,
+                 ROUND(AVG(CASE WHEN rn BETWEEN 2 AND 4 THEN close END), 2)::float AS prev_ma3
+          FROM hist
+          WHERE rn <= 4
+          GROUP BY stock_no
+          HAVING COUNT(CASE WHEN rn <= 3 THEN 1 END) = 3
+             AND COUNT(CASE WHEN rn BETWEEN 2 AND 4 THEN 1 END) = 3
         )
         SELECT t.stock_no, t.stock_name,
                t.close AS price, t.volume,
                p.prev_close,
                ROUND(((t.close - p.prev_close) / p.prev_close * 100)::numeric, 2) AS change_pct,
-               ROUND((t.close - p.prev_close)::numeric, 2) AS change
+               ROUND((t.close - p.prev_close)::numeric, 2) AS change,
+               m.ma3, m.prev_ma3
         FROM today t
         JOIN prev p ON p.stock_no = t.stock_no
+        LEFT JOIN ma m ON m.stock_no = t.stock_no
         WHERE t.volume > 0
         ORDER BY change_pct DESC
       `, [dateParam])
@@ -3795,6 +3813,8 @@ app.get('/api/market/movers', async (req, res) => {
         change:     parseFloat(r.change),
         changePct:  parseFloat(r.change_pct),
         volume:     parseInt(r.volume),
+        ma3:        r.ma3 != null ? parseFloat(r.ma3) : null,
+        prevMa3:    r.prev_ma3 != null ? parseFloat(r.prev_ma3) : null,
       }))
 
       const gainers = movers.slice(0, limit)
@@ -3813,12 +3833,31 @@ app.get('/api/market/movers', async (req, res) => {
   }
 
   try {
-    const { rows: stockRows } = await pool.query(
-      `SELECT DISTINCT ON (stock_no) stock_no, stock_name FROM market_daily ORDER BY stock_no, trade_date DESC`
-    )
+    const [{ rows: stockRows }, { rows: maRows }] = await Promise.all([
+      pool.query(`SELECT DISTINCT ON (stock_no) stock_no, stock_name FROM market_daily ORDER BY stock_no, trade_date DESC`),
+      pool.query(`
+        WITH ranked AS (
+          SELECT stock_no, close::numeric,
+                 ROW_NUMBER() OVER (PARTITION BY stock_no ORDER BY trade_date DESC) AS rn
+          FROM market_daily
+          WHERE close > 0 AND trade_date >= CURRENT_DATE - INTERVAL '20 days'
+        )
+        SELECT stock_no,
+               ROUND(AVG(CASE WHEN rn <= 3 THEN close END), 2)::float AS ma3,
+               ROUND(AVG(CASE WHEN rn BETWEEN 2 AND 4 THEN close END), 2)::float AS prev_ma3
+        FROM ranked
+        WHERE rn <= 4
+        GROUP BY stock_no
+        HAVING COUNT(CASE WHEN rn <= 3 THEN 1 END) = 3
+           AND COUNT(CASE WHEN rn BETWEEN 2 AND 4 THEN 1 END) = 3
+      `)
+    ])
 
     const nameMap = {}
     for (const r of stockRows) nameMap[r.stock_no] = r.stock_name
+
+    const maMap = {}
+    for (const r of maRows) maMap[r.stock_no] = { ma3: r.ma3, prevMa3: r.prev_ma3 }
 
     const BATCH_SIZE = 60
     const batches = []
@@ -3847,6 +3886,8 @@ app.get('/api/market/movers', async (req, res) => {
           price: z, prevClose: y,
           change: +(z - y).toFixed(2),
           changePct, volume: vol,
+          ma3:     maMap[item.c]?.ma3    ?? null,
+          prevMa3: maMap[item.c]?.prevMa3 ?? null,
         })
       }
     }
