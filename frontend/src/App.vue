@@ -3180,6 +3180,13 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
           <div class="font-semibold text-gray-500 col-span-full mt-1">列背景</div>
           <div class="flex items-center gap-2"><span class="px-2 py-0.5 rounded bg-red-900/40 text-red-300">紅底（爆量漲停）</span><span>漲停委買比 &gt; 2 且 1日量比 ≥ 2 且 3日量比 ≥ 2</span></div>
           <div class="flex items-center gap-2"><span class="px-2 py-0.5 rounded bg-blue-900/40 text-blue-300">藍底（量縮漲停）</span><span>漲停委買比 &gt; 2 且（1日量比 &lt; 0.5 或 3日量比 &lt; 0.5）</span></div>
+          <div class="font-semibold text-gray-500 col-span-full mt-1">漲停委買量（括號內數字）</div>
+          <div class="flex items-center gap-2"><span class="text-green-400">■ 綠色</span><span>漲停委買比 &gt; 2　強力鎖籌</span></div>
+          <div class="flex items-center gap-2"><span class="text-gray-500">■ 灰色</span><span>漲停委買比 ≤ 2　一般委買</span></div>
+          <div class="font-semibold text-gray-500 col-span-full mt-1">量縮漲停觀察區（符合全部條件才列入）</div>
+          <div class="flex items-center gap-2 col-span-full"><span class="text-blue-400">①</span><span>昨日帶量長紅：收 &gt; 開 且 昨日量 ≥ 昨日3日均量 × 1.2</span></div>
+          <div class="flex items-center gap-2 col-span-full"><span class="text-blue-400">②</span><span>今日量縮一半以上：1日量比 &lt; 0.5</span></div>
+          <div class="flex items-center gap-2 col-span-full"><span class="text-blue-400">③</span><span>漲停委買比 &gt; 2（目前仍封板未打開）</span></div>
         </div>
       </div>
 
