@@ -456,6 +456,22 @@ function stopMoversAutoRefresh() {
   moversTimer = null
 }
 
+function volRatio1dClass(r) {
+  if (!r.prevVol) return 'text-gray-600'
+  const ratio = r.volume / r.prevVol
+  if (ratio < 0.3) return 'text-purple-400 font-bold'
+  if (ratio < 0.5) return 'text-red-400'
+  if (ratio >= 2)  return 'text-yellow-400 font-bold'
+  return 'text-gray-400'
+}
+function volRatio3dClass(r) {
+  if (!r.volMa3) return 'text-gray-600'
+  const ratio = r.volume / r.volMa3
+  if (ratio < 0.5) return 'text-orange-400'
+  if (ratio >= 2)  return 'text-yellow-400 font-bold'
+  return 'text-gray-400'
+}
+
 function fmtPrice(p) {
   if (p == null) return '-'
   if (p >= 1000) return p.toFixed(0)
@@ -3170,10 +3186,10 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <td class="px-3 py-2 text-right font-mono text-xs" :class="r.limitBidVol && r.limitBidVol / r.volume > 2 ? 'text-red-300' : 'text-gray-400'">
                   {{ r.volume.toLocaleString() }}<span v-if="r.limitBidVol" class="text-gray-500"> ({{ r.limitBidVol.toLocaleString() }})</span>
                 </td>
-                <td class="px-3 py-2 text-right font-mono text-xs" :class="r.prevVol ? (r.volume / r.prevVol >= 2 ? 'text-yellow-400 font-bold' : 'text-gray-400') : 'text-gray-600'">
+                <td class="px-3 py-2 text-right font-mono text-xs" :class="volRatio1dClass(r)">
                   {{ r.prevVol ? (r.volume / r.prevVol).toFixed(2) : '-' }}
                 </td>
-                <td class="px-3 py-2 text-right font-mono text-xs" :class="r.volMa3 ? (r.volume / r.volMa3 >= 2 ? 'text-yellow-400 font-bold' : 'text-gray-400') : 'text-gray-600'">
+                <td class="px-3 py-2 text-right font-mono text-xs" :class="volRatio3dClass(r)">
                   {{ r.volMa3 ? (r.volume / r.volMa3).toFixed(2) : '-' }}
                 </td>
               </tr>
@@ -3220,10 +3236,10 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <td class="px-3 py-2 text-right font-mono text-xs" :class="r.limitBidVol && r.limitBidVol / r.volume > 2 ? 'text-red-300' : 'text-gray-400'">
                   {{ r.volume.toLocaleString() }}<span v-if="r.limitBidVol" class="text-gray-500"> ({{ r.limitBidVol.toLocaleString() }})</span>
                 </td>
-                <td class="px-3 py-2 text-right font-mono text-xs" :class="r.prevVol ? (r.volume / r.prevVol >= 2 ? 'text-yellow-400 font-bold' : 'text-gray-400') : 'text-gray-600'">
+                <td class="px-3 py-2 text-right font-mono text-xs" :class="volRatio1dClass(r)">
                   {{ r.prevVol ? (r.volume / r.prevVol).toFixed(2) : '-' }}
                 </td>
-                <td class="px-3 py-2 text-right font-mono text-xs" :class="r.volMa3 ? (r.volume / r.volMa3 >= 2 ? 'text-yellow-400 font-bold' : 'text-gray-400') : 'text-gray-600'">
+                <td class="px-3 py-2 text-right font-mono text-xs" :class="volRatio3dClass(r)">
                   {{ r.volMa3 ? (r.volume / r.volMa3).toFixed(2) : '-' }}
                 </td>
               </tr>
