@@ -3273,7 +3273,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <td class="px-3 py-2 text-right text-gray-400 font-mono text-xs">{{ r.volMa3 != null ? r.volMa3.toLocaleString() : '-' }}</td>
                 <td class="px-3 py-2 text-right text-gray-500 font-mono text-xs">{{ r.prevVol != null ? r.prevVol.toLocaleString() : '-' }}</td>
                 <td class="px-3 py-2 text-right font-mono text-xs" :class="r.limitBidVol && r.limitBidVol / r.volume > 2 ? 'text-red-300' : 'text-gray-400'">
-                  {{ r.volume.toLocaleString() }}<span v-if="r.limitBidVol" class="text-gray-500"> ({{ r.limitBidVol.toLocaleString() }})</span>
+                  {{ r.volume.toLocaleString() }}<span v-if="r.limitBidVol" :class="r.limitBidVol / r.volume > 2 ? 'text-green-400' : 'text-gray-500'"> ({{ r.limitBidVol.toLocaleString() }})</span>
                 </td>
                 <td class="px-3 py-2 text-right font-mono text-xs" :class="volRatio1dClass(r)">
                   {{ r.prevVol ? (r.volume / r.prevVol).toFixed(2) : '-' }}
@@ -3323,7 +3323,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <td class="px-3 py-2 text-right text-gray-400 font-mono text-xs">{{ r.volMa3 != null ? r.volMa3.toLocaleString() : '-' }}</td>
                 <td class="px-3 py-2 text-right text-gray-500 font-mono text-xs">{{ r.prevVol != null ? r.prevVol.toLocaleString() : '-' }}</td>
                 <td class="px-3 py-2 text-right font-mono text-xs" :class="r.limitBidVol && r.limitBidVol / r.volume > 2 ? 'text-red-300' : 'text-gray-400'">
-                  {{ r.volume.toLocaleString() }}<span v-if="r.limitBidVol" class="text-gray-500"> ({{ r.limitBidVol.toLocaleString() }})</span>
+                  {{ r.volume.toLocaleString() }}<span v-if="r.limitBidVol" :class="r.limitBidVol / r.volume > 2 ? 'text-green-400' : 'text-gray-500'"> ({{ r.limitBidVol.toLocaleString() }})</span>
                 </td>
                 <td class="px-3 py-2 text-right font-mono text-xs" :class="volRatio1dClass(r)">
                   {{ r.prevVol ? (r.volume / r.prevVol).toFixed(2) : '-' }}
