@@ -784,42 +784,66 @@ app.get('/api/stock/monitor/stream', (req, res) => {
     }
   }
 
-  // 啟動富邦即時監控 Python 進程
-  const py = spawn('python3', ['-m', 'fubon.monitor', stockNo], {
-    cwd: path.join(__dirname),
-    env: { ...process.env }
-  })
+  // Yahoo Finance 分時資料輪詢（取代富邦 WebSocket）
+  const symbol = getSymbol(stockNo)
+  let lastTs = 0
+  let lastTickPrice = null
+  let initialSent = false
 
-  let buf = ''
-  py.stdout.on('data', chunk => {
-    buf += chunk.toString()
-    const lines = buf.split('\n')
-    buf = lines.pop()  // 最後一段可能不完整，留著等下次
-    for (const line of lines) {
-      if (!line.trim()) continue
-      try {
-        const msg = JSON.parse(line)
-        if (msg.type === 'candles') processCandles(msg.rows || [], msg.quote || {})
-        else if (msg.type === 'tick')  send(msg)   // 分時明細直接轉發
-        else if (msg.type === 'error') send({ type: 'error', checkTime: cstNow(), message: msg.message })
-      } catch(e) {}
+  async function pollYahoo() {
+    try {
+      const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1m&range=1d`
+      const d = await fetchUrl(url)
+      const result = d?.chart?.result?.[0]
+      if (!result) return
+
+      const timestamps = result.timestamp || []
+      const q = result.indicators?.quote?.[0] || {}
+      const closes = q.close || [], opens = q.open || [], highs = q.high || [], lows = q.low || [], vols = q.volume || []
+      const meta = result.meta || {}
+
+      // 組成 candle rows
+      const rows = []
+      for (let i = 0; i < timestamps.length; i++) {
+        const cl = closes[i], op = opens[i], hi = highs[i], lo = lows[i], vo = vols[i]
+        if (!cl || !vo) continue
+        rows.push({ ts: timestamps[i], open: op, high: hi, low: lo, close: cl, volume: Math.round((vo || 0) / 1000) })
+      }
+      if (!rows.length) return
+
+      const quote = { price: meta.regularMarketPrice || rows[rows.length - 1].close }
+
+      // 初始送出近 50 根 1 分 K 的收盤當 tick（init 批次）
+      if (!initialSent) {
+        initialSent = true
+        const initRows = rows.slice(-50)
+        for (const r of initRows) {
+          const dt = new Date(r.ts * 1000)
+          const t = `${String((dt.getUTCHours()+8)%24).padStart(2,'0')}:${String(dt.getUTCMinutes()).padStart(2,'0')}:00`
+          send({ type: 'tick', time: t, price: r.close, volume: r.volume, side: '', init: true })
+        }
+      }
+
+      // 有新 K 棒時送出 tick
+      const last = rows[rows.length - 1]
+      if (last.ts > lastTs) {
+        lastTs = last.ts
+        const dt = new Date(last.ts * 1000)
+        const t = `${String((dt.getUTCHours()+8)%24).padStart(2,'0')}:${String(dt.getUTCMinutes()).padStart(2,'0')}:00`
+        const side = lastTickPrice == null ? '' : last.close > lastTickPrice ? 'buy' : last.close < lastTickPrice ? 'sell' : ''
+        lastTickPrice = last.close
+        send({ type: 'tick', time: t, price: last.close, volume: last.volume, side })
+      }
+
+      processCandles(rows, quote)
+    } catch(e) {
+      send({ type: 'error', checkTime: cstNow(), message: `Yahoo Finance 取得失敗：${e.message}` })
     }
-  })
+  }
 
-  py.stderr.on('data', d => {
-    const txt = d.toString().trim()
-    if (txt && !txt.includes('NotOpenSSLWarning')) console.error('[fubon-monitor]', txt)
-  })
-
-  py.on('error', (e) => {
-    send({ type: 'error', checkTime: cstNow(), message: `監控進程啟動失敗：${e.message}` })
-  })
-
-  py.on('exit', (code) => {
-    send({ type: 'error', checkTime: cstNow(), message: `監控進程結束 (${code})，請重新整理` })
-  })
-
-  req.on('close', () => { try { py.kill() } catch(e) {} })
+  pollYahoo()
+  const timer = setInterval(pollYahoo, 30 * 1000)
+  req.on('close', () => clearInterval(timer))
 })
 
 // ── 回測：逐根模擬監控邏輯 ───────────────────────────
