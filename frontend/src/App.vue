@@ -454,6 +454,12 @@ function stopMoversAutoRefresh() {
   moversTimer = null
 }
 
+function goToWarrant(stockNo) {
+  warrantStockNo.value = stockNo
+  selectTab('warrant')
+  nextTick(() => searchWarrant())
+}
+
 // ── 庫藏股買回 ───────────────────────────────────────
 const buybackRows    = ref([])
 const buybackLoading = ref(false)
@@ -3139,8 +3145,8 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               <tr v-for="(r, i) in moversGainers" :key="r.stockNo"
                   class="border-b border-gray-800/50 hover:bg-gray-800/30 transition">
                 <td class="px-3 py-2 text-gray-600 text-xs">{{ i + 1 }}</td>
-                <td class="px-3 py-2">
-                  <div class="text-white font-medium">{{ r.stockName }}</div>
+                <td class="px-3 py-2 cursor-pointer" @click="goToWarrant(r.stockNo)">
+                  <div class="text-white font-medium hover:text-purple-400 transition">{{ r.stockName }}</div>
                   <div class="text-xs text-gray-500">{{ r.stockNo }}</div>
                 </td>
                 <td class="px-3 py-2 text-right text-gray-500 font-mono text-xs">{{ r.prevMa3 != null ? r.prevMa3.toFixed(2) : '-' }}</td>
@@ -3180,8 +3186,8 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               <tr v-for="(r, i) in moversLosers" :key="r.stockNo"
                   class="border-b border-gray-800/50 hover:bg-gray-800/30 transition">
                 <td class="px-3 py-2 text-gray-600 text-xs">{{ i + 1 }}</td>
-                <td class="px-3 py-2">
-                  <div class="text-white font-medium">{{ r.stockName }}</div>
+                <td class="px-3 py-2 cursor-pointer" @click="goToWarrant(r.stockNo)">
+                  <div class="text-white font-medium hover:text-purple-400 transition">{{ r.stockName }}</div>
                   <div class="text-xs text-gray-500">{{ r.stockNo }}</div>
                 </td>
                 <td class="px-3 py-2 text-right text-gray-500 font-mono text-xs">{{ r.prevMa3 != null ? r.prevMa3.toFixed(2) : '-' }}</td>
