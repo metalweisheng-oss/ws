@@ -3777,7 +3777,7 @@ app.get('/api/market/movers', async (req, res) => {
           ORDER BY stock_no, trade_date DESC
         ),
         hist AS (
-          SELECT stock_no, open::numeric, close::numeric, volume::numeric,
+          SELECT stock_no, open_p::numeric, close::numeric, volume::numeric,
                  ROW_NUMBER() OVER (PARTITION BY stock_no ORDER BY trade_date DESC) AS rn
           FROM market_daily
           WHERE trade_date <= $1 AND close > 0
@@ -3788,7 +3788,7 @@ app.get('/api/market/movers', async (req, res) => {
                  ROUND(AVG(CASE WHEN rn BETWEEN 2 AND 4 THEN close END), 2)::float AS prev_ma3,
                  ROUND(AVG(CASE WHEN rn <= 3 THEN volume END))::bigint AS vol_ma3,
                  MAX(CASE WHEN rn = 2 THEN volume END)::bigint AS prev_vol,
-                 MAX(CASE WHEN rn = 2 THEN open END)::float AS prev_open,
+                 MAX(CASE WHEN rn = 2 THEN open_p END)::float AS prev_open,
                  ROUND(AVG(CASE WHEN rn BETWEEN 2 AND 4 THEN volume END))::bigint AS prev_vol_ma3
           FROM hist
           WHERE rn <= 4
@@ -3882,7 +3882,7 @@ app.get('/api/market/movers', async (req, res) => {
       pool.query(`SELECT DISTINCT ON (stock_no) stock_no, stock_name FROM market_daily ORDER BY stock_no, trade_date DESC`),
       pool.query(`
         WITH ranked AS (
-          SELECT stock_no, open::numeric, close::numeric, volume::numeric,
+          SELECT stock_no, open_p::numeric, close::numeric, volume::numeric,
                  ROW_NUMBER() OVER (PARTITION BY stock_no ORDER BY trade_date DESC) AS rn
           FROM market_daily
           WHERE close > 0 AND trade_date >= CURRENT_DATE - INTERVAL '20 days'
@@ -3892,7 +3892,7 @@ app.get('/api/market/movers', async (req, res) => {
                ROUND(AVG(CASE WHEN rn BETWEEN 2 AND 4 THEN close END), 2)::float AS prev_ma3,
                ROUND(AVG(CASE WHEN rn <= 3 THEN volume END))::bigint AS vol_ma3,
                MAX(CASE WHEN rn = 2 THEN volume END)::bigint AS prev_vol,
-               MAX(CASE WHEN rn = 2 THEN open END)::float AS prev_open,
+               MAX(CASE WHEN rn = 2 THEN open_p END)::float AS prev_open,
                ROUND(AVG(CASE WHEN rn BETWEEN 2 AND 4 THEN volume END))::bigint AS prev_vol_ma3
         FROM ranked
         WHERE rn <= 4
