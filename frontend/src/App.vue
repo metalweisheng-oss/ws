@@ -3203,9 +3203,9 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               <th class="px-3 py-2 text-left text-xs text-gray-500 font-normal">代號／名稱</th>
               <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">昨日量</th>
               <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">今日量</th>
+              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">漲停委買比</th>
               <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">1日量比</th>
               <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">漲停委買量</th>
-              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">委買比</th>
               <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">連漲停</th>
             </tr>
           </thead>
@@ -3219,13 +3219,13 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               </td>
               <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.prevVol?.toLocaleString() ?? '-' }}</td>
               <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.volume.toLocaleString() }}</td>
+              <td class="px-3 py-2 text-right font-mono text-xs text-green-400 font-bold">
+                {{ r.volume ? (r.limitBidVol / r.volume).toFixed(2) : '-' }}
+              </td>
               <td class="px-3 py-2 text-right font-mono text-xs" :class="volRatio1dClass(r)">
                 {{ r.prevVol ? (r.volume / r.prevVol).toFixed(2) : '-' }}
               </td>
               <td class="px-3 py-2 text-right font-mono text-xs text-blue-300">{{ r.limitBidVol?.toLocaleString() ?? '-' }}</td>
-              <td class="px-3 py-2 text-right font-mono text-xs text-blue-400 font-bold">
-                {{ r.volume ? (r.limitBidVol / r.volume).toFixed(2) : '-' }}
-              </td>
               <td class="px-3 py-2 text-right font-mono text-xs text-yellow-400">
                 {{ r.limitDays ? r.limitDays + '天' : '-' }}
               </td>
