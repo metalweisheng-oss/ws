@@ -2597,6 +2597,14 @@ app.get('/api/debug/screener-check', async (req, res) => {
     `)
     await pool.query(`ALTER TABLE market_daily ADD COLUMN IF NOT EXISTS short_bal BIGINT`).catch(()=>{})
     await pool.query(`
+      CREATE TABLE IF NOT EXISTS daily_limit_bid (
+        stock_no      VARCHAR(10),
+        trade_date    DATE,
+        limit_bid_vol BIGINT,
+        PRIMARY KEY (stock_no, trade_date)
+      )
+    `)
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS screener_results (
         run_date     DATE,
         stock_no     VARCHAR(10),
@@ -3527,6 +3535,25 @@ app.get('/api/inst/history', async (req, res) => {
   }
 })
 
+// 13:35 收盤後儲存漲停委買快照（市場 13:30 收盤）
+cron.schedule('35 13 * * 1-5', async () => {
+  console.log('[cron] 13:35 儲存漲停委買快照')
+  try { await saveCloseSnapshot() }
+  catch(e) { console.error('[close-snapshot] 13:35 失敗:', e.message) }
+}, { timezone: 'Asia/Taipei' })
+
+// 13:40 補試
+cron.schedule('40 13 * * 1-5', async () => {
+  try {
+    const today = new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10)
+    const { rows } = await pool.query(`SELECT COUNT(*) FROM daily_limit_bid WHERE trade_date = $1`, [today])
+    if (parseInt(rows[0].count) === 0) {
+      console.log('[close-snapshot] 13:40 補試')
+      await saveCloseSnapshot()
+    }
+  } catch(e) { console.error('[close-snapshot] 13:40 補試失敗:', e.message) }
+}, { timezone: 'Asia/Taipei' })
+
 // 排程：週一到週五 15:00 自動執行
 cron.schedule('0 15 * * 1-5', () => {
   console.log('[cron] 15:00 自動同步觸發')
@@ -3729,6 +3756,50 @@ function runPython(scriptArgs, onData) {
 const _moversCache = { data: null, ts: 0 }
 const MOVERS_CACHE_TTL = 30 * 1000
 
+async function saveCloseSnapshot(dateStr) {
+  const today = dateStr || new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10)
+  const { rows: stockRows } = await pool.query(
+    `SELECT DISTINCT ON (stock_no) stock_no FROM market_daily ORDER BY stock_no, trade_date DESC`
+  )
+  const BATCH_SIZE = 60
+  const batches = []
+  for (let i = 0; i < stockRows.length; i += BATCH_SIZE) {
+    const slice = stockRows.slice(i, i + BATCH_SIZE)
+    batches.push(slice.flatMap(r => [`tse_${r.stock_no}.tw`, `otc_${r.stock_no}.tw`]))
+  }
+  const results = await Promise.all(batches.map(b => fetchMisRaw(b).catch(() => null)))
+  const records = []
+  const seen = new Set()
+  for (const mis of results) {
+    for (const item of mis?.msgArray || []) {
+      if (seen.has(item.c)) continue
+      seen.add(item.c)
+      const z = item.z && item.z !== '-' ? parseFloat(item.z) : null
+      const y = item.y && item.y !== '-' ? parseFloat(item.y) : null
+      if (!z || !y || y === 0) continue
+      if ((z - y) / y * 100 < 9.4) continue
+      const limitPrice = item.u && item.u !== '-' ? parseFloat(item.u) : null
+      if (!limitPrice || !item.b || !item.g) continue
+      const bidPs = item.b.split('_'), bidQs = item.g.split('_')
+      let total = 0
+      for (let i = 0; i < bidPs.length; i++) {
+        if (Math.abs(parseFloat(bidPs[i]) - limitPrice) < 0.01)
+          total += parseInt(bidQs[i]) || 0
+      }
+      if (total > 0) records.push([item.c, today, total])
+    }
+  }
+  for (const [stockNo, tradeDate, vol] of records) {
+    await pool.query(`
+      INSERT INTO daily_limit_bid (stock_no, trade_date, limit_bid_vol)
+      VALUES ($1, $2, $3)
+      ON CONFLICT (stock_no, trade_date) DO UPDATE SET limit_bid_vol = $3
+    `, [stockNo, tradeDate, vol])
+  }
+  console.log(`[close-snapshot] ${today} 漲停委買量儲存完成，共 ${records.length} 支`)
+  return { saved: records.length, date: today }
+}
+
 function fetchMisRaw(exChList, timeoutMs = 10000) {
   return new Promise((resolve, reject) => {
     const exCh = exChList.join('|')
@@ -3744,6 +3815,16 @@ function fetchMisRaw(exChList, timeoutMs = 10000) {
     setTimeout(() => { req.destroy(); reject(new Error('MIS timeout')) }, timeoutMs)
   })
 }
+
+// 手動觸發收盤漲停委買快照
+app.post('/api/market/save-close-snapshot', async (req, res) => {
+  try {
+    const result = await saveCloseSnapshot(req.body?.date)
+    res.json({ ok: true, ...result })
+  } catch(e) {
+    res.status(500).json({ error: e.message })
+  }
+})
 
 // 取 market_daily 有資料的交易日清單
 app.get('/api/market/movers/dates', async (req, res) => {
@@ -3801,10 +3882,12 @@ app.get('/api/market/movers', async (req, res) => {
                p.prev_close,
                ROUND(((t.close - p.prev_close) / p.prev_close * 100)::numeric, 2) AS change_pct,
                ROUND((t.close - p.prev_close)::numeric, 2) AS change,
-               m.ma3, m.prev_ma3, m.vol_ma3, m.prev_vol, m.prev_open, m.prev_vol_ma3
+               m.ma3, m.prev_ma3, m.vol_ma3, m.prev_vol, m.prev_open, m.prev_vol_ma3,
+               dlb.limit_bid_vol
         FROM today t
         JOIN prev p ON p.stock_no = t.stock_no
         LEFT JOIN ma m ON m.stock_no = t.stock_no
+        LEFT JOIN daily_limit_bid dlb ON dlb.stock_no = t.stock_no AND dlb.trade_date = $1::date
         WHERE t.volume > 0
         ORDER BY change_pct DESC
       `, [dateParam])
@@ -3821,8 +3904,9 @@ app.get('/api/market/movers', async (req, res) => {
         prevMa3:    r.prev_ma3 != null ? parseFloat(r.prev_ma3) : null,
         volMa3:     r.vol_ma3 != null ? Math.round(parseInt(r.vol_ma3) / 1000) : null,
         prevVol:    r.prev_vol != null ? Math.round(parseInt(r.prev_vol) / 1000) : null,
-        prevOpen:   r.prev_open != null ? parseFloat(r.prev_open) : null,
-        prevVolMa3: r.prev_vol_ma3 != null ? Math.round(parseInt(r.prev_vol_ma3) / 1000) : null,
+        prevOpen:    r.prev_open != null ? parseFloat(r.prev_open) : null,
+        prevVolMa3:  r.prev_vol_ma3 != null ? Math.round(parseInt(r.prev_vol_ma3) / 1000) : null,
+        limitBidVol: r.limit_bid_vol != null ? parseInt(r.limit_bid_vol) : null,
       }))
 
       // 計算連續漲停／跌停天數
