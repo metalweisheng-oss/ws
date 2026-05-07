@@ -445,6 +445,8 @@ function onMoversDateChange() {
 }
 
 function startMoversAutoRefresh() {
+  clearInterval(moversTimer)
+  moversTimer = null
   fetchMoversDates()
   fetchMovers()
   moversTimer = setInterval(fetchMovers, 60000)
