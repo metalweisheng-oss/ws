@@ -3338,7 +3338,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <td class="px-3 py-2 text-right font-mono text-xs" :class="r.limitBidVol && r.limitBidVol / r.volume > 1.6 ? 'text-red-300' : 'text-gray-400'">
                   {{ r.volume.toLocaleString() }}<span v-if="r.limitBidVol" :class="r.limitBidVol / r.volume > 1.6 ? 'text-green-400' : 'text-gray-500'"> ({{ r.limitBidVol.toLocaleString() }})</span>
                 </td>
-                <td class="px-3 py-2 text-right font-mono text-xs" :class="r.limitBidVol && r.limitBidVol / r.volume > 1.6 ? 'text-green-400 font-bold' : 'text-gray-600'">
+                <td class="px-3 py-2 text-right font-mono text-xs" :class="r.limitBidVol && r.limitBidVol / r.volume > 1.6 ? 'text-green-400 font-bold' : r.limitBidVol ? 'text-gray-400' : 'text-gray-600'">
                   {{ r.limitBidVol && r.volume ? (r.limitBidVol / r.volume).toFixed(2) : '-' }}
                 </td>
                 <td class="px-3 py-2 text-right font-mono text-xs" :class="volRatio1dClass(r)">
@@ -3392,7 +3392,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <td class="px-3 py-2 text-right font-mono text-xs" :class="r.limitBidVol && r.limitBidVol / r.volume > 1.6 ? 'text-red-300' : 'text-gray-400'">
                   {{ r.volume.toLocaleString() }}<span v-if="r.limitBidVol" :class="r.limitBidVol / r.volume > 1.6 ? 'text-green-400' : 'text-gray-500'"> ({{ r.limitBidVol.toLocaleString() }})</span>
                 </td>
-                <td class="px-3 py-2 text-right font-mono text-xs" :class="r.limitBidVol && r.limitBidVol / r.volume > 1.6 ? 'text-green-400 font-bold' : 'text-gray-600'">
+                <td class="px-3 py-2 text-right font-mono text-xs" :class="r.limitBidVol && r.limitBidVol / r.volume > 1.6 ? 'text-green-400 font-bold' : r.limitBidVol ? 'text-gray-400' : 'text-gray-600'">
                   {{ r.limitBidVol && r.volume ? (r.limitBidVol / r.volume).toFixed(2) : '-' }}
                 </td>
                 <td class="px-3 py-2 text-right font-mono text-xs" :class="volRatio1dClass(r)">
