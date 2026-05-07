@@ -3814,11 +3814,11 @@ app.get('/api/market/movers', async (req, res) => {
         prevClose:  parseFloat(r.prev_close),
         change:     parseFloat(r.change),
         changePct:  parseFloat(r.change_pct),
-        volume:     parseInt(r.volume),
+        volume:     Math.round(parseInt(r.volume) / 1000),
         ma3:        r.ma3 != null ? parseFloat(r.ma3) : null,
         prevMa3:    r.prev_ma3 != null ? parseFloat(r.prev_ma3) : null,
-        volMa3:     r.vol_ma3 != null ? parseInt(r.vol_ma3) : null,
-        prevVol:    r.prev_vol != null ? parseInt(r.prev_vol) : null,
+        volMa3:     r.vol_ma3 != null ? Math.round(parseInt(r.vol_ma3) / 1000) : null,
+        prevVol:    r.prev_vol != null ? Math.round(parseInt(r.prev_vol) / 1000) : null,
       }))
 
       const gainers = movers.slice(0, limit)
@@ -3865,8 +3865,8 @@ app.get('/api/market/movers', async (req, res) => {
     const maMap = {}
     for (const r of maRows) maMap[r.stock_no] = {
       ma3: r.ma3, prevMa3: r.prev_ma3,
-      volMa3:  r.vol_ma3  != null ? parseInt(r.vol_ma3)  : null,
-      prevVol: r.prev_vol != null ? parseInt(r.prev_vol) : null,
+      volMa3:  r.vol_ma3  != null ? Math.round(parseInt(r.vol_ma3)  / 1000) : null,
+      prevVol: r.prev_vol != null ? Math.round(parseInt(r.prev_vol) / 1000) : null,
     }
 
     const BATCH_SIZE = 60
