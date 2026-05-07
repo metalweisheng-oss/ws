@@ -4337,6 +4337,34 @@ app.get('/api/market/buyback', async (req, res) => {
   }
 })
 
+// ── 批次即時股價 ──────────────────────────────────────────────────────────
+app.get('/api/market/prices', async (req, res) => {
+  const nos = (req.query.stocks || '').split(',').map(s => s.trim()).filter(Boolean)
+  if (!nos.length) return res.json({ prices: {} })
+  try {
+    const exChList = nos.flatMap(n => [`tse_${n}.tw`, `otc_${n}.tw`])
+    const mis = await fetchMisRaw(exChList, 8000)
+    const prices = {}
+    const seen = new Set()
+    for (const item of mis?.msgArray || []) {
+      if (seen.has(item.c)) continue
+      seen.add(item.c)
+      const z = item.z && item.z !== '-' ? parseFloat(item.z) : null
+      const y = item.y && item.y !== '-' ? parseFloat(item.y) : null
+      if (!z) continue
+      prices[item.c] = {
+        price: z,
+        prevClose: y,
+        change: y ? +(z - y).toFixed(2) : null,
+        changePct: y ? +((z - y) / y * 100).toFixed(2) : null,
+      }
+    }
+    res.json({ prices })
+  } catch(e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
 // ── 盤後技術指標分析 ───────────────────────────────────────────────────────
 const PM_STOCKS = ['2059','3293','3008','9105','6274','3017','3037','8046']
 
