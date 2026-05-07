@@ -83,6 +83,25 @@ async function testTelegram() {
 }
 const anyConnected = () => STOCKS.some(s => stocks[s.no].connected)
 
+function simulateChuanhu() {
+  const st = stocks['2059']
+  const now = new Date()
+  const hms = `${String((now.getUTCHours()+8)%24).padStart(2,'0')}:${String(now.getUTCMinutes()).padStart(2,'0')}:${String(now.getUTCSeconds()).padStart(2,'0')}`
+  const fake = {
+    signal: 'entry',
+    message: '量比3.5x ＋ 接近日低 ＋ 長下影線（模擬測試）',
+    price: 2460,
+    dayHigh: 2510,
+    dayLow: 2420,
+    volRatio: 3.5,
+    checkTime: hms,
+    macd: { line: -4.8, sig: -2.9, hist: -1.9, divergence: false },
+  }
+  st.latest = fake
+  st.logs.unshift({ ...fake, id: Date.now() })
+  if (st.logs.length > 30) st.logs.pop()
+}
+
 // ── 歷史資料（DB 查詢）────────────────────────────
 const dbTab       = ref('signals')   // 'signals' | 'daily' | 'intraday'
 const dbStockNo   = ref('')
@@ -955,6 +974,10 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
         <button @click="testTelegram"
                 class="px-4 py-2 rounded-lg bg-blue-700 hover:bg-blue-600 text-sm font-medium transition">
           📨 測試 Telegram
+        </button>
+        <button @click="simulateChuanhu"
+                class="px-4 py-2 rounded-lg bg-yellow-700 hover:bg-yellow-600 text-sm font-medium transition">
+          🧪 模擬川湖訊號
         </button>
         <span v-if="telegramStatus" class="text-sm text-cyan-400 self-center">{{ telegramStatus }}</span>
         <span class="text-xs text-gray-600 self-center">富邦 WebSocket 即時行情</span>
