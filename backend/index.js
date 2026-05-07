@@ -3777,7 +3777,7 @@ app.get('/api/market/movers', async (req, res) => {
           ORDER BY stock_no, trade_date DESC
         ),
         hist AS (
-          SELECT stock_no, close::numeric, volume::numeric,
+          SELECT stock_no, open::numeric, close::numeric, volume::numeric,
                  ROW_NUMBER() OVER (PARTITION BY stock_no ORDER BY trade_date DESC) AS rn
           FROM market_daily
           WHERE trade_date <= $1 AND close > 0
@@ -3787,7 +3787,9 @@ app.get('/api/market/movers', async (req, res) => {
                  ROUND(AVG(CASE WHEN rn <= 3 THEN close END), 2)::float AS ma3,
                  ROUND(AVG(CASE WHEN rn BETWEEN 2 AND 4 THEN close END), 2)::float AS prev_ma3,
                  ROUND(AVG(CASE WHEN rn <= 3 THEN volume END))::bigint AS vol_ma3,
-                 MAX(CASE WHEN rn = 2 THEN volume END)::bigint AS prev_vol
+                 MAX(CASE WHEN rn = 2 THEN volume END)::bigint AS prev_vol,
+                 MAX(CASE WHEN rn = 2 THEN open END)::float AS prev_open,
+                 ROUND(AVG(CASE WHEN rn BETWEEN 2 AND 4 THEN volume END))::bigint AS prev_vol_ma3
           FROM hist
           WHERE rn <= 4
           GROUP BY stock_no
@@ -3799,7 +3801,7 @@ app.get('/api/market/movers', async (req, res) => {
                p.prev_close,
                ROUND(((t.close - p.prev_close) / p.prev_close * 100)::numeric, 2) AS change_pct,
                ROUND((t.close - p.prev_close)::numeric, 2) AS change,
-               m.ma3, m.prev_ma3, m.vol_ma3, m.prev_vol
+               m.ma3, m.prev_ma3, m.vol_ma3, m.prev_vol, m.prev_open, m.prev_vol_ma3
         FROM today t
         JOIN prev p ON p.stock_no = t.stock_no
         LEFT JOIN ma m ON m.stock_no = t.stock_no
@@ -3819,6 +3821,8 @@ app.get('/api/market/movers', async (req, res) => {
         prevMa3:    r.prev_ma3 != null ? parseFloat(r.prev_ma3) : null,
         volMa3:     r.vol_ma3 != null ? Math.round(parseInt(r.vol_ma3) / 1000) : null,
         prevVol:    r.prev_vol != null ? Math.round(parseInt(r.prev_vol) / 1000) : null,
+        prevOpen:   r.prev_open != null ? parseFloat(r.prev_open) : null,
+        prevVolMa3: r.prev_vol_ma3 != null ? Math.round(parseInt(r.prev_vol_ma3) / 1000) : null,
       }))
 
       // 計算連續漲停／跌停天數
@@ -3878,7 +3882,7 @@ app.get('/api/market/movers', async (req, res) => {
       pool.query(`SELECT DISTINCT ON (stock_no) stock_no, stock_name FROM market_daily ORDER BY stock_no, trade_date DESC`),
       pool.query(`
         WITH ranked AS (
-          SELECT stock_no, close::numeric, volume::numeric,
+          SELECT stock_no, open::numeric, close::numeric, volume::numeric,
                  ROW_NUMBER() OVER (PARTITION BY stock_no ORDER BY trade_date DESC) AS rn
           FROM market_daily
           WHERE close > 0 AND trade_date >= CURRENT_DATE - INTERVAL '20 days'
@@ -3887,7 +3891,9 @@ app.get('/api/market/movers', async (req, res) => {
                ROUND(AVG(CASE WHEN rn <= 3 THEN close END), 2)::float AS ma3,
                ROUND(AVG(CASE WHEN rn BETWEEN 2 AND 4 THEN close END), 2)::float AS prev_ma3,
                ROUND(AVG(CASE WHEN rn <= 3 THEN volume END))::bigint AS vol_ma3,
-               MAX(CASE WHEN rn = 2 THEN volume END)::bigint AS prev_vol
+               MAX(CASE WHEN rn = 2 THEN volume END)::bigint AS prev_vol,
+               MAX(CASE WHEN rn = 2 THEN open END)::float AS prev_open,
+               ROUND(AVG(CASE WHEN rn BETWEEN 2 AND 4 THEN volume END))::bigint AS prev_vol_ma3
         FROM ranked
         WHERE rn <= 4
         GROUP BY stock_no
@@ -3902,8 +3908,10 @@ app.get('/api/market/movers', async (req, res) => {
     const maMap = {}
     for (const r of maRows) maMap[r.stock_no] = {
       ma3: r.ma3, prevMa3: r.prev_ma3,
-      volMa3:  r.vol_ma3  != null ? Math.round(parseInt(r.vol_ma3)  / 1000) : null,
-      prevVol: r.prev_vol != null ? Math.round(parseInt(r.prev_vol) / 1000) : null,
+      volMa3:    r.vol_ma3    != null ? Math.round(parseInt(r.vol_ma3)    / 1000) : null,
+      prevVol:   r.prev_vol   != null ? Math.round(parseInt(r.prev_vol)   / 1000) : null,
+      prevOpen:  r.prev_open  != null ? parseFloat(r.prev_open)  : null,
+      prevVolMa3: r.prev_vol_ma3 != null ? Math.round(parseInt(r.prev_vol_ma3) / 1000) : null,
     }
 
     const BATCH_SIZE = 60
@@ -3948,10 +3956,12 @@ app.get('/api/market/movers', async (req, res) => {
           change: +(z - y).toFixed(2),
           changePct, volume: vol,
           limitBidVol,
-          ma3:     maMap[item.c]?.ma3    ?? null,
-          prevMa3: maMap[item.c]?.prevMa3 ?? null,
-          volMa3:  maMap[item.c]?.volMa3  ?? null,
-          prevVol: maMap[item.c]?.prevVol ?? null,
+          ma3:        maMap[item.c]?.ma3       ?? null,
+          prevMa3:    maMap[item.c]?.prevMa3   ?? null,
+          volMa3:     maMap[item.c]?.volMa3    ?? null,
+          prevVol:    maMap[item.c]?.prevVol   ?? null,
+          prevOpen:   maMap[item.c]?.prevOpen  ?? null,
+          prevVolMa3: maMap[item.c]?.prevVolMa3 ?? null,
         })
       }
     }
