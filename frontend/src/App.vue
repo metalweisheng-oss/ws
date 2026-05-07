@@ -492,7 +492,8 @@ function fmtPrice(p) {
 }
 
 function isLongRedHighVol(r) {
-  if (!r.prevClose || !r.prevOpen || r.prevClose <= r.prevOpen) return false
+  // 有開盤價才驗證長紅；open_p 為 null 時視為通過
+  if (r.prevOpen && r.prevClose && r.prevClose <= r.prevOpen) return false
   if (r.prevVolMa3 && r.prevVol < r.prevVolMa3 * 1.2) return false
   return true
 }
