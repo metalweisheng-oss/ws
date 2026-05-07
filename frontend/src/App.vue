@@ -461,18 +461,6 @@ const buybackError   = ref('')
 const buybackUpdated = ref('')
 const buybackFilter  = ref('all')  // 'all' | '上市' | '上櫃'
 const buybackSearch  = ref('')     // 代碼或名稱關鍵字
-const buybackPrices  = ref({})    // { stockNo: { price, change, changePct } }
-
-async function fetchBuybackPrices(rows) {
-  const nos = [...new Set(rows.map(r => r.stockNo))].slice(0, 100)
-  if (!nos.length) return
-  try {
-    const r = await fetch(`${API}/api/market/prices?stocks=${nos.join(',')}`)
-    const d = await r.json()
-    buybackPrices.value = d.prices || {}
-  } catch(e) {}
-}
-
 async function fetchBuyback() {
   if (buybackLoading.value) return
   buybackLoading.value = true
@@ -483,7 +471,6 @@ async function fetchBuyback() {
     if (!r.ok) throw new Error(d.error || 'API error')
     buybackRows.value    = d.rows || []
     buybackUpdated.value = d.updatedAt || ''
-    fetchBuybackPrices(d.rows || [])
   } catch(e) {
     buybackError.value = e.message
   } finally {
@@ -3274,14 +3261,14 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               <td class="px-3 py-2 font-mono font-semibold text-yellow-300">{{ r.stockNo }}</td>
               <td class="px-3 py-2 text-white font-medium">{{ r.stockName }}</td>
               <td class="px-3 py-2 text-right font-mono">
-                <template v-if="buybackPrices[r.stockNo]">
+                <template v-if="r.priceInfo">
                   <span class="font-semibold"
-                    :class="buybackPrices[r.stockNo].changePct > 0 ? 'text-red-400' : buybackPrices[r.stockNo].changePct < 0 ? 'text-green-400' : 'text-gray-300'">
-                    {{ buybackPrices[r.stockNo].price }}
+                    :class="r.priceInfo.changePct > 0 ? 'text-red-400' : r.priceInfo.changePct < 0 ? 'text-green-400' : 'text-gray-300'">
+                    {{ r.priceInfo.price }}
                   </span>
                   <span class="text-xs ml-1"
-                    :class="buybackPrices[r.stockNo].changePct > 0 ? 'text-red-500' : buybackPrices[r.stockNo].changePct < 0 ? 'text-green-500' : 'text-gray-500'">
-                    {{ buybackPrices[r.stockNo].changePct > 0 ? '+' : '' }}{{ buybackPrices[r.stockNo].changePct }}%
+                    :class="r.priceInfo.changePct > 0 ? 'text-red-500' : r.priceInfo.changePct < 0 ? 'text-green-500' : 'text-gray-500'">
+                    {{ r.priceInfo.changePct > 0 ? '+' : '' }}{{ r.priceInfo.changePct }}%
                   </span>
                 </template>
                 <span v-else class="text-gray-700">—</span>

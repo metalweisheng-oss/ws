@@ -4328,6 +4328,27 @@ app.get('/api/market/buyback', async (req, res) => {
     ])
 
     const rows = [...sii, ...otc].sort((a, b) => b.resolveDate.localeCompare(a.resolveDate))
+
+    // 批次抓即時股價，合併進每筆資料
+    try {
+      const nos = [...new Set(rows.map(r => r.stockNo))]
+      const exChList = nos.flatMap(n => [`tse_${n}.tw`, `otc_${n}.tw`])
+      const mis = await fetchMisRaw(exChList, 8000)
+      const priceMap = {}
+      const seen = new Set()
+      for (const item of mis?.msgArray || []) {
+        if (seen.has(item.c)) continue
+        seen.add(item.c)
+        const z = item.z && item.z !== '-' ? parseFloat(item.z) : null
+        const y = item.y && item.y !== '-' ? parseFloat(item.y) : null
+        if (!z) continue
+        priceMap[item.c] = { price: z, prevClose: y, change: y ? +(z-y).toFixed(2) : null, changePct: y ? +((z-y)/y*100).toFixed(2) : null }
+      }
+      for (const r of rows) r.priceInfo = priceMap[r.stockNo] || null
+    } catch(e) {
+      console.error('[buyback] 股價抓取失敗:', e.message)
+    }
+
     const result = { rows, total: rows.length, d1, d2, updatedAt: new Date().toISOString() }
     _buybackCache.data = result
     _buybackCache.ts = now
