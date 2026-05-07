@@ -3133,6 +3133,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <th class="px-3 py-2 text-right">3日均量</th>
                 <th class="px-3 py-2 text-right">前日量</th>
                 <th class="px-3 py-2 text-right">成交量(張)</th>
+                <th class="px-3 py-2 text-right">量比</th>
               </tr>
             </thead>
             <tbody>
@@ -3150,6 +3151,9 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <td class="px-3 py-2 text-right text-gray-400 font-mono text-xs">{{ r.volMa3 != null ? r.volMa3.toLocaleString() : '-' }}</td>
                 <td class="px-3 py-2 text-right text-gray-500 font-mono text-xs">{{ r.prevVol != null ? r.prevVol.toLocaleString() : '-' }}</td>
                 <td class="px-3 py-2 text-right text-gray-400 font-mono text-xs">{{ r.volume.toLocaleString() }}</td>
+                <td class="px-3 py-2 text-right font-mono text-xs" :class="r.volMa3 ? (r.volume / r.volMa3 >= 2 ? 'text-yellow-400 font-bold' : 'text-gray-400') : 'text-gray-600'">
+                  {{ r.volMa3 ? (r.volume / r.volMa3).toFixed(2) : '-' }}
+                </td>
               </tr>
             </tbody>
           </table>
@@ -3172,6 +3176,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <th class="px-3 py-2 text-right">3日均量</th>
                 <th class="px-3 py-2 text-right">前日量</th>
                 <th class="px-3 py-2 text-right">成交量(張)</th>
+                <th class="px-3 py-2 text-right">量比</th>
               </tr>
             </thead>
             <tbody>
@@ -3189,6 +3194,9 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <td class="px-3 py-2 text-right text-gray-400 font-mono text-xs">{{ r.volMa3 != null ? r.volMa3.toLocaleString() : '-' }}</td>
                 <td class="px-3 py-2 text-right text-gray-500 font-mono text-xs">{{ r.prevVol != null ? r.prevVol.toLocaleString() : '-' }}</td>
                 <td class="px-3 py-2 text-right text-gray-400 font-mono text-xs">{{ r.volume.toLocaleString() }}</td>
+                <td class="px-3 py-2 text-right font-mono text-xs" :class="r.volMa3 ? (r.volume / r.volMa3 >= 2 ? 'text-yellow-400 font-bold' : 'text-gray-400') : 'text-gray-600'">
+                  {{ r.volMa3 ? (r.volume / r.volMa3).toFixed(2) : '-' }}
+                </td>
               </tr>
             </tbody>
           </table>
