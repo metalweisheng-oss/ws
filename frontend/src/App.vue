@@ -517,6 +517,19 @@ const limitSqueezeList2 = computed(() => {
     return true
   })
 })
+const limitSqueezeList3 = computed(() => {
+  const tier12 = new Set([
+    ...limitSqueezeList1.value.map(r => r.stockNo),
+    ...limitSqueezeList2.value.map(r => r.stockNo),
+  ])
+  return moversGainers.value.filter(r => {
+    if (tier12.has(r.stockNo)) return false
+    if (r.changePct < 9.5) return false
+    if (!isLongRedHighVol(r)) return false
+    if (!r.prevVol || r.volume / r.prevVol >= 0.7) return false
+    return true
+  })
+})
 
 function goToWarrant(stockNo) {
   warrantStockNo.value = stockNo
@@ -3257,6 +3270,50 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 {{ r.prevVol ? (r.volume / r.prevVol).toFixed(2) : '-' }}
               </td>
               <td class="px-3 py-2 text-right font-mono text-xs text-blue-300">{{ r.limitBidVol?.toLocaleString() ?? '-' }}</td>
+              <td class="px-3 py-2 text-right font-mono text-xs text-yellow-400">
+                {{ r.limitDays ? r.limitDays + '天' : '-' }}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- 量縮漲停觀察 第三順位 -->
+      <div v-if="limitSqueezeList3.length" class="bg-gray-900 border border-gray-800/60 rounded-xl overflow-hidden">
+        <div class="px-4 py-3 border-b border-gray-800/40 flex items-center gap-2">
+          <span class="text-gray-400 font-semibold text-sm">△ 量縮漲停觀察　第三順位</span>
+          <span class="text-xs text-gray-500">昨日帶量長紅 + 1日量比 &lt; 0.7</span>
+          <span class="ml-auto text-xs text-gray-600">{{ limitSqueezeList3.length }} 支</span>
+        </div>
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="border-b border-gray-800 bg-gray-950">
+              <th class="px-3 py-2 text-left text-xs text-gray-500 font-normal">代號／名稱</th>
+              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">昨日量</th>
+              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">今日量</th>
+              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">漲停委買比</th>
+              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">1日量比</th>
+              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">漲停委買量</th>
+              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">連漲停</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="r in limitSqueezeList3" :key="r.stockNo"
+                class="border-b border-gray-800/50 hover:bg-gray-800/20 transition cursor-pointer"
+                @click="goToWarrant(r.stockNo)">
+              <td class="px-3 py-2">
+                <div class="text-white font-medium hover:text-purple-400 transition">{{ r.stockName }}</div>
+                <div class="text-xs text-gray-500">{{ r.stockNo }}</div>
+              </td>
+              <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.prevVol?.toLocaleString() ?? '-' }}</td>
+              <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.volume.toLocaleString() }}</td>
+              <td class="px-3 py-2 text-right font-mono text-xs" :class="r.limitBidVol && r.limitBidVol / r.volume > 1.6 ? 'text-green-400 font-bold' : r.limitBidVol ? 'text-gray-400' : 'text-gray-600'">
+                {{ r.limitBidVol && r.volume ? (r.limitBidVol / r.volume).toFixed(2) : '-' }}
+              </td>
+              <td class="px-3 py-2 text-right font-mono text-xs" :class="volRatio1dClass(r)">
+                {{ r.prevVol ? (r.volume / r.prevVol).toFixed(2) : '-' }}
+              </td>
+              <td class="px-3 py-2 text-right font-mono text-xs text-gray-500">{{ r.limitBidVol?.toLocaleString() ?? '-' }}</td>
               <td class="px-3 py-2 text-right font-mono text-xs text-yellow-400">
                 {{ r.limitDays ? r.limitDays + '天' : '-' }}
               </td>
