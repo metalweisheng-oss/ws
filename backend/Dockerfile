@@ -9,7 +9,7 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci --production
 
-COPY fubon/requirements.txt ./fubon/requirements.txt
+COPY fubon/ ./fubon/
 RUN pip3 install --break-system-packages -r fubon/requirements.txt
 
 COPY . .
