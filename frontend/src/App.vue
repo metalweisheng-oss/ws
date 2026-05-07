@@ -3145,7 +3145,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <th class="px-3 py-2 text-right">3日均量</th>
                 <th class="px-3 py-2 text-right">1日量</th>
                 <th class="px-3 py-2 text-right">成交量</th>
-                <th class="px-3 py-2 text-right">量比</th>
+                <th class="px-3 py-2 text-right cursor-help" title="量比 = 今日成交量 ÷ 3日平均成交量&#10;≥ 2 表示爆量（黃色標示）">量比 <span class="text-gray-600">?</span></th>
               </tr>
             </thead>
             <tbody>
@@ -3189,7 +3189,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <th class="px-3 py-2 text-right">3日均量</th>
                 <th class="px-3 py-2 text-right">1日量</th>
                 <th class="px-3 py-2 text-right">成交量</th>
-                <th class="px-3 py-2 text-right">量比</th>
+                <th class="px-3 py-2 text-right cursor-help" title="量比 = 今日成交量 ÷ 3日平均成交量&#10;≥ 2 表示爆量（黃色標示）">量比 <span class="text-gray-600">?</span></th>
               </tr>
             </thead>
             <tbody>
