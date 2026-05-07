@@ -3130,6 +3130,8 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <th class="px-3 py-2 text-right">前日均價</th>
                 <th class="px-3 py-2 text-right">現價</th>
                 <th class="px-3 py-2 text-right">漲跌幅</th>
+                <th class="px-3 py-2 text-right">3日均量</th>
+                <th class="px-3 py-2 text-right">前日量</th>
                 <th class="px-3 py-2 text-right">成交量(張)</th>
               </tr>
             </thead>
@@ -3145,6 +3147,8 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <td class="px-3 py-2 text-right text-gray-500 font-mono text-xs">{{ r.prevMa3 != null ? r.prevMa3.toFixed(2) : '-' }}</td>
                 <td class="px-3 py-2 text-right text-red-300 font-mono">{{ r.price }}</td>
                 <td class="px-3 py-2 text-right font-bold text-red-400">+{{ r.changePct.toFixed(2) }}%</td>
+                <td class="px-3 py-2 text-right text-gray-400 font-mono text-xs">{{ r.volMa3 != null ? r.volMa3.toLocaleString() : '-' }}</td>
+                <td class="px-3 py-2 text-right text-gray-500 font-mono text-xs">{{ r.prevVol != null ? r.prevVol.toLocaleString() : '-' }}</td>
                 <td class="px-3 py-2 text-right text-gray-400 font-mono text-xs">{{ r.volume.toLocaleString() }}</td>
               </tr>
             </tbody>
@@ -3165,6 +3169,8 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <th class="px-3 py-2 text-right">前日均價</th>
                 <th class="px-3 py-2 text-right">現價</th>
                 <th class="px-3 py-2 text-right">漲跌幅</th>
+                <th class="px-3 py-2 text-right">3日均量</th>
+                <th class="px-3 py-2 text-right">前日量</th>
                 <th class="px-3 py-2 text-right">成交量(張)</th>
               </tr>
             </thead>
@@ -3180,6 +3186,8 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <td class="px-3 py-2 text-right text-gray-500 font-mono text-xs">{{ r.prevMa3 != null ? r.prevMa3.toFixed(2) : '-' }}</td>
                 <td class="px-3 py-2 text-right text-green-300 font-mono">{{ r.price }}</td>
                 <td class="px-3 py-2 text-right font-bold text-green-400">{{ r.changePct.toFixed(2) }}%</td>
+                <td class="px-3 py-2 text-right text-gray-400 font-mono text-xs">{{ r.volMa3 != null ? r.volMa3.toLocaleString() : '-' }}</td>
+                <td class="px-3 py-2 text-right text-gray-500 font-mono text-xs">{{ r.prevVol != null ? r.prevVol.toLocaleString() : '-' }}</td>
                 <td class="px-3 py-2 text-right text-gray-400 font-mono text-xs">{{ r.volume.toLocaleString() }}</td>
               </tr>
             </tbody>
