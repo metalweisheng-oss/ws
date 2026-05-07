@@ -3145,13 +3145,13 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <th class="px-3 py-2 text-right">3日均量</th>
                 <th class="px-3 py-2 text-right">1日量</th>
                 <th class="px-3 py-2 text-right">成交量</th>
-                <th class="px-3 py-2 text-right cursor-help" title="量比 = 今日成交量 ÷ 3日平均成交量&#10;≥ 2 表示爆量（黃色標示）">量比 <span class="text-gray-600">?</span></th>
+                <th class="px-3 py-2 text-right cursor-help" title="1日量比 = 今日成交量 ÷ 昨日成交量&#10;≥ 2 表示爆量（黃色標示）">1日量比 <span class="text-gray-600">?</span></th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="(r, i) in moversGainers" :key="r.stockNo"
                   class="border-b border-gray-800/50 transition"
-                  :class="r.volMa3 && r.volume / r.volMa3 >= 2 ? 'bg-yellow-900/20 hover:bg-yellow-900/30' : 'hover:bg-gray-800/30'">
+                  :class="r.prevVol && r.volume / r.prevVol >= 2 ? 'bg-yellow-900/20 hover:bg-yellow-900/30' : 'hover:bg-gray-800/30'">
                 <td class="px-3 py-2 text-gray-600 text-xs">{{ i + 1 }}</td>
                 <td class="px-3 py-2 cursor-pointer" @click="goToWarrant(r.stockNo)">
                   <div class="text-white font-medium hover:text-purple-400 transition">{{ r.stockName }}</div>
@@ -3165,8 +3165,8 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <td class="px-3 py-2 text-right text-gray-400 font-mono text-xs">{{ r.volMa3 != null ? r.volMa3.toLocaleString() : '-' }}</td>
                 <td class="px-3 py-2 text-right text-gray-500 font-mono text-xs">{{ r.prevVol != null ? r.prevVol.toLocaleString() : '-' }}</td>
                 <td class="px-3 py-2 text-right text-gray-400 font-mono text-xs">{{ r.volume.toLocaleString() }}</td>
-                <td class="px-3 py-2 text-right font-mono text-xs" :class="r.volMa3 ? (r.volume / r.volMa3 >= 2 ? 'text-yellow-400 font-bold' : 'text-gray-400') : 'text-gray-600'">
-                  {{ r.volMa3 ? (r.volume / r.volMa3).toFixed(2) : '-' }}
+                <td class="px-3 py-2 text-right font-mono text-xs" :class="r.prevVol ? (r.volume / r.prevVol >= 2 ? 'text-yellow-400 font-bold' : 'text-gray-400') : 'text-gray-600'">
+                  {{ r.prevVol ? (r.volume / r.prevVol).toFixed(2) : '-' }}
                 </td>
               </tr>
             </tbody>
@@ -3189,13 +3189,13 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <th class="px-3 py-2 text-right">3日均量</th>
                 <th class="px-3 py-2 text-right">1日量</th>
                 <th class="px-3 py-2 text-right">成交量</th>
-                <th class="px-3 py-2 text-right cursor-help" title="量比 = 今日成交量 ÷ 3日平均成交量&#10;≥ 2 表示爆量（黃色標示）">量比 <span class="text-gray-600">?</span></th>
+                <th class="px-3 py-2 text-right cursor-help" title="1日量比 = 今日成交量 ÷ 昨日成交量&#10;≥ 2 表示爆量（黃色標示）">1日量比 <span class="text-gray-600">?</span></th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="(r, i) in moversLosers" :key="r.stockNo"
                   class="border-b border-gray-800/50 transition"
-                  :class="r.volMa3 && r.volume / r.volMa3 >= 2 ? 'bg-yellow-900/20 hover:bg-yellow-900/30' : 'hover:bg-gray-800/30'">
+                  :class="r.prevVol && r.volume / r.prevVol >= 2 ? 'bg-yellow-900/20 hover:bg-yellow-900/30' : 'hover:bg-gray-800/30'">
                 <td class="px-3 py-2 text-gray-600 text-xs">{{ i + 1 }}</td>
                 <td class="px-3 py-2 cursor-pointer" @click="goToWarrant(r.stockNo)">
                   <div class="text-white font-medium hover:text-purple-400 transition">{{ r.stockName }}</div>
@@ -3209,8 +3209,8 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <td class="px-3 py-2 text-right text-gray-400 font-mono text-xs">{{ r.volMa3 != null ? r.volMa3.toLocaleString() : '-' }}</td>
                 <td class="px-3 py-2 text-right text-gray-500 font-mono text-xs">{{ r.prevVol != null ? r.prevVol.toLocaleString() : '-' }}</td>
                 <td class="px-3 py-2 text-right text-gray-400 font-mono text-xs">{{ r.volume.toLocaleString() }}</td>
-                <td class="px-3 py-2 text-right font-mono text-xs" :class="r.volMa3 ? (r.volume / r.volMa3 >= 2 ? 'text-yellow-400 font-bold' : 'text-gray-400') : 'text-gray-600'">
-                  {{ r.volMa3 ? (r.volume / r.volMa3).toFixed(2) : '-' }}
+                <td class="px-3 py-2 text-right font-mono text-xs" :class="r.prevVol ? (r.volume / r.prevVol >= 2 ? 'text-yellow-400 font-bold' : 'text-gray-400') : 'text-gray-600'">
+                  {{ r.prevVol ? (r.volume / r.prevVol).toFixed(2) : '-' }}
                 </td>
               </tr>
             </tbody>
