@@ -3143,7 +3143,8 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
             </thead>
             <tbody>
               <tr v-for="(r, i) in moversGainers" :key="r.stockNo"
-                  class="border-b border-gray-800/50 hover:bg-gray-800/30 transition">
+                  class="border-b border-gray-800/50 transition"
+                  :class="r.volMa3 && r.volume / r.volMa3 >= 2 ? 'bg-yellow-900/20 hover:bg-yellow-900/30' : 'hover:bg-gray-800/30'">
                 <td class="px-3 py-2 text-gray-600 text-xs">{{ i + 1 }}</td>
                 <td class="px-3 py-2 cursor-pointer" @click="goToWarrant(r.stockNo)">
                   <div class="text-white font-medium hover:text-purple-400 transition">{{ r.stockName }}</div>
@@ -3184,7 +3185,8 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
             </thead>
             <tbody>
               <tr v-for="(r, i) in moversLosers" :key="r.stockNo"
-                  class="border-b border-gray-800/50 hover:bg-gray-800/30 transition">
+                  class="border-b border-gray-800/50 transition"
+                  :class="r.volMa3 && r.volume / r.volMa3 >= 2 ? 'bg-yellow-900/20 hover:bg-yellow-900/30' : 'hover:bg-gray-800/30'">
                 <td class="px-3 py-2 text-gray-600 text-xs">{{ i + 1 }}</td>
                 <td class="px-3 py-2 cursor-pointer" @click="goToWarrant(r.stockNo)">
                   <div class="text-white font-medium hover:text-purple-400 transition">{{ r.stockName }}</div>
