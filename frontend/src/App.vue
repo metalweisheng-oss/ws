@@ -545,6 +545,27 @@ function rowBgClass(r) {
   return 'hover:bg-gray-800/30'
 }
 
+const volIncreaseLimitList1 = computed(() => {
+  return moversGainers.value.filter(r => {
+    if (r.changePct < 9.5) return false
+    if (!r.limitBidVol || !r.prevVol) return false
+    const ratio1d = r.volume / r.prevVol
+    if (ratio1d <= 1.5 || ratio1d >= 2.5) return false
+    return r.limitBidVol / r.volume > 2
+  })
+})
+const volIncreaseLimitList2 = computed(() => {
+  const tier1 = new Set(volIncreaseLimitList1.value.map(r => r.stockNo))
+  return moversGainers.value.filter(r => {
+    if (tier1.has(r.stockNo)) return false
+    if (r.changePct < 9.5) return false
+    if (!r.limitBidVol || !r.prevVol) return false
+    const ratio1d = r.volume / r.prevVol
+    if (ratio1d <= 1.5 || ratio1d >= 2.5) return false
+    return r.limitBidVol / r.volume > 1.5
+  })
+})
+
 function goToWarrant(stockNo) {
   warrantStockNo.value = stockNo
   selectTab('warrant')
@@ -3402,6 +3423,100 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
         </table>
       </div>
 
+      <!-- 量增漲停觀察 第一順位 -->
+      <div class="bg-gray-900 border border-amber-500/40 rounded-xl overflow-hidden">
+        <div class="px-4 py-3 border-b border-amber-500/30 flex items-center gap-2 flex-wrap">
+          <span class="text-amber-300 font-semibold text-sm">★ 量增漲停觀察（主力換手）　第一順位</span>
+          <span v-if="moversDate" class="text-xs text-yellow-600">（歷史資料，漲停委買量可能不完整）</span>
+          <span class="ml-auto text-xs text-amber-400">{{ volIncreaseLimitList1.length }} 支</span>
+        </div>
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="border-b border-gray-800 bg-gray-950">
+              <th class="px-3 py-2 text-left text-xs text-gray-500 font-normal">代號／名稱</th>
+              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">昨日量</th>
+              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">今日量</th>
+              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">漲停委買比</th>
+              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">1日量比</th>
+              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">漲停委買量</th>
+              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">連漲停</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-if="!volIncreaseLimitList1.length">
+              <td colspan="7" class="px-3 py-4 text-center text-gray-700 text-xs">目前無符合條件</td>
+            </tr>
+            <tr v-for="r in volIncreaseLimitList1" :key="r.stockNo"
+                class="border-b border-gray-800/50 bg-amber-900/15 hover:bg-amber-900/25 transition cursor-pointer"
+                @click="goToWarrant(r.stockNo)">
+              <td class="px-3 py-2">
+                <div class="text-white font-medium hover:text-purple-400 transition">{{ r.stockName }}</div>
+                <div class="text-xs text-gray-500">{{ r.stockNo }}</div>
+              </td>
+              <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.prevVol?.toLocaleString() ?? '-' }}</td>
+              <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.volume.toLocaleString() }}</td>
+              <td class="px-3 py-2 text-right font-mono text-xs text-green-400 font-bold">
+                {{ r.volume ? (r.limitBidVol / r.volume).toFixed(2) : '-' }}
+              </td>
+              <td class="px-3 py-2 text-right font-mono text-xs" :class="volRatio1dClass(r)">
+                {{ r.prevVol ? (r.volume / r.prevVol).toFixed(2) : '-' }}
+              </td>
+              <td class="px-3 py-2 text-right font-mono text-xs text-amber-300">{{ r.limitBidVol?.toLocaleString() ?? '-' }}</td>
+              <td class="px-3 py-2 text-right font-mono text-xs text-yellow-400">
+                {{ r.limitDays ? r.limitDays + '天' : '-' }}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- 量增漲停觀察 第二順位 -->
+      <div class="bg-gray-900 border border-amber-900/50 rounded-xl overflow-hidden">
+        <div class="px-4 py-3 border-b border-amber-900/40 flex items-center gap-2 flex-wrap">
+          <span class="text-amber-400 font-semibold text-sm">▲ 量增漲停觀察（主力換手）　第二順位</span>
+          <span v-if="moversDate" class="text-xs text-yellow-600">（歷史資料，漲停委買量可能不完整）</span>
+          <span class="ml-auto text-xs text-amber-600">{{ volIncreaseLimitList2.length }} 支</span>
+        </div>
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="border-b border-gray-800 bg-gray-950">
+              <th class="px-3 py-2 text-left text-xs text-gray-500 font-normal">代號／名稱</th>
+              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">昨日量</th>
+              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">今日量</th>
+              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">漲停委買比</th>
+              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">1日量比</th>
+              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">漲停委買量</th>
+              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">連漲停</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-if="!volIncreaseLimitList2.length">
+              <td colspan="7" class="px-3 py-4 text-center text-gray-700 text-xs">目前無符合條件</td>
+            </tr>
+            <tr v-for="r in volIncreaseLimitList2" :key="r.stockNo"
+                class="border-b border-gray-800/50 bg-amber-900/10 hover:bg-amber-900/20 transition cursor-pointer"
+                @click="goToWarrant(r.stockNo)">
+              <td class="px-3 py-2">
+                <div class="text-white font-medium hover:text-purple-400 transition">{{ r.stockName }}</div>
+                <div class="text-xs text-gray-500">{{ r.stockNo }}</div>
+              </td>
+              <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.prevVol?.toLocaleString() ?? '-' }}</td>
+              <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.volume.toLocaleString() }}</td>
+              <td class="px-3 py-2 text-right font-mono text-xs text-green-400 font-bold">
+                {{ r.volume ? (r.limitBidVol / r.volume).toFixed(2) : '-' }}
+              </td>
+              <td class="px-3 py-2 text-right font-mono text-xs" :class="volRatio1dClass(r)">
+                {{ r.prevVol ? (r.volume / r.prevVol).toFixed(2) : '-' }}
+              </td>
+              <td class="px-3 py-2 text-right font-mono text-xs text-amber-400">{{ r.limitBidVol?.toLocaleString() ?? '-' }}</td>
+              <td class="px-3 py-2 text-right font-mono text-xs text-yellow-400">
+                {{ r.limitDays ? r.limitDays + '天' : '-' }}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
       <!-- 顏色規則說明 -->
       <div class="bg-gray-900 border border-gray-800 rounded-xl px-4 py-3 text-xs text-gray-400 space-y-2">
         <div class="font-semibold text-gray-300 mb-1">顏色規則說明</div>
@@ -3423,6 +3538,10 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
           <div class="flex items-center gap-2 col-span-full"><span class="text-blue-300 font-bold">★ 第一順位</span><span>1日量比 &lt; 0.5 且 漲停委買比 &gt; 1.7（歷史模式以漲停收盤替代）</span></div>
           <div class="flex items-center gap-2 col-span-full"><span class="text-blue-400">▲ 第二順位</span><span>1日量比 &lt; 0.7 且 漲停委買比 &gt; 1.5（歷史模式以漲停收盤替代，不與第一順位重複）</span></div>
           <div class="flex items-center gap-2 col-span-full"><span class="text-gray-400">△ 第三順位</span><span>1日量比 &lt; 0.7，不限漲停委買比（不與第一、二順位重複）</span></div>
+          <div class="font-semibold text-gray-500 col-span-full mt-1">量增漲停觀察區（主力換手）</div>
+          <div class="text-gray-600 col-span-full text-xs mb-0.5">共同前提：今日漲停（漲幅 ≥ 9.5%）且 1.5 &lt; 1日量比 &lt; 2.5（量增但非爆量，需有漲停委買資料）</div>
+          <div class="flex items-center gap-2 col-span-full"><span class="text-amber-300 font-bold">★ 第一順位</span><span>漲停委買比 &gt; 2</span></div>
+          <div class="flex items-center gap-2 col-span-full"><span class="text-amber-400">▲ 第二順位</span><span>漲停委買比 &gt; 1.5（不與第一順位重複）</span></div>
         </div>
       </div>
 
