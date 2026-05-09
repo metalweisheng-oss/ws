@@ -3223,6 +3223,13 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
         </button>
       </div>
 
+      <!-- 操作說明 -->
+      <div class="bg-gray-900/60 border border-gray-800 rounded-xl px-4 py-3 text-xs text-gray-500 flex flex-wrap gap-x-5 gap-y-1">
+        <span>點股票<span class="text-white font-medium">名稱</span> → 權證查詢</span>
+        <span>點股票<span class="text-blue-400 font-medium underline decoration-dotted">代號</span> → 即時五檔（每 3 秒更新）</span>
+        <span>點整列 → 量縮觀察清單（觀察區）</span>
+      </div>
+
       <!-- 量縮漲停觀察 第一順位 -->
       <div v-if="limitSqueezeList1.length" class="bg-gray-900 border border-blue-500/40 rounded-xl overflow-hidden">
         <div class="px-4 py-3 border-b border-blue-500/30 flex items-center gap-2">
