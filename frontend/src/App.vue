@@ -3409,15 +3409,11 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
           <div class="flex items-center gap-2"><span class="text-gray-400">■ 灰色</span><span>0.5 ～ 2　正常</span></div>
           <div class="flex items-center gap-2"><span class="text-orange-400 font-bold">■ 橘色粗體</span><span>&lt; 0.5　縮量</span></div>
           <div class="font-semibold text-gray-500 col-span-full mt-1">列背景</div>
-          <div class="flex items-center gap-2"><span class="px-2 py-0.5 rounded bg-red-900/40 text-red-300">紅底（爆量漲停）</span><span>漲停委買比 &gt; 1.6 且 1日量比 ≥ 2 且 3日量比 ≥ 2</span></div>
-          <div class="flex items-center gap-2"><span class="px-2 py-0.5 rounded bg-blue-900/40 text-blue-300">藍底（量縮漲停）</span><span>漲停委買比 &gt; 1.6 且（1日量比 &lt; 0.5 或 3日量比 &lt; 0.5）</span></div>
-          <div class="font-semibold text-gray-500 col-span-full mt-1">漲停委買量（括號內數字）</div>
-          <div class="flex items-center gap-2"><span class="text-green-400">■ 綠色</span><span>漲停委買比 &gt; 1.6　強力鎖籌</span></div>
-          <div class="flex items-center gap-2"><span class="text-gray-500">■ 灰色</span><span>漲停委買比 ≤ 1.6　一般委買</span></div>
+          <div class="flex items-center gap-2"><span class="px-2 py-0.5 rounded bg-blue-900/40 text-blue-300">藍底</span><span>符合量縮漲停觀察第一、二或三順位</span></div>
           <div class="font-semibold text-gray-500 col-span-full mt-1">量縮漲停觀察區</div>
           <div class="text-gray-600 col-span-full text-xs mb-0.5">共同前提：今日漲停（漲幅 ≥ 9.5%）且 昨日非下跌（收 ≥ 開，平盤視為通過）</div>
-          <div class="flex items-center gap-2 col-span-full"><span class="text-blue-300 font-bold">★ 第一順位</span><span>1日量比 &lt; 0.5 且 漲停委買比 &gt; 1.7</span></div>
-          <div class="flex items-center gap-2 col-span-full"><span class="text-blue-400">▲ 第二順位</span><span>1日量比 &lt; 0.7 且 漲停委買比 &gt; 1.5（不與第一順位重複）</span></div>
+          <div class="flex items-center gap-2 col-span-full"><span class="text-blue-300 font-bold">★ 第一順位</span><span>1日量比 &lt; 0.5 且 漲停委買比 &gt; 1.7（歷史模式以漲停收盤替代）</span></div>
+          <div class="flex items-center gap-2 col-span-full"><span class="text-blue-400">▲ 第二順位</span><span>1日量比 &lt; 0.7 且 漲停委買比 &gt; 1.5（歷史模式以漲停收盤替代，不與第一順位重複）</span></div>
           <div class="flex items-center gap-2 col-span-full"><span class="text-gray-400">△ 第三順位</span><span>1日量比 &lt; 0.7，不限漲停委買比（不與第一、二順位重複）</span></div>
         </div>
       </div>
