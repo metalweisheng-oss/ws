@@ -550,7 +550,7 @@ const volIncreaseLimitList1 = computed(() => {
     if (r.changePct < 9.5) return false
     if (!r.limitBidVol || !r.prevVol) return false
     const ratio1d = r.volume / r.prevVol
-    if (ratio1d <= 1.5 || ratio1d >= 2.5) return false
+    if (ratio1d <= 1.5 || ratio1d >= 3) return false
     return r.limitBidVol / r.volume > 2
   })
 })
@@ -561,7 +561,7 @@ const volIncreaseLimitList2 = computed(() => {
     if (r.changePct < 9.5) return false
     if (!r.limitBidVol || !r.prevVol) return false
     const ratio1d = r.volume / r.prevVol
-    if (ratio1d <= 1.5 || ratio1d >= 2.5) return false
+    if (ratio1d <= 1.5 || ratio1d >= 3) return false
     return r.limitBidVol / r.volume > 1.5
   })
 })
@@ -3539,7 +3539,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
           <div class="flex items-center gap-2 col-span-full"><span class="text-blue-400">▲ 第二順位</span><span>1日量比 &lt; 0.7 且 漲停委買比 &gt; 1.5（歷史模式以漲停收盤替代，不與第一順位重複）</span></div>
           <div class="flex items-center gap-2 col-span-full"><span class="text-gray-400">△ 第三順位</span><span>1日量比 &lt; 0.7，不限漲停委買比（不與第一、二順位重複）</span></div>
           <div class="font-semibold text-gray-500 col-span-full mt-1">量增漲停觀察區（主力換手）</div>
-          <div class="text-gray-600 col-span-full text-xs mb-0.5">共同前提：今日漲停（漲幅 ≥ 9.5%）且 1.5 &lt; 1日量比 &lt; 2.5（量增但非爆量，需有漲停委買資料）</div>
+          <div class="text-gray-600 col-span-full text-xs mb-0.5">共同前提：今日漲停（漲幅 ≥ 9.5%）且 1.5 &lt; 1日量比 &lt; 3（量增但非爆量，需有漲停委買資料）</div>
           <div class="flex items-center gap-2 col-span-full"><span class="text-amber-300 font-bold">★ 第一順位</span><span>漲停委買比 &gt; 2</span></div>
           <div class="flex items-center gap-2 col-span-full"><span class="text-amber-400">▲ 第二順位</span><span>漲停委買比 &gt; 1.5（不與第一順位重複）</span></div>
         </div>
