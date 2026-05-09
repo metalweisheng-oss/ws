@@ -3241,7 +3241,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
         </div>
         <div class="flex flex-wrap gap-x-5 gap-y-1 text-gray-600">
           <span>五檔：每 10 秒更新，顯示即時委買委賣五檔、成交、漲跌、幅度</span>
-          <span>價量明細：記錄全市場所有上市上櫃股票逐筆成交，每 20 秒擷取一次，資料保存 60 天</span>
+          <span>價量明細：每 20 秒快照一次成交價與成交量，非逐筆即時，同一區間多筆成交僅保留最後一筆，資料保存 60 天</span>
         </div>
       </div>
 
