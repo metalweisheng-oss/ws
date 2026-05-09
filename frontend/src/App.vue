@@ -408,6 +408,8 @@ let   moversTimer     = null
 const quoteVisible  = ref(false)
 const quoteData     = ref(null)
 const quoteLoading  = ref(false)
+const quoteTicks    = ref([])
+const quoteTab      = ref('quote') // 'quote' | 'ticks'
 let   quoteTimer    = null
 let   quoteStockNo  = ''
 
@@ -548,8 +550,12 @@ async function fetchQuote() {
   if (!quoteStockNo) return
   quoteLoading.value = true
   try {
-    const d = await fetch(`${API}/api/stock/quote/${quoteStockNo}`).then(r => r.json())
-    if (d.ok) quoteData.value = d
+    const [qd, td] = await Promise.all([
+      fetch(`${API}/api/stock/quote/${quoteStockNo}`).then(r => r.json()),
+      fetch(`${API}/api/stock/ticks/${quoteStockNo}`).then(r => r.json()),
+    ])
+    if (qd.ok) quoteData.value = qd
+    if (td.ok) quoteTicks.value = td.rows || []
   } catch(e) { /* silent */ } finally {
     quoteLoading.value = false
   }
@@ -557,10 +563,12 @@ async function fetchQuote() {
 function openQuote(stockNo) {
   quoteStockNo = stockNo
   quoteData.value = null
+  quoteTicks.value = []
+  quoteTab.value = 'quote'
   quoteVisible.value = true
   fetchQuote()
   clearInterval(quoteTimer)
-  quoteTimer = setInterval(fetchQuote, 3000)
+  quoteTimer = setInterval(fetchQuote, 10000)
 }
 function closeQuote() {
   quoteVisible.value = false
@@ -568,6 +576,7 @@ function closeQuote() {
   quoteTimer = null
   quoteStockNo = ''
   quoteData.value = null
+  quoteTicks.value = []
 }
 
 // ── 庫藏股買回 ───────────────────────────────────────
@@ -3636,10 +3645,10 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
   <Teleport to="body">
     <div v-if="quoteVisible" class="fixed inset-0 z-50 flex items-center justify-center" @click.self="closeQuote">
       <div class="absolute inset-0 bg-black/75"></div>
-      <div class="relative bg-black border border-gray-700 rounded-xl shadow-2xl overflow-hidden" style="width:320px">
+      <div class="relative bg-black border border-gray-700 rounded-xl shadow-2xl overflow-hidden flex flex-col" style="width:340px;max-height:90vh">
 
         <!-- 標題列 -->
-        <div class="flex items-center justify-between px-3 py-2 bg-gray-900">
+        <div class="flex items-center justify-between px-3 py-2 bg-gray-900 shrink-0">
           <div class="flex items-baseline gap-2">
             <span class="text-white font-bold text-sm">{{ quoteData?.stockName || quoteStockNo }}</span>
             <span class="text-gray-500 text-xs">{{ quoteData?.stockNo }}</span>
@@ -3650,10 +3659,24 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
           </div>
         </div>
 
-        <!-- 載入中 -->
-        <div v-if="!quoteData" class="py-10 text-center text-gray-500 text-sm">載入中...</div>
+        <!-- Tab 切換 -->
+        <div class="flex shrink-0 border-b border-gray-800 bg-gray-900">
+          <button @click="quoteTab='quote'"
+                  class="flex-1 py-1.5 text-xs font-medium transition"
+                  :class="quoteTab==='quote' ? 'text-white border-b-2 border-blue-500' : 'text-gray-500 hover:text-gray-300'">
+            五檔報價
+          </button>
+          <button @click="quoteTab='ticks'"
+                  class="flex-1 py-1.5 text-xs font-medium transition"
+                  :class="quoteTab==='ticks' ? 'text-white border-b-2 border-blue-500' : 'text-gray-500 hover:text-gray-300'">
+            價量明細 <span v-if="quoteTicks.length" class="text-gray-500">({{ quoteTicks.length }})</span>
+          </button>
+        </div>
 
-        <div v-else>
+        <!-- 載入中 -->
+        <div v-if="!quoteData && quoteTab==='quote'" class="py-10 text-center text-gray-500 text-sm">載入中...</div>
+
+        <div v-if="quoteData" v-show="quoteTab==='quote'" class="overflow-y-auto">
           <!-- 委買 / 委賣 標頭 -->
           <div class="grid grid-cols-2 text-center text-base font-bold">
             <div class="py-1.5 bg-red-600 text-white tracking-widest">委 買</div>
@@ -3789,6 +3812,48 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
             </div>
           </div>
         </div>
+
+        <!-- 價量明細 Tab -->
+        <div v-show="quoteTab==='ticks'" class="overflow-y-auto flex-1" style="max-height:75vh">
+          <div v-if="!quoteTicks.length" class="py-10 text-center text-gray-600 text-sm">
+            {{ quoteLoading ? '載入中...' : '尚無資料（開盤後進入漲跌榜才會開始累積）' }}
+          </div>
+          <table v-else class="w-full text-xs font-mono">
+            <thead class="sticky top-0 bg-gray-900">
+              <tr class="text-gray-500 border-b border-gray-800">
+                <th class="px-2 py-1.5 text-left">時間</th>
+                <th class="px-2 py-1.5 text-right">成交價</th>
+                <th class="px-2 py-1.5 text-right">漲跌</th>
+                <th class="px-2 py-1.5 text-right">分量(張)</th>
+                <th class="px-2 py-1.5 text-right">累計量</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(r, i) in quoteTicks" :key="i"
+                  class="border-b border-gray-900/60"
+                  :class="i % 2 === 0 ? 'bg-black' : 'bg-gray-950'">
+                <td class="px-2 py-1 text-gray-400">{{ r.time }}</td>
+                <td class="px-2 py-1 text-right">
+                  <span class="px-1 rounded"
+                    :class="quoteData?.limitUp && r.price >= quoteData.limitUp ? 'bg-red-700 text-white' :
+                            r.change_val > 0 ? 'text-red-300' : r.change_val < 0 ? 'text-green-300' : 'text-gray-300'">
+                    {{ r.price }}
+                  </span>
+                </td>
+                <td class="px-2 py-1 text-right"
+                    :class="r.change_val > 0 ? 'text-red-400' : r.change_val < 0 ? 'text-green-400' : 'text-gray-400'">
+                  {{ r.change_val != null ? (r.change_val > 0 ? '+' : '') + r.change_val : '-' }}
+                </td>
+                <td class="px-2 py-1 text-right"
+                    :class="r.qty >= 10 ? 'text-yellow-400 font-bold' : r.qty >= 3 ? 'text-red-400' : 'text-gray-400'">
+                  {{ r.qty ?? '-' }}
+                </td>
+                <td class="px-2 py-1 text-right text-gray-400">{{ r.cum_vol?.toLocaleString() ?? '-' }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
       </div>
     </div>
   </Teleport>

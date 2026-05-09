@@ -2605,6 +2605,20 @@ app.get('/api/debug/screener-check', async (req, res) => {
       )
     `)
     await pool.query(`
+      CREATE TABLE IF NOT EXISTS stock_ticks (
+        id          BIGSERIAL PRIMARY KEY,
+        stock_no    VARCHAR(10) NOT NULL,
+        trade_date  DATE NOT NULL,
+        trade_time  TIME NOT NULL,
+        price       NUMERIC(12,2),
+        change_val  NUMERIC(12,2),
+        qty         INTEGER,
+        cum_vol     BIGINT
+      )
+    `)
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_stock_ticks_lookup ON stock_ticks (stock_no, trade_date, trade_time)`)
+    await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_stock_ticks_uniq ON stock_ticks (stock_no, trade_date, trade_time, cum_vol)`).catch(()=>{})
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS screener_results (
         run_date     DATE,
         stock_no     VARCHAR(10),
@@ -3877,6 +3891,81 @@ app.get('/api/stock/quote/:stockNo', async (req, res) => {
   }
 })
 
+// ── 逐筆成交擷取 ──────────────────────────────────────────────────────────────
+
+// 記憶上次各股狀態：{ stockNo: { price, cumVol } }
+const tickLastState = new Map()
+// 今日追蹤清單（從漲跌榜自動更新）
+let tickWatchList = []
+
+function updateTickWatchList(gainers, losers) {
+  const stocks = [...gainers, ...losers].map(r => r.stockNo).filter(Boolean)
+  tickWatchList = [...new Set(stocks)]
+}
+
+async function captureTicksOnce() {
+  if (!tickWatchList.length) return
+  const today = new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10)
+  const BATCH = 60
+  for (let i = 0; i < tickWatchList.length; i += BATCH) {
+    const slice = tickWatchList.slice(i, i + BATCH)
+    const exChList = slice.flatMap(s => [`tse_${s}.tw`, `otc_${s}.tw`])
+    const data = await fetchMisRaw(exChList, 8000).catch(() => null)
+    if (!data?.msgArray) continue
+    const toInsert = []
+    for (const item of data.msgArray) {
+      const sno = item.c
+      if (!sno || !slice.includes(sno)) continue
+      const price  = item.z && item.z !== '-' ? parseFloat(item.z) : null
+      const cumVol = item.v && item.v !== '-' ? parseInt(item.v)   : null
+      const t      = item.t // HH:MM:SS
+      if (!price || !cumVol || !t) continue
+      const prev = tickLastState.get(sno)
+      if (prev && prev.price === price && prev.cumVol === cumVol) continue
+      const prevClose = item.y && item.y !== '-' ? parseFloat(item.y) : null
+      const changeVal = prevClose ? parseFloat((price - prevClose).toFixed(2)) : null
+      const qty = prev ? Math.max(0, cumVol - prev.cumVol) : null
+      tickLastState.set(sno, { price, cumVol })
+      if (prev) toInsert.push([sno, today, t, price, changeVal, qty, cumVol])
+    }
+    for (const [sno, date, time, price, chg, qty, cv] of toInsert) {
+      await pool.query(
+        `INSERT INTO stock_ticks (stock_no, trade_date, trade_time, price, change_val, qty, cum_vol)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)
+         ON CONFLICT (stock_no, trade_date, trade_time, cum_vol) DO NOTHING`,
+        [sno, date, time, price, chg, qty, cv]
+      ).catch(() => {})
+    }
+  }
+}
+
+// 交易時段每 10 秒捕捉一次
+cron.schedule('*/10 * * * * *', async () => {
+  const now = new Date(Date.now() + 8 * 3600000)
+  const h = now.getUTCHours(), m = now.getUTCMinutes()
+  const inSession = (h === 9 && m >= 0) || (h >= 10 && h <= 12) || (h === 13 && m <= 35)
+  if (!inSession) return
+  if (now.getUTCDay() === 0 || now.getUTCDay() === 6) return
+  captureTicksOnce().catch(e => console.error('[tick-capture]', e.message))
+}, { timezone: 'Asia/Taipei' })
+
+// 查詢逐筆成交
+app.get('/api/stock/ticks/:stockNo', async (req, res) => {
+  const { stockNo } = req.params
+  const today = new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10)
+  const date = req.query.date || today
+  try {
+    const { rows } = await pool.query(
+      `SELECT trade_time::text AS time, price::float, change_val::float AS change_val, qty, cum_vol
+       FROM stock_ticks WHERE stock_no=$1 AND trade_date=$2 ORDER BY trade_time DESC, cum_vol DESC`,
+      [stockNo, date]
+    )
+    res.json({ ok: true, stockNo, date, rows })
+  } catch(e) {
+    res.status(500).json({ ok: false, error: e.message })
+  }
+})
+
 // 手動觸發收盤漲停委買快照
 app.post('/api/market/save-close-snapshot', async (req, res) => {
   try {
@@ -4157,6 +4246,7 @@ app.get('/api/market/movers', async (req, res) => {
 
     _moversCache.data = { gainers, losers, total: movers.length, updatedAt }
     _moversCache.ts = now
+    updateTickWatchList(gainers, losers)
 
     res.json({ gainers: gainers.slice(0, limit), losers: losers.slice(0, limit), total: movers.length, updatedAt, realtime: true })
   } catch(e) {
