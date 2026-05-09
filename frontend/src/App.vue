@@ -501,8 +501,8 @@ function fmtPrice(p) {
 }
 
 function isLongRedHighVol(r) {
-  // 有開盤價才驗證長紅；open_p 為 null 時視為通過
-  if (r.prevOpen && r.prevClose && r.prevClose <= r.prevOpen) return false
+  // 排除下跌日（收 < 開），平盤視為通過；open_p 為 null 時跳過
+  if (r.prevOpen && r.prevClose && r.prevClose < r.prevOpen) return false
   if (r.prevVolMa3 && r.prevVol < r.prevVolMa3 * 1.2) return false
   return true
 }
@@ -3403,7 +3403,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
           <div class="flex items-center gap-2"><span class="text-green-400">■ 綠色</span><span>漲停委買比 &gt; 1.6　強力鎖籌</span></div>
           <div class="flex items-center gap-2"><span class="text-gray-500">■ 灰色</span><span>漲停委買比 ≤ 1.6　一般委買</span></div>
           <div class="font-semibold text-gray-500 col-span-full mt-1">量縮漲停觀察區</div>
-          <div class="text-gray-600 col-span-full text-xs mb-0.5">共同前提：今日漲停（漲幅 ≥ 9.5%）+ 昨日帶量長紅（收 &gt; 開 且 昨日量 ≥ 昨日3日均量 × 1.2）</div>
+          <div class="text-gray-600 col-span-full text-xs mb-0.5">共同前提：今日漲停（漲幅 ≥ 9.5%）+ 昨日帶量非下跌（收 ≥ 開 且 昨日量 ≥ 昨日3日均量 × 1.2）</div>
           <div class="flex items-center gap-2 col-span-full"><span class="text-blue-300 font-bold">★ 第一順位</span><span>1日量比 &lt; 0.5 且 漲停委買比 &gt; 1.7</span></div>
           <div class="flex items-center gap-2 col-span-full"><span class="text-blue-400">▲ 第二順位</span><span>1日量比 &lt; 0.7 且 漲停委買比 &gt; 1.5（不與第一順位重複）</span></div>
           <div class="flex items-center gap-2 col-span-full"><span class="text-gray-400">△ 第三順位</span><span>1日量比 &lt; 0.7，不限漲停委買比（不與第一、二順位重複）</span></div>
