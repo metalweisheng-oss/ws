@@ -3969,7 +3969,12 @@ async function captureTicksOnce() {
 }
 
 // 每日 08:55 載入全市場股票清單
-cron.schedule('55 8 * * 1-5', () => loadAllTickStocks(), { timezone: 'Asia/Taipei' })
+// 08:55 載入股票清單 + 清空昨日狀態
+cron.schedule('55 8 * * 1-5', async () => {
+  tickLastState.clear()
+  await loadAllTickStocks()
+  console.log('[tick] tickLastState 已清空，準備新的一日')
+}, { timezone: 'Asia/Taipei' })
 
 // 交易時段每 20 秒捕捉一次（09:00–13:35）
 cron.schedule('*/20 * * * * *', async () => {
@@ -3979,6 +3984,18 @@ cron.schedule('*/20 * * * * *', async () => {
   if (!inSession) return
   if (now.getUTCDay() === 0 || now.getUTCDay() === 6) return
   captureTicksOnce().catch(e => console.error('[tick-capture]', e.message))
+}, { timezone: 'Asia/Taipei' })
+
+// 每日 02:00 刪除 60 天前的舊資料
+cron.schedule('0 2 * * *', async () => {
+  try {
+    const { rowCount } = await pool.query(
+      `DELETE FROM stock_ticks WHERE trade_date < CURRENT_DATE - INTERVAL '60 days'`
+    )
+    if (rowCount > 0) console.log(`[tick] 清理舊資料：刪除 ${rowCount} 筆`)
+  } catch(e) {
+    console.error('[tick] 清理失敗:', e.message)
+  }
 }, { timezone: 'Asia/Taipei' })
 
 // 啟動時立即載入
