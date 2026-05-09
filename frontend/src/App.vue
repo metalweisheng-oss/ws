@@ -480,19 +480,6 @@ function volRatio3dClass(r) {
   if (ratio >= 2)  return 'text-yellow-400 font-bold'
   return 'text-gray-400'
 }
-function rowBgClass(r) {
-  const limitRatio = r.limitBidVol && r.volume ? r.limitBidVol / r.volume : 0
-  if (limitRatio > 1.6) {
-    const ratio1d = r.prevVol ? r.volume / r.prevVol : null
-    const ratio3d = r.volMa3 ? r.volume / r.volMa3 : null
-    if (ratio1d !== null && ratio1d >= 2 && ratio3d !== null && ratio3d >= 2)
-      return 'bg-red-900/25 hover:bg-red-900/35'
-    if ((ratio1d !== null && ratio1d < 0.5) || (ratio3d !== null && ratio3d < 0.5))
-      return 'bg-blue-900/25 hover:bg-blue-900/35'
-  }
-  return 'hover:bg-gray-800/30'
-}
-
 function fmtPrice(p) {
   if (p == null) return '-'
   if (p >= 1000) return p.toFixed(0)
@@ -538,6 +525,18 @@ const limitSqueezeList3 = computed(() => {
     return true
   })
 })
+
+const limitSqueezeSet = computed(() => new Set([
+  ...limitSqueezeList1.value.map(r => r.stockNo),
+  ...limitSqueezeList2.value.map(r => r.stockNo),
+  ...limitSqueezeList3.value.map(r => r.stockNo),
+]))
+
+function rowBgClass(r) {
+  if (limitSqueezeSet.value.has(r.stockNo))
+    return 'bg-blue-900/25 hover:bg-blue-900/35'
+  return 'hover:bg-gray-800/30'
+}
 
 function goToWarrant(stockNo) {
   warrantStockNo.value = stockNo
