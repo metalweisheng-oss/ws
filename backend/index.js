@@ -3816,6 +3816,50 @@ function fetchMisRaw(exChList, timeoutMs = 10000) {
   })
 }
 
+// 個股即時五檔報價
+app.get('/api/stock/quote/:stockNo', async (req, res) => {
+  const { stockNo } = req.params
+  try {
+    const exChList = [`tse_${stockNo}.tw`, `otc_${stockNo}.tw`]
+    const data = await fetchMisRaw(exChList, 5000)
+    const item = (data?.msgArray || []).find(i => i.c === stockNo)
+    if (!item) return res.json({ ok: false, error: '查無資料' })
+
+    const parseArr = (s) => s && s !== '-' ? s.split('_').map(v => v.trim() === '-' || v.trim() === '' ? null : parseFloat(v)) : []
+    const parseQArr = (s) => s && s !== '-' ? s.split('_').map(v => v.trim() === '-' || v.trim() === '' ? null : parseInt(v) || 0) : []
+
+    const bidPrices = parseArr(item.b)
+    const bidQtys   = parseQArr(item.g)
+    const askPrices = parseArr(item.a)
+    const askQtys   = parseQArr(item.f)
+
+    const bids = bidPrices.map((p, i) => ({ price: p, qty: bidQtys[i] ?? null })).filter(x => x.price !== null)
+    const asks = askPrices.map((p, i) => ({ price: p, qty: askQtys[i] ?? null })).filter(x => x.price !== null)
+
+    res.json({
+      ok: true,
+      stockNo: item.c,
+      stockName: item.n,
+      price:     item.z && item.z !== '-' ? parseFloat(item.z) : null,
+      prevClose: item.y && item.y !== '-' ? parseFloat(item.y) : null,
+      open:      item.o && item.o !== '-' ? parseFloat(item.o) : null,
+      high:      item.h && item.h !== '-' ? parseFloat(item.h) : null,
+      low:       item.l && item.l !== '-' ? parseFloat(item.l) : null,
+      limitUp:   item.u && item.u !== '-' ? parseFloat(item.u) : null,
+      limitDown: item.w && item.w !== '-' ? parseFloat(item.w) : null,
+      volume:    item.v && item.v !== '-' ? parseInt(item.v) : null,
+      lastQty:   item.tv && item.tv !== '-' ? parseInt(item.tv) : null,
+      totalBid:  item.tbu && item.tbu !== '-' ? parseInt(item.tbu) : null,
+      totalAsk:  item.tsu && item.tsu !== '-' ? parseInt(item.tsu) : null,
+      bids,
+      asks,
+      time: item.t || null,
+    })
+  } catch(e) {
+    res.status(500).json({ ok: false, error: e.message })
+  }
+})
+
 // 手動觸發收盤漲停委買快照
 app.post('/api/market/save-close-snapshot', async (req, res) => {
   try {
