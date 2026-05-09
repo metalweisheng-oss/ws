@@ -4068,16 +4068,16 @@ app.get('/api/market/movers', async (req, res) => {
         ma AS (
           SELECT stock_no,
                  ROUND(AVG(CASE WHEN rn <= 3 THEN close END), 2)::float AS ma3,
-                 ROUND(AVG(CASE WHEN rn BETWEEN 2 AND 4 THEN close END), 2)::float AS prev_ma3,
+                 ROUND(AVG(CASE WHEN rn BETWEEN 3 AND 5 THEN close END), 2)::float AS prev_ma3,
                  ROUND(AVG(CASE WHEN rn <= 3 THEN volume END))::bigint AS vol_ma3,
                  MAX(CASE WHEN rn = 2 THEN volume END)::bigint AS prev_vol,
                  MAX(CASE WHEN rn = 2 THEN open_p END)::float AS prev_open,
-                 ROUND(AVG(CASE WHEN rn BETWEEN 2 AND 4 THEN volume END))::bigint AS prev_vol_ma3
+                 ROUND(AVG(CASE WHEN rn BETWEEN 3 AND 5 THEN volume END))::bigint AS prev_vol_ma3
           FROM hist
-          WHERE rn <= 4
+          WHERE rn <= 5
           GROUP BY stock_no
           HAVING COUNT(CASE WHEN rn <= 3 THEN 1 END) = 3
-             AND COUNT(CASE WHEN rn BETWEEN 2 AND 4 THEN 1 END) = 3
+             AND COUNT(CASE WHEN rn BETWEEN 3 AND 5 THEN 1 END) = 3
         )
         SELECT t.stock_no, t.stock_name,
                t.close AS price, t.volume,
@@ -4175,16 +4175,16 @@ app.get('/api/market/movers', async (req, res) => {
         )
         SELECT stock_no,
                ROUND(AVG(CASE WHEN rn <= 3 THEN close END), 2)::float AS ma3,
-               ROUND(AVG(CASE WHEN rn BETWEEN 2 AND 4 THEN close END), 2)::float AS prev_ma3,
+               ROUND(AVG(CASE WHEN rn BETWEEN 3 AND 5 THEN close END), 2)::float AS prev_ma3,
                ROUND(AVG(CASE WHEN rn <= 3 THEN volume END))::bigint AS vol_ma3,
                MAX(CASE WHEN rn = 2 THEN volume END)::bigint AS prev_vol,
                MAX(CASE WHEN rn = 2 THEN open_p END)::float AS prev_open,
-               ROUND(AVG(CASE WHEN rn BETWEEN 2 AND 4 THEN volume END))::bigint AS prev_vol_ma3
+               ROUND(AVG(CASE WHEN rn BETWEEN 3 AND 5 THEN volume END))::bigint AS prev_vol_ma3
         FROM ranked
-        WHERE rn <= 4
+        WHERE rn <= 5
         GROUP BY stock_no
         HAVING COUNT(CASE WHEN rn <= 3 THEN 1 END) = 3
-           AND COUNT(CASE WHEN rn BETWEEN 2 AND 4 THEN 1 END) = 3
+           AND COUNT(CASE WHEN rn BETWEEN 3 AND 5 THEN 1 END) = 3
       `)
     ])
 

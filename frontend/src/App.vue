@@ -3247,8 +3247,9 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
 
       <!-- 量縮漲停觀察 第一順位 -->
       <div class="bg-gray-900 border border-blue-500/40 rounded-xl overflow-hidden">
-        <div class="px-4 py-3 border-b border-blue-500/30 flex items-center gap-2">
+        <div class="px-4 py-3 border-b border-blue-500/30 flex items-center gap-2 flex-wrap">
           <span class="text-blue-300 font-semibold text-sm">★ 量縮漲停觀察　第一順位</span>
+          <span v-if="moversDate" class="text-xs text-yellow-600">（歷史資料，漲停委買量可能不完整）</span>
           <span class="ml-auto text-xs text-blue-400">{{ limitSqueezeList1.length }} 支</span>
         </div>
         <table class="w-full text-sm">
@@ -3293,8 +3294,9 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
 
       <!-- 量縮漲停觀察 第二順位 -->
       <div class="bg-gray-900 border border-blue-900/50 rounded-xl overflow-hidden">
-        <div class="px-4 py-3 border-b border-blue-900/40 flex items-center gap-2">
+        <div class="px-4 py-3 border-b border-blue-900/40 flex items-center gap-2 flex-wrap">
           <span class="text-blue-400 font-semibold text-sm">▲ 量縮漲停觀察　第二順位</span>
+          <span v-if="moversDate" class="text-xs text-yellow-600">（歷史資料，漲停委買量可能不完整）</span>
           <span class="ml-auto text-xs text-blue-600">{{ limitSqueezeList2.length }} 支</span>
         </div>
         <table class="w-full text-sm">
@@ -3415,6 +3417,11 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
 
       <!-- Loading skeleton -->
       <div v-if="moversLoading && !moversGainers.length" class="text-center py-20 text-gray-500 text-sm">資料載入中，請稍候...</div>
+
+      <!-- 非交易時段提示 -->
+      <div v-if="!moversLoading && !moversDate && !moversGainers.length && !moversLosers.length" class="text-center py-20 text-gray-600 text-sm">
+        非交易時段，目前無即時資料
+      </div>
 
       <!-- 兩欄排行表 -->
       <div v-if="moversGainers.length || moversLosers.length" class="grid grid-cols-1 lg:grid-cols-2 gap-4">
