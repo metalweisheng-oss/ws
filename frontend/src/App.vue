@@ -440,7 +440,7 @@ function onMoversDateChange() {
   moversTimer = null
   fetchMovers()
   if (!moversDate.value) {
-    moversTimer = setInterval(fetchMovers, 60000)
+    moversTimer = setInterval(fetchMovers, 30000)
   }
 }
 
@@ -449,7 +449,7 @@ function startMoversAutoRefresh() {
   moversTimer = null
   fetchMoversDates()
   fetchMovers()
-  moversTimer = setInterval(fetchMovers, 60000)
+  moversTimer = setInterval(fetchMovers, 30000)
 }
 function stopMoversAutoRefresh() {
   clearInterval(moversTimer)
