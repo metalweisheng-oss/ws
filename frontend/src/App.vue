@@ -532,14 +532,14 @@ const limitSqueezeSet = computed(() => new Set([
   ...limitSqueezeList3.value.map(r => r.stockNo),
 ]))
 
+const volIncreaseSet = computed(() => new Set([
+  ...volIncreaseLimitList1.value.map(r => r.stockNo),
+  ...volIncreaseLimitList2.value.map(r => r.stockNo),
+]))
+
 function rowBgClass(r) {
-  const limitRatio = r.limitBidVol && r.volume ? r.limitBidVol / r.volume : 0
-  if (limitRatio > 1.6) {
-    const ratio1d = r.prevVol ? r.volume / r.prevVol : null
-    const ratio3d = r.volMa3 ? r.volume / r.volMa3 : null
-    if (ratio1d !== null && ratio1d >= 2 && ratio3d !== null && ratio3d >= 2)
-      return 'bg-red-900/25 hover:bg-red-900/35'
-  }
+  if (volIncreaseSet.value.has(r.stockNo))
+    return 'bg-red-900/25 hover:bg-red-900/35'
   if (limitSqueezeSet.value.has(r.stockNo))
     return 'bg-blue-900/25 hover:bg-blue-900/35'
   return 'hover:bg-gray-800/30'
@@ -3531,7 +3531,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
           <div class="flex items-center gap-2"><span class="text-gray-400">■ 灰色</span><span>0.5 ～ 2　正常</span></div>
           <div class="flex items-center gap-2"><span class="text-orange-400 font-bold">■ 橘色粗體</span><span>&lt; 0.5　縮量</span></div>
           <div class="font-semibold text-gray-500 col-span-full mt-1">列背景</div>
-          <div class="flex items-center gap-2"><span class="px-2 py-0.5 rounded bg-red-900/40 text-red-300">紅底（爆量漲停）</span><span>漲停委買比 &gt; 1.6 且 1日量比 ≥ 2 且 3日量比 ≥ 2</span></div>
+          <div class="flex items-center gap-2"><span class="px-2 py-0.5 rounded bg-red-900/40 text-red-300">紅底（主力換手）</span><span>符合量增漲停觀察第一或第二順位</span></div>
           <div class="flex items-center gap-2"><span class="px-2 py-0.5 rounded bg-blue-900/40 text-blue-300">藍底（量縮漲停）</span><span>符合量縮漲停觀察第一、二或三順位</span></div>
           <div class="font-semibold text-gray-500 col-span-full mt-1">量縮漲停觀察區（籌碼集中且惜售）</div>
           <div class="text-gray-600 col-span-full text-xs mb-0.5">共同前提：今日漲停（漲幅 ≥ 9.5%）且 昨日非下跌（收 ≥ 開，平盤視為通過）</div>
