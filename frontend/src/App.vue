@@ -3233,10 +3233,16 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
       </div>
 
       <!-- 操作說明 -->
-      <div class="bg-gray-900/60 border border-gray-800 rounded-xl px-4 py-3 text-xs text-gray-500 flex flex-wrap gap-x-5 gap-y-1">
-        <span>點股票<span class="text-white font-medium">名稱</span> → 權證查詢</span>
-        <span>點股票<span class="text-blue-400 font-medium underline decoration-dotted">代號</span> → 即時五檔（每 3 秒更新）</span>
-        <span>點整列 → 量縮觀察清單（觀察區）</span>
+      <div class="bg-gray-900/60 border border-gray-800 rounded-xl px-4 py-3 text-xs text-gray-500 space-y-1.5">
+        <div class="flex flex-wrap gap-x-5 gap-y-1">
+          <span>點股票<span class="text-white font-medium">名稱</span> → 權證查詢</span>
+          <span>點股票<span class="text-blue-400 font-medium underline decoration-dotted">代號</span> → 即時五檔 + 價量明細</span>
+          <span>點整列（觀察區）→ 跳往量縮觀察清單</span>
+        </div>
+        <div class="flex flex-wrap gap-x-5 gap-y-1 text-gray-600">
+          <span>五檔：每 10 秒更新，顯示即時委買委賣五檔、成交、漲跌、幅度</span>
+          <span>價量明細：記錄全市場所有上市上櫃股票逐筆成交，每 20 秒擷取一次，資料保存 60 天</span>
+        </div>
       </div>
 
       <!-- 量縮漲停觀察 第一順位 -->
