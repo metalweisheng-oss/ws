@@ -3893,61 +3893,94 @@ app.get('/api/stock/quote/:stockNo', async (req, res) => {
 
 // ── 逐筆成交擷取 ──────────────────────────────────────────────────────────────
 
-// 記憶上次各股狀態：{ stockNo: { price, cumVol } }
 const tickLastState = new Map()
-// 今日追蹤清單（從漲跌榜自動更新）
-let tickWatchList = []
+let   allTickStocks = []   // 全市場股票清單，每日開盤前載入
+let   tickCaptureRunning = false
 
-function updateTickWatchList(gainers, losers) {
-  const stocks = [...gainers, ...losers].map(r => r.stockNo).filter(Boolean)
-  tickWatchList = [...new Set(stocks)]
-}
-
-async function captureTicksOnce() {
-  if (!tickWatchList.length) return
-  const today = new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10)
-  const BATCH = 60
-  for (let i = 0; i < tickWatchList.length; i += BATCH) {
-    const slice = tickWatchList.slice(i, i + BATCH)
-    const exChList = slice.flatMap(s => [`tse_${s}.tw`, `otc_${s}.tw`])
-    const data = await fetchMisRaw(exChList, 8000).catch(() => null)
-    if (!data?.msgArray) continue
-    const toInsert = []
-    for (const item of data.msgArray) {
-      const sno = item.c
-      if (!sno || !slice.includes(sno)) continue
-      const price  = item.z && item.z !== '-' ? parseFloat(item.z) : null
-      const cumVol = item.v && item.v !== '-' ? parseInt(item.v)   : null
-      const t      = item.t // HH:MM:SS
-      if (!price || !cumVol || !t) continue
-      const prev = tickLastState.get(sno)
-      if (prev && prev.price === price && prev.cumVol === cumVol) continue
-      const prevClose = item.y && item.y !== '-' ? parseFloat(item.y) : null
-      const changeVal = prevClose ? parseFloat((price - prevClose).toFixed(2)) : null
-      const qty = prev ? Math.max(0, cumVol - prev.cumVol) : null
-      tickLastState.set(sno, { price, cumVol })
-      if (prev) toInsert.push([sno, today, t, price, changeVal, qty, cumVol])
-    }
-    for (const [sno, date, time, price, chg, qty, cv] of toInsert) {
-      await pool.query(
-        `INSERT INTO stock_ticks (stock_no, trade_date, trade_time, price, change_val, qty, cum_vol)
-         VALUES ($1,$2,$3,$4,$5,$6,$7)
-         ON CONFLICT (stock_no, trade_date, trade_time, cum_vol) DO NOTHING`,
-        [sno, date, time, price, chg, qty, cv]
-      ).catch(() => {})
-    }
+async function loadAllTickStocks() {
+  try {
+    const { rows } = await pool.query(`SELECT DISTINCT stock_no FROM market_daily ORDER BY stock_no`)
+    allTickStocks = rows.map(r => r.stock_no)
+    console.log(`[tick] 追蹤清單更新：${allTickStocks.length} 支`)
+  } catch(e) {
+    console.error('[tick] 載入股票清單失敗:', e.message)
   }
 }
 
-// 交易時段每 10 秒捕捉一次
-cron.schedule('*/10 * * * * *', async () => {
+// 並行批次：同時送出 CONCURRENCY 個 MIS 請求
+async function captureTicksOnce() {
+  if (tickCaptureRunning) return
+  if (!allTickStocks.length) return
+  tickCaptureRunning = true
+  const today = new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10)
+  const BATCH = 60
+  const CONCURRENCY = 5
+  const batches = []
+  for (let i = 0; i < allTickStocks.length; i += BATCH) {
+    batches.push(allTickStocks.slice(i, i + BATCH))
+  }
+  try {
+    for (let i = 0; i < batches.length; i += CONCURRENCY) {
+      const chunk = batches.slice(i, i + CONCURRENCY)
+      const results = await Promise.all(
+        chunk.map(slice => {
+          const exChList = slice.flatMap(s => [`tse_${s}.tw`, `otc_${s}.tw`])
+          return fetchMisRaw(exChList, 10000).catch(() => null)
+        })
+      )
+      const toInsert = []
+      for (let j = 0; j < results.length; j++) {
+        const data  = results[j]
+        const slice = chunk[j]
+        if (!data?.msgArray) continue
+        for (const item of data.msgArray) {
+          const sno = item.c
+          if (!sno) continue
+          const price  = item.z && item.z !== '-' ? parseFloat(item.z) : null
+          const cumVol = item.v && item.v !== '-' ? parseInt(item.v)   : null
+          const t      = item.t
+          if (!price || !cumVol || !t) continue
+          const prev = tickLastState.get(sno)
+          if (prev && prev.price === price && prev.cumVol === cumVol) continue
+          const prevClose = item.y && item.y !== '-' ? parseFloat(item.y) : null
+          const changeVal = prevClose ? parseFloat((price - prevClose).toFixed(2)) : null
+          const qty = prev ? Math.max(0, cumVol - prev.cumVol) : null
+          tickLastState.set(sno, { price, cumVol })
+          if (prev) toInsert.push([sno, today, t, price, changeVal, qty, cumVol])
+        }
+      }
+      if (toInsert.length) {
+        const vals = toInsert.map((_, idx) => {
+          const b = idx * 7
+          return `($${b+1},$${b+2},$${b+3},$${b+4},$${b+5},$${b+6},$${b+7})`
+        }).join(',')
+        await pool.query(
+          `INSERT INTO stock_ticks (stock_no,trade_date,trade_time,price,change_val,qty,cum_vol) VALUES ${vals}
+           ON CONFLICT (stock_no,trade_date,trade_time,cum_vol) DO NOTHING`,
+          toInsert.flat()
+        ).catch(() => {})
+      }
+    }
+  } finally {
+    tickCaptureRunning = false
+  }
+}
+
+// 每日 08:55 載入全市場股票清單
+cron.schedule('55 8 * * 1-5', () => loadAllTickStocks(), { timezone: 'Asia/Taipei' })
+
+// 交易時段每 20 秒捕捉一次（09:00–13:35）
+cron.schedule('*/20 * * * * *', async () => {
   const now = new Date(Date.now() + 8 * 3600000)
   const h = now.getUTCHours(), m = now.getUTCMinutes()
-  const inSession = (h === 9 && m >= 0) || (h >= 10 && h <= 12) || (h === 13 && m <= 35)
+  const inSession = (h === 9) || (h >= 10 && h <= 12) || (h === 13 && m <= 35)
   if (!inSession) return
   if (now.getUTCDay() === 0 || now.getUTCDay() === 6) return
   captureTicksOnce().catch(e => console.error('[tick-capture]', e.message))
 }, { timezone: 'Asia/Taipei' })
+
+// 啟動時立即載入
+loadAllTickStocks()
 
 // 查詢逐筆成交
 app.get('/api/stock/ticks/:stockNo', async (req, res) => {
@@ -4246,7 +4279,6 @@ app.get('/api/market/movers', async (req, res) => {
 
     _moversCache.data = { gainers, losers, total: movers.length, updatedAt }
     _moversCache.ts = now
-    updateTickWatchList(gainers, losers)
 
     res.json({ gainers: gainers.slice(0, limit), losers: losers.slice(0, limit), total: movers.length, updatedAt, realtime: true })
   } catch(e) {
