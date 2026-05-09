@@ -3919,6 +3919,7 @@ async function captureTicksOnce() {
   for (let i = 0; i < allTickStocks.length; i += BATCH) {
     batches.push(allTickStocks.slice(i, i + BATCH))
   }
+  const sleep = ms => new Promise(r => setTimeout(r, ms))
   try {
     for (let i = 0; i < batches.length; i += CONCURRENCY) {
       const chunk = batches.slice(i, i + CONCURRENCY)
@@ -3928,6 +3929,7 @@ async function captureTicksOnce() {
           return fetchMisRaw(exChList, 10000).catch(() => null)
         })
       )
+      await sleep(150)
       const toInsert = []
       for (let j = 0; j < results.length; j++) {
         const data  = results[j]
