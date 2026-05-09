@@ -4271,6 +4271,8 @@ app.get('/api/market/movers', async (req, res) => {
           }
           if (total > 0) limitBidVol = total
         }
+        const innerVol = item.it && item.it !== '-' ? parseInt(item.it) : null
+        const outerVol = item.ot && item.ot !== '-' ? parseInt(item.ot) : null
         movers.push({
           stockNo: item.c,
           stockName: nameMap[item.c] || item.n || item.c,
@@ -4278,6 +4280,7 @@ app.get('/api/market/movers', async (req, res) => {
           change: +(z - y).toFixed(2),
           changePct, volume: vol,
           limitBidVol,
+          innerVol, outerVol,
           ma3:        maMap[item.c]?.ma3       ?? null,
           prevMa3:    maMap[item.c]?.prevMa3   ?? null,
           volMa3:     maMap[item.c]?.volMa3    ?? null,

@@ -492,9 +492,17 @@ function isLongRedHighVol(r) {
   if (r.prevOpen && r.prevClose && r.prevClose < r.prevOpen) return false
   return true
 }
+
+// 防偽條件：①最低成交量 50張 ②外盤 > 內盤（無資料或兩者皆0視為通過）
+function passAntiSpoof(r) {
+  if (r.volume < 50) return false
+  if (r.innerVol != null && r.outerVol != null && r.innerVol > 0 && r.outerVol <= r.innerVol) return false
+  return true
+}
 const limitSqueezeList1 = computed(() => {
   return moversGainers.value.filter(r => {
     if (r.changePct < 9.5) return false
+    if (!passAntiSpoof(r)) return false
     if (!isLongRedHighVol(r)) return false
     if (!r.prevVol || r.volume / r.prevVol >= 0.5) return false
     if (r.limitBidVol) return r.limitBidVol / r.volume > 1.7
@@ -506,6 +514,7 @@ const limitSqueezeList2 = computed(() => {
   return moversGainers.value.filter(r => {
     if (tier1.has(r.stockNo)) return false
     if (r.changePct < 9.5) return false
+    if (!passAntiSpoof(r)) return false
     if (!isLongRedHighVol(r)) return false
     if (!r.prevVol || r.volume / r.prevVol >= 0.7) return false
     if (r.limitBidVol) return r.limitBidVol / r.volume > 1.5
@@ -520,6 +529,7 @@ const limitSqueezeList3 = computed(() => {
   return moversGainers.value.filter(r => {
     if (tier12.has(r.stockNo)) return false
     if (r.changePct < 9.5) return false
+    if (!passAntiSpoof(r)) return false
     if (!isLongRedHighVol(r)) return false
     if (!r.prevVol || r.volume / r.prevVol >= 0.7) return false
     return true
@@ -549,6 +559,7 @@ function rowBgClass(r) {
 const volIncreaseLimitList1 = computed(() => {
   return moversGainers.value.filter(r => {
     if (r.changePct < 9.5) return false
+    if (!passAntiSpoof(r)) return false
     if (!r.limitBidVol || !r.prevVol) return false
     const ratio1d = r.volume / r.prevVol
     if (ratio1d <= 1.5 || ratio1d >= 3) return false
@@ -560,6 +571,7 @@ const volIncreaseLimitList2 = computed(() => {
   return moversGainers.value.filter(r => {
     if (tier1.has(r.stockNo)) return false
     if (r.changePct < 9.5) return false
+    if (!passAntiSpoof(r)) return false
     if (!r.limitBidVol || !r.prevVol) return false
     const ratio1d = r.volume / r.prevVol
     if (ratio1d <= 1.5 || ratio1d >= 3) return false
@@ -574,6 +586,7 @@ const volIncreaseLimitList3 = computed(() => {
   return moversGainers.value.filter(r => {
     if (tier12.has(r.stockNo)) return false
     if (r.changePct < 9.5) return false
+    if (!passAntiSpoof(r)) return false
     if (!r.prevVol) return false
     const ratio1d = r.volume / r.prevVol
     if (ratio1d <= 1.5 || ratio1d >= 3) return false
@@ -3595,12 +3608,12 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
           <div class="flex items-center gap-2"><span class="px-2 py-0.5 rounded bg-red-900/40 text-red-300">紅底（主力換手）</span><span>符合量增漲停觀察第一或第二順位</span></div>
           <div class="flex items-center gap-2"><span class="px-2 py-0.5 rounded bg-blue-900/40 text-blue-300">藍底（量縮漲停）</span><span>符合量縮漲停觀察第一、二或三順位</span></div>
           <div class="font-semibold text-gray-500 col-span-full mt-1">量縮漲停觀察區（籌碼集中且惜售）</div>
-          <div class="text-gray-600 col-span-full text-xs mb-0.5">共同前提：今日漲停（漲幅 ≥ 9.5%）且 昨日非下跌（收 ≥ 開，平盤視為通過）</div>
+          <div class="text-gray-600 col-span-full text-xs mb-0.5">共同前提：今日漲停（漲幅 ≥ 9.5%）且 昨日非下跌（收 ≥ 開，平盤視為通過）且 成交量 ≥ 50張 且 外盤量 &gt; 內盤量（無資料則略過）</div>
           <div class="flex items-center gap-2 col-span-full"><span class="text-blue-300 font-bold">★ 第一順位</span><span>1日量比 &lt; 0.5 且 漲停委買比 &gt; 1.7（歷史模式以漲停收盤替代）</span></div>
           <div class="flex items-center gap-2 col-span-full"><span class="text-blue-400">▲ 第二順位</span><span>1日量比 &lt; 0.7 且 漲停委買比 &gt; 1.5（歷史模式以漲停收盤替代，不與第一順位重複）</span></div>
           <div class="flex items-center gap-2 col-span-full"><span class="text-gray-400">△ 第三順位</span><span>1日量比 &lt; 0.7，不限漲停委買比（不與第一、二順位重複）</span></div>
           <div class="font-semibold text-gray-500 col-span-full mt-1">量增漲停觀察區（主力換手）</div>
-          <div class="text-gray-600 col-span-full text-xs mb-0.5">共同前提：今日漲停（漲幅 ≥ 9.5%）且 1.5 &lt; 1日量比 &lt; 3（量增但非爆量，需有漲停委買資料）</div>
+          <div class="text-gray-600 col-span-full text-xs mb-0.5">共同前提：今日漲停（漲幅 ≥ 9.5%）且 1.5 &lt; 1日量比 &lt; 3 且 成交量 ≥ 50張 且 外盤量 &gt; 內盤量（無資料則略過）</div>
           <div class="flex items-center gap-2 col-span-full"><span class="text-amber-300 font-bold">★ 第一順位</span><span>漲停委買比 &gt; 2</span></div>
           <div class="flex items-center gap-2 col-span-full"><span class="text-amber-400">▲ 第二順位</span><span>漲停委買比 &gt; 1.5（不與第一順位重複）</span></div>
           <div class="flex items-center gap-2 col-span-full"><span class="text-amber-600">△ 第三順位</span><span>不限漲停委買比（不與第一、二順位重複）</span></div>
