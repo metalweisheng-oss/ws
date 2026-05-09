@@ -3249,7 +3249,6 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
       <div class="bg-gray-900 border border-blue-500/40 rounded-xl overflow-hidden">
         <div class="px-4 py-3 border-b border-blue-500/30 flex items-center gap-2">
           <span class="text-blue-300 font-semibold text-sm">★ 量縮漲停觀察　第一順位</span>
-          <span class="text-xs text-gray-500">昨日帶量長紅 + 1日量比 &lt; 0.5 + 漲停委買比 &gt; 1.7</span>
           <span class="ml-auto text-xs text-blue-400">{{ limitSqueezeList1.length }} 支</span>
         </div>
         <table class="w-full text-sm">
@@ -3296,7 +3295,6 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
       <div class="bg-gray-900 border border-blue-900/50 rounded-xl overflow-hidden">
         <div class="px-4 py-3 border-b border-blue-900/40 flex items-center gap-2">
           <span class="text-blue-400 font-semibold text-sm">▲ 量縮漲停觀察　第二順位</span>
-          <span class="text-xs text-gray-500">昨日帶量長紅 + 1日量比 &lt; 0.7 + 漲停委買比 &gt; 1.5</span>
           <span class="ml-auto text-xs text-blue-600">{{ limitSqueezeList2.length }} 支</span>
         </div>
         <table class="w-full text-sm">
@@ -3343,7 +3341,6 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
       <div class="bg-gray-900 border border-gray-800/60 rounded-xl overflow-hidden">
         <div class="px-4 py-3 border-b border-gray-800/40 flex items-center gap-2">
           <span class="text-gray-400 font-semibold text-sm">△ 量縮漲停觀察　第三順位</span>
-          <span class="text-xs text-gray-500">昨日帶量長紅 + 1日量比 &lt; 0.7</span>
           <span class="ml-auto text-xs text-gray-600">{{ limitSqueezeList3.length }} 支</span>
         </div>
         <table class="w-full text-sm">
@@ -3405,9 +3402,11 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
           <div class="font-semibold text-gray-500 col-span-full mt-1">漲停委買量（括號內數字）</div>
           <div class="flex items-center gap-2"><span class="text-green-400">■ 綠色</span><span>漲停委買比 &gt; 1.6　強力鎖籌</span></div>
           <div class="flex items-center gap-2"><span class="text-gray-500">■ 灰色</span><span>漲停委買比 ≤ 1.6　一般委買</span></div>
-          <div class="font-semibold text-gray-500 col-span-full mt-1">量縮漲停觀察區（共同前提：昨日帶量長紅 = 收 &gt; 開 且 昨日量 ≥ 昨日3日均量 × 1.2）</div>
+          <div class="font-semibold text-gray-500 col-span-full mt-1">量縮漲停觀察區</div>
+          <div class="text-gray-600 col-span-full text-xs mb-0.5">共同前提：今日漲停（漲幅 ≥ 9.5%）+ 昨日帶量長紅（收 &gt; 開 且 昨日量 ≥ 昨日3日均量 × 1.2）</div>
           <div class="flex items-center gap-2 col-span-full"><span class="text-blue-300 font-bold">★ 第一順位</span><span>1日量比 &lt; 0.5 且 漲停委買比 &gt; 1.7</span></div>
           <div class="flex items-center gap-2 col-span-full"><span class="text-blue-400">▲ 第二順位</span><span>1日量比 &lt; 0.7 且 漲停委買比 &gt; 1.5（不與第一順位重複）</span></div>
+          <div class="flex items-center gap-2 col-span-full"><span class="text-gray-400">△ 第三順位</span><span>1日量比 &lt; 0.7，不限漲停委買比（不與第一、二順位重複）</span></div>
         </div>
       </div>
 
