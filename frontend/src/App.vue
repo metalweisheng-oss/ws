@@ -511,8 +511,8 @@ const limitSqueezeList1 = computed(() => {
     if (r.changePct < 9.5) return false
     if (!isLongRedHighVol(r)) return false
     if (!r.prevVol || r.volume / r.prevVol >= 0.5) return false
-    if (!r.limitBidVol || r.limitBidVol / r.volume <= 1.7) return false
-    return true
+    if (r.limitBidVol) return r.limitBidVol / r.volume > 1.7
+    return r.closedLimitUp || false
   })
 })
 const limitSqueezeList2 = computed(() => {
@@ -522,8 +522,8 @@ const limitSqueezeList2 = computed(() => {
     if (r.changePct < 9.5) return false
     if (!isLongRedHighVol(r)) return false
     if (!r.prevVol || r.volume / r.prevVol >= 0.7) return false
-    if (!r.limitBidVol || r.limitBidVol / r.volume <= 1.5) return false
-    return true
+    if (r.limitBidVol) return r.limitBidVol / r.volume > 1.5
+    return r.closedLimitUp || false
   })
 })
 const limitSqueezeList3 = computed(() => {
@@ -3278,12 +3278,18 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.prevVol?.toLocaleString() ?? '-' }}</td>
               <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.volume.toLocaleString() }}</td>
               <td class="px-3 py-2 text-right font-mono text-xs text-green-400 font-bold">
-                {{ r.volume ? (r.limitBidVol / r.volume).toFixed(2) : '-' }}
+                <template v-if="r.limitBidVol">{{ r.volume ? (r.limitBidVol / r.volume).toFixed(2) : '-' }}</template>
+                <span v-else-if="r.closedLimitUp" class="text-orange-400 text-xs">漲停收</span>
+                <template v-else>-</template>
               </td>
               <td class="px-3 py-2 text-right font-mono text-xs" :class="volRatio1dClass(r)">
                 {{ r.prevVol ? (r.volume / r.prevVol).toFixed(2) : '-' }}
               </td>
-              <td class="px-3 py-2 text-right font-mono text-xs text-blue-300">{{ r.limitBidVol?.toLocaleString() ?? '-' }}</td>
+              <td class="px-3 py-2 text-right font-mono text-xs text-blue-300">
+                <template v-if="r.limitBidVol">{{ r.limitBidVol.toLocaleString() }}</template>
+                <span v-else-if="r.closedLimitUp" class="text-orange-400 text-xs">漲停收</span>
+                <template v-else>-</template>
+              </td>
               <td class="px-3 py-2 text-right font-mono text-xs text-yellow-400">
                 {{ r.limitDays ? r.limitDays + '天' : '-' }}
               </td>
@@ -3325,12 +3331,18 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.prevVol?.toLocaleString() ?? '-' }}</td>
               <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.volume.toLocaleString() }}</td>
               <td class="px-3 py-2 text-right font-mono text-xs text-green-400 font-bold">
-                {{ r.volume ? (r.limitBidVol / r.volume).toFixed(2) : '-' }}
+                <template v-if="r.limitBidVol">{{ r.volume ? (r.limitBidVol / r.volume).toFixed(2) : '-' }}</template>
+                <span v-else-if="r.closedLimitUp" class="text-orange-400 text-xs">漲停收</span>
+                <template v-else>-</template>
               </td>
               <td class="px-3 py-2 text-right font-mono text-xs" :class="volRatio1dClass(r)">
                 {{ r.prevVol ? (r.volume / r.prevVol).toFixed(2) : '-' }}
               </td>
-              <td class="px-3 py-2 text-right font-mono text-xs text-blue-300">{{ r.limitBidVol?.toLocaleString() ?? '-' }}</td>
+              <td class="px-3 py-2 text-right font-mono text-xs text-blue-300">
+                <template v-if="r.limitBidVol">{{ r.limitBidVol.toLocaleString() }}</template>
+                <span v-else-if="r.closedLimitUp" class="text-orange-400 text-xs">漲停收</span>
+                <template v-else>-</template>
+              </td>
               <td class="px-3 py-2 text-right font-mono text-xs text-yellow-400">
                 {{ r.limitDays ? r.limitDays + '天' : '-' }}
               </td>

@@ -2596,6 +2596,7 @@ app.get('/api/debug/screener-check', async (req, res) => {
       )
     `)
     await pool.query(`ALTER TABLE market_daily ADD COLUMN IF NOT EXISTS short_bal BIGINT`).catch(()=>{})
+    await pool.query(`ALTER TABLE daily_limit_bid ADD COLUMN IF NOT EXISTS closed_limit_up BOOLEAN DEFAULT FALSE`).catch(()=>{})
     await pool.query(`
       CREATE TABLE IF NOT EXISTS daily_limit_bid (
         stock_no      VARCHAR(10),
@@ -3782,7 +3783,8 @@ async function saveCloseSnapshot(dateStr) {
     batches.push(slice.flatMap(r => [`tse_${r.stock_no}.tw`, `otc_${r.stock_no}.tw`]))
   }
   const results = await Promise.all(batches.map(b => fetchMisRaw(b).catch(() => null)))
-  const records = []
+  const bidRecords = []
+  const limitUpList = []
   const seen = new Set()
   for (const mis of results) {
     for (const item of mis?.msgArray || []) {
@@ -3793,24 +3795,33 @@ async function saveCloseSnapshot(dateStr) {
       if (!z || !y || y === 0) continue
       if ((z - y) / y * 100 < 9.4) continue
       const limitPrice = item.u && item.u !== '-' ? parseFloat(item.u) : null
-      if (!limitPrice || !item.b || !item.g) continue
+      if (!limitPrice) continue
+      if (Math.abs(z - limitPrice) < 0.01) limitUpList.push(item.c)
+      if (!item.b || !item.g) continue
       const bidPs = item.b.split('_'), bidQs = item.g.split('_')
       let total = 0
       for (let i = 0; i < bidPs.length; i++) {
         if (Math.abs(parseFloat(bidPs[i]) - limitPrice) < 0.01)
           total += parseInt(bidQs[i]) || 0
       }
-      if (total > 0) records.push([item.c, today, total])
+      if (total > 0) bidRecords.push([item.c, today, total])
     }
   }
-  for (const [stockNo, tradeDate, vol] of records) {
+  for (const [stockNo, tradeDate, vol] of bidRecords) {
     await pool.query(`
-      INSERT INTO daily_limit_bid (stock_no, trade_date, limit_bid_vol)
-      VALUES ($1, $2, $3)
-      ON CONFLICT (stock_no, trade_date) DO UPDATE SET limit_bid_vol = $3
+      INSERT INTO daily_limit_bid (stock_no, trade_date, limit_bid_vol, closed_limit_up)
+      VALUES ($1, $2, $3, TRUE)
+      ON CONFLICT (stock_no, trade_date) DO UPDATE SET limit_bid_vol = $3, closed_limit_up = TRUE
     `, [stockNo, tradeDate, vol])
   }
-  console.log(`[close-snapshot] ${today} 漲停委買量儲存完成，共 ${records.length} 支`)
+  for (const stockNo of limitUpList) {
+    await pool.query(`
+      INSERT INTO daily_limit_bid (stock_no, trade_date, closed_limit_up)
+      VALUES ($1, $2, TRUE)
+      ON CONFLICT (stock_no, trade_date) DO UPDATE SET closed_limit_up = TRUE
+    `, [stockNo, today])
+  }
+  console.log(`[close-snapshot] ${today} 儲存完成，漲停委買量 ${bidRecords.length} 支，漲停收盤 ${limitUpList.length} 支`)
   return { saved: records.length, date: today }
 }
 
@@ -3998,8 +4009,32 @@ cron.schedule('0 2 * * *', async () => {
   }
 }, { timezone: 'Asia/Taipei' })
 
+async function backfillLimitUpClose() {
+  try {
+    const { rowCount } = await pool.query(`
+      INSERT INTO daily_limit_bid (stock_no, trade_date, closed_limit_up)
+      SELECT stock_no, trade_date, TRUE
+      FROM (
+        SELECT stock_no, trade_date,
+               (close - LAG(close) OVER (PARTITION BY stock_no ORDER BY trade_date))
+                 / LAG(close) OVER (PARTITION BY stock_no ORDER BY trade_date) AS chg
+        FROM market_daily
+        WHERE trade_date >= CURRENT_DATE - INTERVAL '35 days' AND close > 0
+      ) t
+      WHERE chg >= 0.095
+        AND trade_date >= CURRENT_DATE - INTERVAL '30 days'
+      ON CONFLICT (stock_no, trade_date) DO UPDATE
+        SET closed_limit_up = TRUE
+    `)
+    console.log(`[backfill-limit-up] 補建漲停收盤完成，${rowCount} 筆`)
+  } catch(e) {
+    console.error('[backfill-limit-up] 失敗:', e.message)
+  }
+}
+
 // 啟動時立即載入
 loadAllTickStocks()
+backfillLimitUpClose()
 
 // 查詢逐筆成交
 app.get('/api/stock/ticks/:stockNo', async (req, res) => {
@@ -4085,7 +4120,7 @@ app.get('/api/market/movers', async (req, res) => {
                ROUND(((t.close - p.prev_close) / p.prev_close * 100)::numeric, 2) AS change_pct,
                ROUND((t.close - p.prev_close)::numeric, 2) AS change,
                m.ma3, m.prev_ma3, m.vol_ma3, m.prev_vol, m.prev_open, m.prev_vol_ma3,
-               dlb.limit_bid_vol
+               dlb.limit_bid_vol, dlb.closed_limit_up
         FROM today t
         JOIN prev p ON p.stock_no = t.stock_no
         LEFT JOIN ma m ON m.stock_no = t.stock_no
@@ -4108,7 +4143,8 @@ app.get('/api/market/movers', async (req, res) => {
         prevVol:    r.prev_vol != null ? Math.round(parseInt(r.prev_vol) / 1000) : null,
         prevOpen:    r.prev_open != null ? parseFloat(r.prev_open) : null,
         prevVolMa3:  r.prev_vol_ma3 != null ? Math.round(parseInt(r.prev_vol_ma3) / 1000) : null,
-        limitBidVol: r.limit_bid_vol != null ? parseInt(r.limit_bid_vol) : null,
+        limitBidVol:    r.limit_bid_vol != null ? parseInt(r.limit_bid_vol) : null,
+        closedLimitUp:  r.closed_limit_up || false,
       }))
 
       // 計算連續漲停／跌停天數
