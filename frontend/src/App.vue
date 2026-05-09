@@ -388,6 +388,11 @@ function warrantSort(col) {
 
 const warrantCallCount = computed(() => warrantRows.value.filter(r => r.type === 'call').length)
 const warrantPutCount  = computed(() => warrantRows.value.filter(r => r.type === 'put').length)
+const warrantQualified = computed(() => warrantRows.value.filter(r =>
+  r.daysLeft != null && r.daysLeft > 30 &&
+  r.premiumPct != null && r.premiumPct > -15 && r.premiumPct < 15 &&
+  r.volume != null && r.volume > 20
+).sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0)))
 
 function wChangePctColor(v) { return v == null ? 'text-gray-500' : +v > 0 ? 'text-red-400' : +v < 0 ? 'text-green-400' : 'text-gray-400' }
 function wSortIcon(col) { return warrantSortCol.value === col ? (warrantSortDesc.value ? ' ▼' : ' ▲') : '' }
@@ -3175,6 +3180,84 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
         <span class="px-2 py-0.5 rounded-full text-xs font-bold bg-green-500/20 text-green-400 border border-green-800">認售 {{ warrantPutCount }}</span>
       </div>
 
+      <!-- 符合條件區 -->
+      <div v-if="warrantRows.length" class="bg-gray-900 rounded-xl border border-red-800/60 overflow-x-auto">
+        <div class="px-4 py-2 bg-red-900/30 border-b border-red-800/40 flex items-center gap-2">
+          <span class="text-red-400 font-semibold text-xs">★ 符合條件</span>
+          <span class="text-gray-500 text-xs">剩餘天 &gt; 30 ｜ -15% &lt; 溢價率 &lt; 15% ｜ 成交量 &gt; 20張</span>
+          <span class="ml-auto text-red-400/70 text-xs">{{ warrantQualified.length }} 檔</span>
+        </div>
+        <table class="w-full text-xs">
+          <thead>
+            <tr class="border-b border-red-900/40 text-gray-500">
+              <th class="text-left px-3 py-2 font-medium whitespace-nowrap">代號</th>
+              <th class="text-left px-3 py-2 font-medium whitespace-nowrap">名稱</th>
+              <th class="text-left px-3 py-2 font-medium whitespace-nowrap">類型</th>
+              <th class="text-left px-3 py-2 font-medium whitespace-nowrap hidden sm:table-cell">發行商</th>
+              <th class="text-right px-3 py-2 font-medium whitespace-nowrap">履約價</th>
+              <th class="text-right px-3 py-2 font-medium whitespace-nowrap hidden md:table-cell">到期日</th>
+              <th class="text-right px-3 py-2 font-medium whitespace-nowrap hidden md:table-cell">剩餘天</th>
+              <th class="text-right px-3 py-2 font-medium whitespace-nowrap">現價</th>
+              <th class="text-right px-3 py-2 font-medium whitespace-nowrap">漲跌%</th>
+              <th class="text-right px-3 py-2 font-medium whitespace-nowrap">成交量</th>
+              <th class="text-right px-3 py-2 font-medium whitespace-nowrap">溢價率</th>
+              <th class="text-right px-3 py-2 font-medium whitespace-nowrap hidden lg:table-cell">槓桿</th>
+              <th class="text-right px-3 py-2 font-medium whitespace-nowrap hidden lg:table-cell">Delta</th>
+              <th class="px-3 py-2 font-medium whitespace-nowrap">工具</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-if="!warrantQualified.length">
+              <td colspan="14" class="px-4 py-6 text-center text-gray-600 text-xs">無符合條件的權證</td>
+            </tr>
+            <tr v-for="row in warrantQualified" :key="row.warrantNo"
+                class="border-b border-red-900/20 bg-red-900/15 hover:bg-red-900/25 transition">
+              <td class="px-3 py-2 font-mono text-gray-300">{{ row.warrantNo }}</td>
+              <td class="px-3 py-2 text-gray-400 max-w-[120px] truncate">{{ row.warrantName }}</td>
+              <td class="px-3 py-2">
+                <span class="px-1.5 py-0.5 rounded text-xs font-bold"
+                      :class="row.type === 'call' ? 'bg-red-500/20 text-red-400' : 'bg-green-500/20 text-green-400'">
+                  {{ row.type === 'call' ? '認購' : '認售' }}
+                </span>
+              </td>
+              <td class="px-3 py-2 text-gray-400 hidden sm:table-cell">{{ row.issuer || '—' }}</td>
+              <td class="px-3 py-2 text-right text-gray-300">{{ row.strike != null ? row.strike.toLocaleString() : '—' }}</td>
+              <td class="px-3 py-2 text-right text-gray-400 hidden md:table-cell">{{ row.expiry || '—' }}</td>
+              <td class="px-3 py-2 text-right text-gray-400 hidden md:table-cell">{{ row.daysLeft != null ? row.daysLeft : '—' }}</td>
+              <td class="px-3 py-2 text-right font-medium" :class="row.noTrade ? 'text-gray-500' : 'text-white'">
+                {{ row.price != null ? row.price.toFixed(2) : '—' }}
+                <span v-if="row.noTrade" class="text-gray-600 text-xs ml-0.5">昨</span>
+              </td>
+              <td class="px-3 py-2 text-right font-medium" :class="wChangePctColor(row.changePct)">
+                <span v-if="row.noTrade" class="text-gray-600 text-xs">無成交</span>
+                <span v-else>{{ row.changePct != null ? (row.changePct > 0 ? '+' : '') + row.changePct.toFixed(2) + '%' : '—' }}</span>
+              </td>
+              <td class="px-3 py-2 text-right text-gray-300">{{ row.volume ? row.volume.toLocaleString() : '—' }}</td>
+              <td class="px-3 py-2 text-right"
+                  :class="row.premiumPct != null && row.premiumPct < 0 ? 'text-green-400' : row.premiumPct != null && row.premiumPct < 5 ? 'text-yellow-400' : 'text-gray-400'">
+                {{ row.premiumPct != null ? (row.premiumPct > 0 ? '+' : '') + row.premiumPct.toFixed(2) + '%' : '—' }}
+              </td>
+              <td class="px-3 py-2 text-right text-gray-300 hidden lg:table-cell">
+                {{ row.leverage != null ? row.leverage.toFixed(1) + 'x' : '—' }}
+              </td>
+              <td class="px-3 py-2 text-right text-gray-300 hidden lg:table-cell">
+                {{ row.delta != null ? row.delta.toFixed(4) : '—' }}
+              </td>
+              <td class="px-3 py-2">
+                <div class="flex gap-1 justify-center">
+                  <a :href="`https://warrant.pscnet.com.tw/wSettle.aspx?wid=${row.warrantNo}`" target="_blank" rel="noopener"
+                     class="px-1.5 py-0.5 rounded text-xs bg-blue-900/40 text-blue-400 hover:bg-blue-800/60 border border-blue-800/50 whitespace-nowrap transition">履約</a>
+                  <a :href="`https://www.warrantwin.com.tw/eyuanta/Warrant/Analyzer.aspx?WID=${row.warrantNo}`" target="_blank" rel="noopener"
+                     class="px-1.5 py-0.5 rounded text-xs bg-purple-900/40 text-purple-400 hover:bg-purple-800/60 border border-purple-800/50 whitespace-nowrap transition">試算</a>
+                  <a href="https://www.warrantwin.com.tw/eyuanta/Warrant/Search.aspx" target="_blank" rel="noopener"
+                     class="px-1.5 py-0.5 rounded text-xs bg-gray-800 text-gray-400 hover:bg-gray-700 border border-gray-700 whitespace-nowrap transition">搜尋</a>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
       <!-- 表格 -->
       <div v-if="warrantRows.length" class="bg-gray-900 rounded-xl border border-gray-800 overflow-x-auto">
         <table class="w-full text-xs">
@@ -3190,7 +3273,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               <th class="text-right px-3 py-2.5 font-medium cursor-pointer hover:text-gray-300 whitespace-nowrap" @click="warrantSort('price')">現價{{ wSortIcon('price') }}</th>
               <th class="text-right px-3 py-2.5 font-medium cursor-pointer hover:text-gray-300 whitespace-nowrap" @click="warrantSort('changePct')">漲跌%{{ wSortIcon('changePct') }}</th>
               <th class="text-right px-3 py-2.5 font-medium cursor-pointer hover:text-gray-300 whitespace-nowrap" @click="warrantSort('volume')">成交量{{ wSortIcon('volume') }}</th>
-              <th class="text-right px-3 py-2.5 font-medium cursor-pointer hover:text-gray-300 whitespace-nowrap hidden lg:table-cell" @click="warrantSort('premiumPct')">溢價率{{ wSortIcon('premiumPct') }}</th>
+              <th class="text-right px-3 py-2.5 font-medium cursor-pointer hover:text-gray-300 whitespace-nowrap" @click="warrantSort('premiumPct')">溢價率{{ wSortIcon('premiumPct') }}</th>
               <th class="text-right px-3 py-2.5 font-medium cursor-pointer hover:text-gray-300 whitespace-nowrap hidden lg:table-cell" @click="warrantSort('leverage')">槓桿{{ wSortIcon('leverage') }}</th>
               <th class="text-right px-3 py-2.5 font-medium cursor-pointer hover:text-gray-300 whitespace-nowrap hidden lg:table-cell" @click="warrantSort('delta')">Delta{{ wSortIcon('delta') }}</th>
               <th class="text-right px-3 py-2.5 font-medium cursor-pointer hover:text-gray-300 whitespace-nowrap hidden xl:table-cell" @click="warrantSort('iv')">IV%{{ wSortIcon('iv') }}</th>
@@ -3225,7 +3308,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <span v-else>{{ row.changePct != null ? (row.changePct > 0 ? '+' : '') + row.changePct.toFixed(2) + '%' : '—' }}</span>
               </td>
               <td class="px-3 py-2 text-right text-gray-300">{{ row.volume ? row.volume.toLocaleString() : '—' }}</td>
-              <td class="px-3 py-2 text-right hidden lg:table-cell"
+              <td class="px-3 py-2 text-right"
                   :class="row.premiumPct != null && row.premiumPct < 0 ? 'text-green-400' : row.premiumPct != null && row.premiumPct < 5 ? 'text-yellow-400' : 'text-gray-400'">
                 {{ row.premiumPct != null ? (row.premiumPct > 0 ? '+' : '') + row.premiumPct.toFixed(2) + '%' : '—' }}
               </td>
