@@ -3435,9 +3435,9 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <th class="px-3 py-2 text-right">3日均量</th>
                 <th class="px-3 py-2 text-right">1日量</th>
                 <th class="px-3 py-2 text-right leading-tight">今日成交量<br><span class="text-gray-600">(漲停委買量)</span></th>
-                <th class="px-3 py-2 text-right cursor-help" title="漲停委買比 = 漲停委買量 ÷ 今日成交量&#10;&gt; 1.6　綠色（強力鎖籌）">漲停委買比 <span class="text-gray-600">?</span></th>
-                <th class="px-3 py-2 text-right cursor-help" title="1日量比 = 今日成交量 ÷ 昨日成交量&#10;≥ 2　黃色粗體（爆量）&#10;0.5～2　灰色&#10;0.3～0.5　紅色&#10;< 0.3　紫色粗體（極度縮量）">1日量比 <span class="text-gray-600">?</span></th>
-                <th class="px-3 py-2 text-right cursor-help" title="3日量比 = 今日成交量 ÷ 3日平均成交量&#10;≥ 2　黃色粗體（爆量）&#10;0.5～2　灰色&#10;< 0.5　橘色（縮量）">3日量比 <span class="text-gray-600">?</span></th>
+                <th class="px-3 py-2 text-right leading-tight">漲停委買比<br><span class="text-gray-600">委買量÷成交量</span></th>
+                <th class="px-3 py-2 text-right leading-tight">1日量比<br><span class="text-gray-600">今÷昨</span></th>
+                <th class="px-3 py-2 text-right leading-tight">3日量比<br><span class="text-gray-600">今÷3日均</span></th>
               </tr>
             </thead>
             <tbody>
@@ -3489,9 +3489,9 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <th class="px-3 py-2 text-right">3日均量</th>
                 <th class="px-3 py-2 text-right">1日量</th>
                 <th class="px-3 py-2 text-right leading-tight">今日成交量<br><span class="text-gray-600">(漲停委買量)</span></th>
-                <th class="px-3 py-2 text-right cursor-help" title="漲停委買比 = 漲停委買量 ÷ 今日成交量&#10;&gt; 1.6　綠色（強力鎖籌）">漲停委買比 <span class="text-gray-600">?</span></th>
-                <th class="px-3 py-2 text-right cursor-help" title="1日量比 = 今日成交量 ÷ 昨日成交量&#10;≥ 2　黃色粗體（爆量）&#10;0.5～2　灰色&#10;0.3～0.5　紅色&#10;< 0.3　紫色粗體（極度縮量）">1日量比 <span class="text-gray-600">?</span></th>
-                <th class="px-3 py-2 text-right cursor-help" title="3日量比 = 今日成交量 ÷ 3日平均成交量&#10;≥ 2　黃色粗體（爆量）&#10;0.5～2　灰色&#10;< 0.5　橘色（縮量）">3日量比 <span class="text-gray-600">?</span></th>
+                <th class="px-3 py-2 text-right leading-tight">漲停委買比<br><span class="text-gray-600">委買量÷成交量</span></th>
+                <th class="px-3 py-2 text-right leading-tight">1日量比<br><span class="text-gray-600">今÷昨</span></th>
+                <th class="px-3 py-2 text-right leading-tight">3日量比<br><span class="text-gray-600">今÷3日均</span></th>
               </tr>
             </thead>
             <tbody>
