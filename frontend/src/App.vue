@@ -3635,17 +3635,18 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
   <!-- 五檔報價 Modal -->
   <Teleport to="body">
     <div v-if="quoteVisible" class="fixed inset-0 z-50 flex items-center justify-center" @click.self="closeQuote">
-      <div class="absolute inset-0 bg-black/70"></div>
-      <div class="relative bg-gray-900 border border-gray-700 rounded-xl shadow-2xl w-80 max-w-full mx-4 overflow-hidden">
+      <div class="absolute inset-0 bg-black/75"></div>
+      <div class="relative bg-black border border-gray-700 rounded-xl shadow-2xl overflow-hidden" style="width:320px">
+
         <!-- 標題列 -->
-        <div class="flex items-center justify-between px-4 py-3 border-b border-gray-800">
-          <div>
-            <span class="text-white font-semibold">{{ quoteData?.stockName || quoteStockNo }}</span>
-            <span class="text-gray-500 text-xs ml-2">{{ quoteData?.stockNo }}</span>
+        <div class="flex items-center justify-between px-3 py-2 bg-gray-900">
+          <div class="flex items-baseline gap-2">
+            <span class="text-white font-bold text-sm">{{ quoteData?.stockName || quoteStockNo }}</span>
+            <span class="text-gray-500 text-xs">{{ quoteData?.stockNo }}</span>
           </div>
-          <div class="flex items-center gap-3">
-            <span class="text-gray-600 text-xs">{{ quoteData?.time || '' }}</span>
-            <button @click="closeQuote" class="text-gray-500 hover:text-white text-lg leading-none">✕</button>
+          <div class="flex items-center gap-2">
+            <span class="text-gray-500 text-xs font-mono">{{ quoteData?.time || '' }}</span>
+            <button @click="closeQuote" class="text-gray-500 hover:text-white leading-none px-1">✕</button>
           </div>
         </div>
 
@@ -3653,71 +3654,138 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
         <div v-if="!quoteData" class="py-10 text-center text-gray-500 text-sm">載入中...</div>
 
         <div v-else>
-          <!-- 現價 -->
-          <div class="px-4 py-3 flex items-baseline gap-3 border-b border-gray-800">
-            <span class="text-2xl font-bold font-mono"
-              :class="quoteData.price >= quoteData.limitUp ? 'text-red-400' : quoteData.price <= quoteData.limitDown ? 'text-green-400' : quoteData.price > quoteData.prevClose ? 'text-red-300' : quoteData.price < quoteData.prevClose ? 'text-green-300' : 'text-white'">
-              {{ quoteData.price ?? '-' }}
-            </span>
-            <span class="text-sm font-mono" :class="quoteData.price > quoteData.prevClose ? 'text-red-400' : quoteData.price < quoteData.prevClose ? 'text-green-400' : 'text-gray-400'">
-              {{ quoteData.price && quoteData.prevClose ? ((quoteData.price - quoteData.prevClose) >= 0 ? '+' : '') + (quoteData.price - quoteData.prevClose).toFixed(2) : '' }}
-              ({{ quoteData.price && quoteData.prevClose ? ((quoteData.price - quoteData.prevClose) / quoteData.prevClose * 100 >= 0 ? '+' : '') + ((quoteData.price - quoteData.prevClose) / quoteData.prevClose * 100).toFixed(2) + '%' : '' }})
-            </span>
+          <!-- 委買 / 委賣 標頭 -->
+          <div class="grid grid-cols-2 text-center text-base font-bold">
+            <div class="py-1.5 bg-red-600 text-white tracking-widest">委 買</div>
+            <div class="py-1.5 bg-blue-600 text-white tracking-widest">委 賣</div>
           </div>
 
-          <!-- 五檔表 -->
-          <div class="px-4 py-2">
-            <div class="grid grid-cols-2 gap-x-2 text-xs mb-1">
-              <div class="text-center text-red-400 font-semibold py-1 bg-red-900/20 rounded">委買</div>
-              <div class="text-center text-green-400 font-semibold py-1 bg-green-900/20 rounded">委賣</div>
-            </div>
-            <div v-for="i in 5" :key="i" class="grid grid-cols-2 gap-x-2 py-0.5">
-              <!-- 委買 -->
-              <div class="flex justify-between items-center text-xs font-mono px-1">
-                <span :class="quoteData.bids[i-1]?.price === quoteData.limitUp ? 'text-yellow-400 font-bold' : 'text-red-300'">
-                  {{ quoteData.bids[i-1]?.qty != null ? quoteData.bids[i-1].qty.toLocaleString() : '-' }}
-                </span>
-                <span :class="quoteData.bids[i-1]?.price === quoteData.limitUp ? 'text-yellow-400 font-bold' : 'text-gray-300'">
+          <!-- 五檔 -->
+          <div class="bg-black">
+            <div v-for="i in 5" :key="i"
+                 class="grid text-sm font-mono border-b border-gray-900"
+                 style="grid-template-columns: 1.5rem 1fr 1fr 1.5rem"
+                 :class="i === 1 && quoteData.bids[0]?.price === quoteData.limitUp ? 'bg-orange-900/40' : ''">
+              <!-- H 標記 -->
+              <div class="flex items-center justify-center text-red-500 font-bold text-xs pl-1">
+                {{ i === 1 && quoteData.bids[0]?.price != null ? 'H' : '' }}
+              </div>
+              <!-- 委買：量 | 價 -->
+              <div class="flex items-center justify-between px-2 py-1.5"
+                   :class="i === 1 && quoteData.bids[0]?.price === quoteData.limitUp ? 'text-red-300' : 'text-yellow-400'">
+                <span>{{ quoteData.bids[i-1]?.qty != null ? quoteData.bids[i-1].qty : '-' }}</span>
+                <span :class="i === 1 && quoteData.bids[0]?.price === quoteData.limitUp ? 'text-red-300 font-bold' : 'text-yellow-400'">
                   {{ quoteData.bids[i-1]?.price ?? '-' }}
                 </span>
               </div>
-              <!-- 委賣 -->
-              <div class="flex justify-between items-center text-xs font-mono px-1">
-                <span :class="quoteData.asks[i-1]?.price === quoteData.limitDown ? 'text-teal-400 font-bold' : 'text-gray-300'">
-                  {{ quoteData.asks[i-1]?.price ?? '-' }}
-                </span>
-                <span :class="quoteData.asks[i-1]?.price === quoteData.limitDown ? 'text-teal-400 font-bold' : 'text-green-300'">
-                  {{ quoteData.asks[i-1]?.qty != null ? quoteData.asks[i-1].qty.toLocaleString() : '-' }}
-                </span>
+              <!-- 委賣：價 | 量 -->
+              <div class="flex items-center justify-between px-2 py-1.5 text-yellow-400">
+                <span>{{ quoteData.asks[i-1]?.price ?? '-' }}</span>
+                <span>{{ quoteData.asks[i-1]?.qty != null ? quoteData.asks[i-1].qty : '-' }}</span>
               </div>
+              <!-- 右側空欄 -->
+              <div></div>
+            </div>
+
+            <!-- 委買委賣總量 -->
+            <div class="grid text-xs font-mono py-1.5 border-b border-gray-800"
+                 style="grid-template-columns: 1.5rem 1fr 1fr 1.5rem">
+              <div></div>
+              <div class="px-2 text-gray-400">
+                ({{ quoteData.totalBid != null ? quoteData.totalBid : '-' }})
+              </div>
+              <div class="px-2 text-right text-gray-400">
+                ({{ quoteData.totalAsk != null ? quoteData.totalAsk : '-' }})
+              </div>
+              <div></div>
             </div>
           </div>
 
-          <!-- 下方資訊列 -->
-          <div class="px-4 pb-3 pt-2 border-t border-gray-800 grid grid-cols-3 gap-2 text-xs">
-            <div class="text-center">
-              <div class="text-gray-500">開盤</div>
-              <div class="font-mono text-gray-300">{{ quoteData.open ?? '-' }}</div>
+          <!-- 詳細報價 分隔列 -->
+          <div class="px-3 py-1 bg-gray-800/60 text-gray-400 text-xs tracking-widest">詳細報價</div>
+
+          <!-- 詳細資訊格 -->
+          <div class="bg-black text-xs font-mono">
+            <!-- 成交 / 漲跌 / 幅度 -->
+            <div class="grid grid-cols-3 border-b border-gray-900">
+              <div class="flex items-center gap-1 px-2 py-1.5">
+                <span class="text-gray-400 shrink-0">成交</span>
+                <span class="px-1 rounded font-bold"
+                  :class="quoteData.price != null && quoteData.limitUp != null && quoteData.price >= quoteData.limitUp ? 'bg-red-700 text-white' : quoteData.price != null && quoteData.limitDown != null && quoteData.price <= quoteData.limitDown ? 'bg-green-700 text-white' : quoteData.changePct > 0 ? 'bg-red-900 text-red-300' : 'bg-green-900 text-green-300'">
+                  {{ quoteData.price ?? '-' }}
+                </span>
+              </div>
+              <div class="flex items-center gap-1 px-2 py-1.5">
+                <span class="text-gray-400 shrink-0">漲跌</span>
+                <span :class="quoteData.change > 0 ? 'text-red-400' : quoteData.change < 0 ? 'text-green-400' : 'text-gray-300'">
+                  {{ quoteData.change != null ? (quoteData.change > 0 ? '+' : '') + quoteData.change : '-' }}
+                </span>
+              </div>
+              <div class="flex items-center gap-1 px-2 py-1.5">
+                <span class="text-gray-400 shrink-0">幅度</span>
+                <span :class="quoteData.changePct > 0 ? 'text-red-400' : quoteData.changePct < 0 ? 'text-green-400' : 'text-gray-300'">
+                  {{ quoteData.changePct != null ? (quoteData.changePct > 0 ? '+' : '') + quoteData.changePct + '%' : '-' }}
+                </span>
+              </div>
             </div>
-            <div class="text-center">
-              <div class="text-gray-500">最高</div>
-              <div class="font-mono text-red-300">{{ quoteData.high ?? '-' }}</div>
+            <!-- 單量 / 總量 / 內盤外盤 -->
+            <div class="grid grid-cols-3 border-b border-gray-900">
+              <div class="flex items-center gap-1 px-2 py-1.5">
+                <span class="text-gray-400 shrink-0">單量</span>
+                <span class="text-gray-200">{{ quoteData.lastQty ?? '-' }}</span>
+              </div>
+              <div class="flex items-center gap-1 px-2 py-1.5">
+                <span class="text-gray-400 shrink-0">總量</span>
+                <span class="text-yellow-400">{{ quoteData.volume != null ? quoteData.volume.toLocaleString() : '-' }}</span>
+              </div>
+              <div class="flex items-center gap-1 px-2 py-1.5">
+                <span class="text-gray-400 shrink-0">振幅</span>
+                <span class="text-yellow-400">{{ quoteData.amplitude != null ? quoteData.amplitude + '%' : '-' }}</span>
+              </div>
             </div>
-            <div class="text-center">
-              <div class="text-gray-500">最低</div>
-              <div class="font-mono text-green-300">{{ quoteData.low ?? '-' }}</div>
+            <!-- 內盤 / 外盤 -->
+            <div class="grid grid-cols-3 border-b border-gray-900">
+              <div class="flex items-center gap-1 px-2 py-1.5">
+                <span class="text-gray-400 shrink-0">內盤</span>
+                <span class="text-green-400">{{ quoteData.innerVol ?? '-' }}</span>
+              </div>
+              <div class="flex items-center gap-1 px-2 py-1.5">
+                <span class="text-gray-400 shrink-0">外盤</span>
+                <span class="text-red-400">{{ quoteData.outerVol ?? '-' }}</span>
+              </div>
+              <div></div>
             </div>
-            <div class="text-center">
-              <div class="text-gray-500">成交量</div>
-              <div class="font-mono text-gray-300">{{ quoteData.volume != null ? quoteData.volume.toLocaleString() : '-' }}</div>
+            <!-- 跌停 / 漲停 / 昨收 -->
+            <div class="grid grid-cols-3 border-b border-gray-900">
+              <div class="flex items-center gap-1 px-2 py-1.5 bg-green-900/40">
+                <span class="text-gray-400 shrink-0">跌停</span>
+                <span class="text-green-400">{{ quoteData.limitDown ?? '-' }}</span>
+              </div>
+              <div class="flex items-center gap-1 px-2 py-1.5 bg-red-900/40">
+                <span class="text-gray-400 shrink-0">漲停</span>
+                <span class="text-red-400">{{ quoteData.limitUp ?? '-' }}</span>
+              </div>
+              <div class="flex items-center gap-1 px-2 py-1.5 bg-yellow-900/20">
+                <span class="text-gray-400 shrink-0">昨收</span>
+                <span class="text-yellow-400">{{ quoteData.prevClose ?? '-' }}</span>
+              </div>
             </div>
-            <div class="text-center">
-              <div class="text-gray-500">漲停</div>
-              <div class="font-mono text-red-400">{{ quoteData.limitUp ?? '-' }}</div>
-            </div>
-            <div class="text-center">
-              <div class="text-gray-500">跌停</div>
-              <div class="font-mono text-green-400">{{ quoteData.limitDown ?? '-' }}</div>
+            <!-- 最低 / 最高 / 開盤 -->
+            <div class="grid grid-cols-3">
+              <div class="flex items-center gap-1 px-2 py-1.5">
+                <span class="text-gray-400 shrink-0">最低</span>
+                <span class="text-green-300">{{ quoteData.low ?? '-' }}</span>
+              </div>
+              <div class="flex items-center gap-1 px-2 py-1.5"
+                   :class="quoteData.high != null && quoteData.limitUp != null && quoteData.high >= quoteData.limitUp ? 'bg-red-900/40' : ''">
+                <span class="text-gray-400 shrink-0">最高</span>
+                <span :class="quoteData.high != null && quoteData.limitUp != null && quoteData.high >= quoteData.limitUp ? 'text-red-300' : 'text-red-400'">{{ quoteData.high ?? '-' }}</span>
+              </div>
+              <div class="flex items-center gap-1 px-2 py-1.5"
+                   :class="quoteData.open != null && quoteData.limitUp != null && quoteData.open >= quoteData.limitUp ? 'bg-red-900/40' : ''">
+                <span class="text-gray-400 shrink-0">開盤</span>
+                <span :class="quoteData.open != null && quoteData.limitUp != null && quoteData.open >= quoteData.limitUp ? 'text-red-300' : 'text-gray-300'">{{ quoteData.open ?? '-' }}</span>
+              </div>
             </div>
           </div>
         </div>

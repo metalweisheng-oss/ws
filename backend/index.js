@@ -3836,21 +3836,38 @@ app.get('/api/stock/quote/:stockNo', async (req, res) => {
     const bids = bidPrices.map((p, i) => ({ price: p, qty: bidQtys[i] ?? null })).filter(x => x.price !== null)
     const asks = askPrices.map((p, i) => ({ price: p, qty: askQtys[i] ?? null })).filter(x => x.price !== null)
 
+    const p    = (k) => item[k] && item[k] !== '-' ? parseFloat(item[k]) : null
+    const pi   = (k) => item[k] && item[k] !== '-' ? parseInt(item[k])   : null
+    const price     = p('z')
+    const prevClose = p('y')
+    const high      = p('h')
+    const low       = p('l')
+    const change    = price != null && prevClose != null ? parseFloat((price - prevClose).toFixed(2)) : null
+    const changePct = price != null && prevClose != null && prevClose !== 0
+      ? parseFloat(((price - prevClose) / prevClose * 100).toFixed(2)) : null
+    const amplitude = high != null && low != null && prevClose != null && prevClose !== 0
+      ? parseFloat(((high - low) / prevClose * 100).toFixed(2)) : null
+
     res.json({
       ok: true,
-      stockNo: item.c,
+      stockNo:   item.c,
       stockName: item.n,
-      price:     item.z && item.z !== '-' ? parseFloat(item.z) : null,
-      prevClose: item.y && item.y !== '-' ? parseFloat(item.y) : null,
-      open:      item.o && item.o !== '-' ? parseFloat(item.o) : null,
-      high:      item.h && item.h !== '-' ? parseFloat(item.h) : null,
-      low:       item.l && item.l !== '-' ? parseFloat(item.l) : null,
-      limitUp:   item.u && item.u !== '-' ? parseFloat(item.u) : null,
-      limitDown: item.w && item.w !== '-' ? parseFloat(item.w) : null,
-      volume:    item.v && item.v !== '-' ? parseInt(item.v) : null,
-      lastQty:   item.tv && item.tv !== '-' ? parseInt(item.tv) : null,
-      totalBid:  item.tbu && item.tbu !== '-' ? parseInt(item.tbu) : null,
-      totalAsk:  item.tsu && item.tsu !== '-' ? parseInt(item.tsu) : null,
+      price,
+      prevClose,
+      open:      p('o'),
+      high,
+      low,
+      limitUp:   p('u'),
+      limitDown: p('w'),
+      volume:    pi('v'),
+      lastQty:   pi('tv'),
+      totalBid:  pi('tbu'),
+      totalAsk:  pi('tsu'),
+      innerVol:  pi('it'),
+      outerVol:  pi('ot'),
+      change,
+      changePct,
+      amplitude,
       bids,
       asks,
       time: item.t || null,
