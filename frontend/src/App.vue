@@ -3246,7 +3246,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
       </div>
 
       <!-- 量縮漲停觀察 第一順位 -->
-      <div v-if="limitSqueezeList1.length" class="bg-gray-900 border border-blue-500/40 rounded-xl overflow-hidden">
+      <div class="bg-gray-900 border border-blue-500/40 rounded-xl overflow-hidden">
         <div class="px-4 py-3 border-b border-blue-500/30 flex items-center gap-2">
           <span class="text-blue-300 font-semibold text-sm">★ 量縮漲停觀察　第一順位</span>
           <span class="text-xs text-gray-500">昨日帶量長紅 + 1日量比 &lt; 0.5 + 漲停委買比 &gt; 1.7</span>
@@ -3265,6 +3265,9 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
             </tr>
           </thead>
           <tbody>
+            <tr v-if="!limitSqueezeList1.length">
+              <td colspan="7" class="px-3 py-4 text-center text-gray-700 text-xs">目前無符合條件</td>
+            </tr>
             <tr v-for="r in limitSqueezeList1" :key="r.stockNo"
                 class="border-b border-gray-800/50 bg-blue-900/15 hover:bg-blue-900/25 transition cursor-pointer"
                 @click="goToWarrant(r.stockNo)">
@@ -3290,7 +3293,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
       </div>
 
       <!-- 量縮漲停觀察 第二順位 -->
-      <div v-if="limitSqueezeList2.length" class="bg-gray-900 border border-blue-900/50 rounded-xl overflow-hidden">
+      <div class="bg-gray-900 border border-blue-900/50 rounded-xl overflow-hidden">
         <div class="px-4 py-3 border-b border-blue-900/40 flex items-center gap-2">
           <span class="text-blue-400 font-semibold text-sm">▲ 量縮漲停觀察　第二順位</span>
           <span class="text-xs text-gray-500">昨日帶量長紅 + 1日量比 &lt; 0.7 + 漲停委買比 &gt; 1.5</span>
@@ -3309,6 +3312,9 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
             </tr>
           </thead>
           <tbody>
+            <tr v-if="!limitSqueezeList2.length">
+              <td colspan="7" class="px-3 py-4 text-center text-gray-700 text-xs">目前無符合條件</td>
+            </tr>
             <tr v-for="r in limitSqueezeList2" :key="r.stockNo"
                 class="border-b border-gray-800/50 bg-blue-900/10 hover:bg-blue-900/20 transition cursor-pointer"
                 @click="goToWarrant(r.stockNo)">
@@ -3334,7 +3340,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
       </div>
 
       <!-- 量縮漲停觀察 第三順位 -->
-      <div v-if="limitSqueezeList3.length" class="bg-gray-900 border border-gray-800/60 rounded-xl overflow-hidden">
+      <div class="bg-gray-900 border border-gray-800/60 rounded-xl overflow-hidden">
         <div class="px-4 py-3 border-b border-gray-800/40 flex items-center gap-2">
           <span class="text-gray-400 font-semibold text-sm">△ 量縮漲停觀察　第三順位</span>
           <span class="text-xs text-gray-500">昨日帶量長紅 + 1日量比 &lt; 0.7</span>
@@ -3353,6 +3359,9 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
             </tr>
           </thead>
           <tbody>
+            <tr v-if="!limitSqueezeList3.length">
+              <td colspan="7" class="px-3 py-4 text-center text-gray-700 text-xs">目前無符合條件</td>
+            </tr>
             <tr v-for="r in limitSqueezeList3" :key="r.stockNo"
                 class="border-b border-gray-800/50 hover:bg-gray-800/20 transition cursor-pointer"
                 @click="goToWarrant(r.stockNo)">
