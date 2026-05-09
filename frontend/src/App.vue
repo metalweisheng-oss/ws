@@ -3420,7 +3420,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
       <div v-if="moversGainers.length || moversLosers.length" class="grid grid-cols-1 lg:grid-cols-2 gap-4">
 
         <!-- 漲幅排行 -->
-        <div class="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
+        <div class="bg-gray-900 rounded-xl border border-gray-800">
           <div class="px-4 py-3 border-b border-gray-800 flex items-center gap-2">
             <span class="text-red-400 font-semibold text-sm">▲ 漲幅排行 TOP 50</span>
           </div>
@@ -3474,7 +3474,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
         </div>
 
         <!-- 跌幅排行 -->
-        <div class="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
+        <div class="bg-gray-900 rounded-xl border border-gray-800">
           <div class="px-4 py-3 border-b border-gray-800 flex items-center gap-2">
             <span class="text-green-400 font-semibold text-sm">▼ 跌幅排行 TOP 50</span>
           </div>
