@@ -3425,8 +3425,8 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
             <span class="text-red-400 font-semibold text-sm">▲ 漲幅排行 TOP 50</span>
           </div>
           <table class="w-full text-sm">
-            <thead>
-              <tr class="text-xs text-gray-500 border-b border-gray-800">
+            <thead class="sticky top-0 z-10">
+              <tr class="text-xs text-gray-500 border-b border-gray-800 bg-gray-900">
                 <th class="px-3 py-2 text-left w-8">#</th>
                 <th class="px-3 py-2 text-left">代號／名稱</th>
                 <th class="px-3 py-2 text-right">昨日價格</th>
@@ -3479,8 +3479,8 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
             <span class="text-green-400 font-semibold text-sm">▼ 跌幅排行 TOP 50</span>
           </div>
           <table class="w-full text-sm">
-            <thead>
-              <tr class="text-xs text-gray-500 border-b border-gray-800">
+            <thead class="sticky top-0 z-10">
+              <tr class="text-xs text-gray-500 border-b border-gray-800 bg-gray-900">
                 <th class="px-3 py-2 text-left w-8">#</th>
                 <th class="px-3 py-2 text-left">代號／名稱</th>
                 <th class="px-3 py-2 text-right">昨日價格</th>
