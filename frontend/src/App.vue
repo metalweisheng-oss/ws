@@ -468,8 +468,8 @@ function stopMoversAutoRefresh() {
 function volRatio1dClass(r) {
   if (!r.prevVol) return 'text-gray-600'
   const ratio = r.volume / r.prevVol
-  if (ratio < 0.3) return 'text-purple-400 font-bold'
-  if (ratio < 0.5) return 'text-red-400 font-bold'
+  if (ratio < 0.5) return 'text-purple-400 font-bold'
+  if (ratio < 0.7) return 'text-red-400 font-bold'
   if (ratio >= 2)  return 'text-yellow-400 font-bold'
   return 'text-gray-400'
 }
@@ -3389,9 +3389,9 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-1">
           <div class="font-semibold text-gray-500 col-span-full">1日量比（今日量 ÷ 昨日量）</div>
           <div class="flex items-center gap-2"><span class="text-yellow-400 font-bold">■ 黃色粗體</span><span>≥ 2　爆量</span></div>
-          <div class="flex items-center gap-2"><span class="text-gray-400">■ 灰色</span><span>0.5 ～ 2　正常</span></div>
-          <div class="flex items-center gap-2"><span class="text-red-400 font-bold">■ 紅色粗體</span><span>0.3 ～ 0.5　縮量</span></div>
-          <div class="flex items-center gap-2"><span class="text-purple-400 font-bold">■ 紫色粗體</span><span>&lt; 0.3　極度縮量</span></div>
+          <div class="flex items-center gap-2"><span class="text-gray-400">■ 灰色</span><span>0.7 ～ 2　正常</span></div>
+          <div class="flex items-center gap-2"><span class="text-red-400 font-bold">■ 紅色粗體</span><span>0.5 ～ 0.7　縮量</span></div>
+          <div class="flex items-center gap-2"><span class="text-purple-400 font-bold">■ 紫色粗體</span><span>&lt; 0.5　極度縮量</span></div>
           <div class="font-semibold text-gray-500 col-span-full mt-1">3日量比（今日量 ÷ 3日均量）</div>
           <div class="flex items-center gap-2"><span class="text-yellow-400 font-bold">■ 黃色粗體</span><span>≥ 2　爆量</span></div>
           <div class="flex items-center gap-2"><span class="text-gray-400">■ 灰色</span><span>0.5 ～ 2　正常</span></div>
