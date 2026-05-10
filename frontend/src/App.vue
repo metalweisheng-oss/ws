@@ -392,11 +392,25 @@ const wFilterDays         = ref(30)
 const wFilterPremiumMax   = ref(15)
 const wFilterPremiumMin   = ref(-15)
 const wFilterVolume       = ref(50)
-const warrantQualified = computed(() => warrantRows.value.filter(r =>
-  r.daysLeft != null && r.daysLeft > wFilterDays.value &&
-  r.premiumPct != null && r.premiumPct > wFilterPremiumMin.value && r.premiumPct < wFilterPremiumMax.value &&
-  r.volume != null && r.volume > wFilterVolume.value
-).sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0)))
+const wQSortCol  = ref('volume')
+const wQSortDesc = ref(true)
+const warrantQualified = computed(() => {
+  const col = wQSortCol.value
+  return warrantRows.value.filter(r =>
+    r.daysLeft != null && r.daysLeft > wFilterDays.value &&
+    r.premiumPct != null && r.premiumPct > wFilterPremiumMin.value && r.premiumPct < wFilterPremiumMax.value &&
+    r.volume != null && r.volume > wFilterVolume.value
+  ).sort((a, b) => {
+    const av = a[col] ?? (wQSortDesc.value ? -Infinity : Infinity)
+    const bv = b[col] ?? (wQSortDesc.value ? -Infinity : Infinity)
+    return wQSortDesc.value ? bv - av : av - bv
+  })
+})
+function wQSort(col) {
+  if (wQSortCol.value === col) { wQSortDesc.value = !wQSortDesc.value }
+  else { wQSortCol.value = col; wQSortDesc.value = true }
+}
+function wQSortIcon(col) { return wQSortCol.value === col ? (wQSortDesc.value ? ' ▼' : ' ▲') : '' }
 
 function wChangePctColor(v) { return v == null ? 'text-gray-500' : +v > 0 ? 'text-red-400' : +v < 0 ? 'text-green-400' : 'text-gray-400' }
 function wSortIcon(col) { return warrantSortCol.value === col ? (warrantSortDesc.value ? ' ▼' : ' ▲') : '' }
@@ -3216,19 +3230,19 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
         <table class="w-full text-xs">
           <thead class="sticky top-0 z-10 bg-gray-900">
             <tr class="border-b border-red-900/40 text-gray-500">
-              <th class="text-left px-3 py-2 font-medium whitespace-nowrap">代號</th>
+              <th class="text-left px-3 py-2 font-medium whitespace-nowrap cursor-pointer hover:text-gray-300" @click="wQSort('warrantNo')">代號{{ wQSortIcon('warrantNo') }}</th>
               <th class="text-left px-3 py-2 font-medium whitespace-nowrap">名稱</th>
               <th class="text-left px-3 py-2 font-medium whitespace-nowrap">類型</th>
               <th class="text-left px-3 py-2 font-medium whitespace-nowrap hidden sm:table-cell">發行商</th>
-              <th class="text-right px-3 py-2 font-medium whitespace-nowrap">履約價</th>
+              <th class="text-right px-3 py-2 font-medium whitespace-nowrap cursor-pointer hover:text-gray-300" @click="wQSort('strike')">履約價{{ wQSortIcon('strike') }}</th>
               <th class="text-right px-3 py-2 font-medium whitespace-nowrap hidden md:table-cell">到期日</th>
-              <th class="text-right px-3 py-2 font-medium whitespace-nowrap hidden md:table-cell">剩餘天</th>
-              <th class="text-right px-3 py-2 font-medium whitespace-nowrap">現價</th>
-              <th class="text-right px-3 py-2 font-medium whitespace-nowrap">漲跌%</th>
-              <th class="text-right px-3 py-2 font-medium whitespace-nowrap">成交量</th>
-              <th class="text-right px-3 py-2 font-medium whitespace-nowrap">溢價率</th>
-              <th class="text-right px-3 py-2 font-medium whitespace-nowrap hidden lg:table-cell">槓桿</th>
-              <th class="text-right px-3 py-2 font-medium whitespace-nowrap hidden lg:table-cell">Delta</th>
+              <th class="text-right px-3 py-2 font-medium whitespace-nowrap hidden md:table-cell cursor-pointer hover:text-gray-300" @click="wQSort('daysLeft')">剩餘天{{ wQSortIcon('daysLeft') }}</th>
+              <th class="text-right px-3 py-2 font-medium whitespace-nowrap cursor-pointer hover:text-gray-300" @click="wQSort('price')">現價{{ wQSortIcon('price') }}</th>
+              <th class="text-right px-3 py-2 font-medium whitespace-nowrap cursor-pointer hover:text-gray-300" @click="wQSort('changePct')">漲跌%{{ wQSortIcon('changePct') }}</th>
+              <th class="text-right px-3 py-2 font-medium whitespace-nowrap cursor-pointer hover:text-gray-300" @click="wQSort('volume')">成交量{{ wQSortIcon('volume') }}</th>
+              <th class="text-right px-3 py-2 font-medium whitespace-nowrap cursor-pointer hover:text-gray-300" @click="wQSort('premiumPct')">溢價率{{ wQSortIcon('premiumPct') }}</th>
+              <th class="text-right px-3 py-2 font-medium whitespace-nowrap hidden lg:table-cell cursor-pointer hover:text-gray-300" @click="wQSort('leverage')">槓桿{{ wQSortIcon('leverage') }}</th>
+              <th class="text-right px-3 py-2 font-medium whitespace-nowrap hidden lg:table-cell cursor-pointer hover:text-gray-300" @click="wQSort('delta')">Delta{{ wQSortIcon('delta') }}</th>
               <th class="px-3 py-2 font-medium whitespace-nowrap">工具</th>
             </tr>
           </thead>
