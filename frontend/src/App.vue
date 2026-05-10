@@ -3254,7 +3254,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
             </tr>
             <tr v-for="row in warrantQualified" :key="row.warrantNo"
                 class="border-b border-red-900/20 bg-red-900/15 hover:bg-red-900/25 transition">
-              <td class="px-3 py-2 font-mono text-gray-300">{{ row.warrantNo }}</td>
+              <td class="px-3 py-2 font-mono text-blue-400 hover:text-blue-300 cursor-pointer underline decoration-dotted" @click="openQuote(row.warrantNo)">{{ row.warrantNo }}</td>
               <td class="px-3 py-2 text-gray-400 max-w-[120px] truncate">{{ row.warrantName }}</td>
               <td class="px-3 py-2">
                 <span class="px-1.5 py-0.5 rounded text-xs font-bold"
@@ -3330,7 +3330,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
             <tr v-for="row in warrantSorted" :key="row.warrantNo"
                 class="border-b border-gray-800/50 hover:bg-gray-800/40 transition"
                 :class="row.daysLeft != null && row.daysLeft < 30 ? 'bg-orange-900/10' : ''">
-              <td class="px-3 py-2 font-mono text-gray-300">{{ row.warrantNo }}</td>
+              <td class="px-3 py-2 font-mono text-blue-400 hover:text-blue-300 cursor-pointer underline decoration-dotted" @click="openQuote(row.warrantNo)">{{ row.warrantNo }}</td>
               <td class="px-3 py-2 text-gray-400 max-w-[120px] truncate">{{ row.warrantName }}</td>
               <td class="px-3 py-2">
                 <span class="px-1.5 py-0.5 rounded text-xs font-bold"
