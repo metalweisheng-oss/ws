@@ -3243,6 +3243,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               <th class="text-right px-3 py-2 font-medium whitespace-nowrap cursor-pointer hover:text-gray-300" @click="wQSort('changePct')">漲跌%{{ wQSortIcon('changePct') }}</th>
               <th class="text-right px-3 py-2 font-medium whitespace-nowrap cursor-pointer hover:text-gray-300" @click="wQSort('volume')">成交量{{ wQSortIcon('volume') }}</th>
               <th class="text-right px-3 py-2 font-medium whitespace-nowrap cursor-pointer hover:text-gray-300" @click="wQSort('premiumPct')">溢價率{{ wQSortIcon('premiumPct') }}</th>
+              <th class="text-right px-3 py-2 font-medium whitespace-nowrap cursor-pointer hover:text-gray-300" @click="wQSort('circulationPct')">流通%{{ wQSortIcon('circulationPct') }}</th>
               <th class="text-right px-3 py-2 font-medium whitespace-nowrap hidden lg:table-cell cursor-pointer hover:text-gray-300" @click="wQSort('leverage')">槓桿{{ wQSortIcon('leverage') }}</th>
               <th class="text-right px-3 py-2 font-medium whitespace-nowrap hidden lg:table-cell cursor-pointer hover:text-gray-300" @click="wQSort('delta')">Delta{{ wQSortIcon('delta') }}</th>
               <th class="px-3 py-2 font-medium whitespace-nowrap">工具</th>
@@ -3278,6 +3279,10 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               <td class="px-3 py-2 text-right"
                   :class="row.premiumPct != null && row.premiumPct < 0 ? 'text-green-400' : row.premiumPct != null && row.premiumPct < 5 ? 'text-yellow-400' : 'text-gray-400'">
                 {{ row.premiumPct != null ? (row.premiumPct > 0 ? '+' : '') + row.premiumPct.toFixed(2) + '%' : '—' }}
+              </td>
+              <td class="px-3 py-2 text-right"
+                  :class="row.circulationPct != null && row.circulationPct <= 20 ? 'text-red-400 font-semibold' : row.circulationPct != null && row.circulationPct <= 50 ? 'text-yellow-400' : 'text-gray-400'">
+                {{ row.circulationPct != null ? row.circulationPct.toFixed(1) + '%' : '—' }}
               </td>
               <td class="px-3 py-2 text-right text-gray-300 hidden lg:table-cell">
                 {{ row.leverage != null ? row.leverage.toFixed(1) + 'x' : '—' }}
@@ -3320,6 +3325,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               <th class="text-right px-3 py-2.5 font-medium cursor-pointer hover:text-gray-300 whitespace-nowrap" @click="warrantSort('changePct')">漲跌%{{ wSortIcon('changePct') }}</th>
               <th class="text-right px-3 py-2.5 font-medium cursor-pointer hover:text-gray-300 whitespace-nowrap" @click="warrantSort('volume')">成交量{{ wSortIcon('volume') }}</th>
               <th class="text-right px-3 py-2.5 font-medium cursor-pointer hover:text-gray-300 whitespace-nowrap" @click="warrantSort('premiumPct')">溢價率{{ wSortIcon('premiumPct') }}</th>
+              <th class="text-right px-3 py-2.5 font-medium cursor-pointer hover:text-gray-300 whitespace-nowrap" @click="warrantSort('circulationPct')">流通%{{ wSortIcon('circulationPct') }}</th>
               <th class="text-right px-3 py-2.5 font-medium cursor-pointer hover:text-gray-300 whitespace-nowrap hidden lg:table-cell" @click="warrantSort('leverage')">槓桿{{ wSortIcon('leverage') }}</th>
               <th class="text-right px-3 py-2.5 font-medium cursor-pointer hover:text-gray-300 whitespace-nowrap hidden lg:table-cell" @click="warrantSort('delta')">Delta{{ wSortIcon('delta') }}</th>
               <th class="text-right px-3 py-2.5 font-medium cursor-pointer hover:text-gray-300 whitespace-nowrap hidden xl:table-cell" @click="warrantSort('iv')">IV%{{ wSortIcon('iv') }}</th>
@@ -3357,6 +3363,10 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               <td class="px-3 py-2 text-right"
                   :class="row.premiumPct != null && row.premiumPct < 0 ? 'text-green-400' : row.premiumPct != null && row.premiumPct < 5 ? 'text-yellow-400' : 'text-gray-400'">
                 {{ row.premiumPct != null ? (row.premiumPct > 0 ? '+' : '') + row.premiumPct.toFixed(2) + '%' : '—' }}
+              </td>
+              <td class="px-3 py-2 text-right"
+                  :class="row.circulationPct != null && row.circulationPct <= 20 ? 'text-red-400 font-semibold' : row.circulationPct != null && row.circulationPct <= 50 ? 'text-yellow-400' : 'text-gray-400'">
+                {{ row.circulationPct != null ? row.circulationPct.toFixed(1) + '%' : '—' }}
               </td>
               <td class="px-3 py-2 text-right text-gray-300 hidden lg:table-cell">
                 {{ row.leverage != null ? row.leverage.toFixed(1) + 'x' : '—' }}

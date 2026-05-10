@@ -4644,6 +4644,18 @@ app.get('/api/warrant/search', async (req, res) => {
       const strike = parseFloat(r['最新履約價格(元)/履約指數']) || null
       const issuer = WARRANT_ISSUERS.find(i => (r['權證簡稱'] || '').includes(i)) || ''
 
+      // 流通比例：從備註解析最後一筆「剩餘權證 X 仟單位」
+      const issued = parseFloat(r['發行單位數量(仟單位)']) || null
+      let remaining = issued
+      const note = r['備註'] || ''
+      const matches = note.match(/剩餘權證([\d,]+)仟單位/g)
+      if (matches && matches.length) {
+        const lastMatch = matches[matches.length - 1]
+        const numStr = lastMatch.replace(/[^0-9,]/g, '').replace(/,/g, '')
+        remaining = parseFloat(numStr) || issued
+      }
+      const circulationPct = (issued && remaining != null) ? +((remaining / issued) * 100).toFixed(1) : null
+
       // ── 衍生指標計算 ──────────────────────────────
       const isCall = wtype === 'call'
       const T = daysLeft ? daysLeft / 365 : null  // 距到期年分
@@ -4688,6 +4700,7 @@ app.get('/api/warrant/search', async (req, res) => {
         leverage,
         delta,
         daysLeft,
+        circulationPct,
       }
     }).filter(Boolean)
 
