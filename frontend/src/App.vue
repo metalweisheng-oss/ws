@@ -3287,6 +3287,8 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               </td>
               <td class="px-3 py-2">
                 <div class="flex gap-1 justify-center">
+                  <button @click="openQuote(row.stockNo)"
+                          class="px-1.5 py-0.5 rounded text-xs bg-green-900/40 text-green-400 hover:bg-green-800/60 border border-green-800/50 whitespace-nowrap transition">報價</button>
                   <a :href="`https://warrant.pscnet.com.tw/wSettle.aspx?wid=${row.warrantNo}`" target="_blank" rel="noopener"
                      class="px-1.5 py-0.5 rounded text-xs bg-blue-900/40 text-blue-400 hover:bg-blue-800/60 border border-blue-800/50 whitespace-nowrap transition">履約</a>
                   <a :href="`https://www.warrantwin.com.tw/eyuanta/Warrant/Analyzer.aspx?WID=${row.warrantNo}`" target="_blank" rel="noopener"
@@ -3367,6 +3369,8 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               </td>
               <td class="px-3 py-2">
                 <div class="flex gap-1 justify-center">
+                  <button @click="openQuote(row.stockNo)"
+                          class="px-1.5 py-0.5 rounded text-xs bg-green-900/40 text-green-400 hover:bg-green-800/60 border border-green-800/50 whitespace-nowrap transition">報價</button>
                   <a :href="`https://warrant.pscnet.com.tw/wSettle.aspx?wid=${row.warrantNo}`" target="_blank" rel="noopener"
                      class="px-1.5 py-0.5 rounded text-xs bg-blue-900/40 text-blue-400 hover:bg-blue-800/60 border border-blue-800/50 whitespace-nowrap transition">履約</a>
                   <a :href="`https://www.warrantwin.com.tw/eyuanta/Warrant/Analyzer.aspx?WID=${row.warrantNo}`" target="_blank" rel="noopener"
