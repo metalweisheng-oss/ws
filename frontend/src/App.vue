@@ -386,12 +386,16 @@ function warrantSort(col) {
   else { warrantSortCol.value = col; warrantSortDesc.value = true }
 }
 
-const warrantCallCount = computed(() => warrantRows.value.filter(r => r.type === 'call').length)
-const warrantPutCount  = computed(() => warrantRows.value.filter(r => r.type === 'put').length)
+const warrantCallCount    = computed(() => warrantRows.value.filter(r => r.type === 'call').length)
+const warrantPutCount     = computed(() => warrantRows.value.filter(r => r.type === 'put').length)
+const wFilterDays         = ref(30)
+const wFilterPremiumMax   = ref(15)
+const wFilterPremiumMin   = ref(-15)
+const wFilterVolume       = ref(50)
 const warrantQualified = computed(() => warrantRows.value.filter(r =>
-  r.daysLeft != null && r.daysLeft > 30 &&
-  r.premiumPct != null && r.premiumPct > -15 && r.premiumPct < 15 &&
-  r.volume != null && r.volume > 20
+  r.daysLeft != null && r.daysLeft > wFilterDays.value &&
+  r.premiumPct != null && r.premiumPct > wFilterPremiumMin.value && r.premiumPct < wFilterPremiumMax.value &&
+  r.volume != null && r.volume > wFilterVolume.value
 ).sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0)))
 
 function wChangePctColor(v) { return v == null ? 'text-gray-500' : +v > 0 ? 'text-red-400' : +v < 0 ? 'text-green-400' : 'text-gray-400' }
@@ -3165,6 +3169,27 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 class="px-4 py-1.5 rounded-lg bg-purple-700 hover:bg-purple-600 text-sm font-medium transition disabled:opacity-50">
           {{ warrantLoading ? '查詢中...' : '查詢' }}
         </button>
+        <div class="w-px h-6 bg-gray-700 self-center hidden sm:block"></div>
+        <div>
+          <div class="text-xs text-gray-500 mb-1">剩餘天 ≥</div>
+          <input v-model.number="wFilterDays" type="number" min="0"
+                 class="w-16 bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-sm text-white text-center focus:outline-none focus:border-purple-500" />
+        </div>
+        <div>
+          <div class="text-xs text-gray-500 mb-1">溢價率 最小%</div>
+          <input v-model.number="wFilterPremiumMin" type="number"
+                 class="w-20 bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-sm text-white text-center focus:outline-none focus:border-purple-500" />
+        </div>
+        <div>
+          <div class="text-xs text-gray-500 mb-1">溢價率 最大%</div>
+          <input v-model.number="wFilterPremiumMax" type="number"
+                 class="w-20 bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-sm text-white text-center focus:outline-none focus:border-purple-500" />
+        </div>
+        <div>
+          <div class="text-xs text-gray-500 mb-1">成交量 ≥ 張</div>
+          <input v-model.number="wFilterVolume" type="number" min="0"
+                 class="w-20 bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-sm text-white text-center focus:outline-none focus:border-purple-500" />
+        </div>
       </div>
 
       <!-- 錯誤 -->
@@ -3184,7 +3209,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
       <div v-if="warrantRows.length" class="bg-gray-900 rounded-xl border border-red-800/60">
         <div class="px-4 py-2 bg-red-900/30 border-b border-red-800/40 flex items-center gap-2">
           <span class="text-red-400 font-semibold text-xs">★ 符合條件</span>
-          <span class="text-gray-500 text-xs">剩餘天 &gt; 30 ｜ -15% &lt; 溢價率 &lt; 15% ｜ 成交量 &gt; 20張</span>
+          <span class="text-gray-500 text-xs">剩餘天 &gt; {{ wFilterDays }} ｜ {{ wFilterPremiumMin }}% &lt; 溢價率 &lt; {{ wFilterPremiumMax }}% ｜ 成交量 &gt; {{ wFilterVolume }}張</span>
           <span class="ml-auto text-red-400/70 text-xs">{{ warrantQualified.length }} 檔</span>
         </div>
         <div class="overflow-x-auto overflow-y-auto max-h-64">
