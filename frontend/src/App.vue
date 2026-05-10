@@ -421,15 +421,18 @@ const scenarioVisible = ref(false)
 const scenarioWarrant = ref(null)
 
 function normCDF(x) {
-  const t = 1 / (1 + 0.2316419 * Math.abs(x))
-  const d = 0.39894228 * Math.exp(-x * x / 2)
-  let p = d * t * (0.31938153 + t * (-0.35656378 + t * (1.78147794 + t * (-1.82125978 + t * 1.33027443))))
-  return x > 0 ? 1 - p : p
+  const a = [0.254829592, -0.284496736, 1.421413741, -1.453152027, 1.061405429]
+  const p = 0.3275911, sign = x < 0 ? -1 : 1
+  x = Math.abs(x)
+  const t = 1 / (1 + p * x)
+  const poly = ((((a[4]*t + a[3])*t + a[2])*t + a[1])*t + a[0]) * t
+  return 0.5 * (1 + sign * (1 - poly * Math.exp(-x * x)))
 }
 function bsWarrantPrice(S, K, T, r, sigma, ratio, isCall) {
   if (!S || !K || !T || T <= 0 || !sigma || sigma <= 0 || !ratio) return null
-  const d1 = (Math.log(S / K) + (r + sigma * sigma / 2) * T) / (sigma * Math.sqrt(T))
-  const d2 = d1 - sigma * Math.sqrt(T)
+  const sqrtT = Math.sqrt(T)
+  const d1 = (Math.log(S / K) + (r + sigma * sigma / 2) * T) / (sigma * sqrtT)
+  const d2 = d1 - sigma * sqrtT
   const optPrice = isCall
     ? S * normCDF(d1) - K * Math.exp(-r * T) * normCDF(d2)
     : K * Math.exp(-r * T) * normCDF(-d2) - S * normCDF(-d1)
@@ -451,6 +454,7 @@ const scenarioTable = computed(() => {
   const ratio = w.ratio
   const isCall = w.type === 'call'
   const ivCols = scenarioIVOffsets.map(d => +(w.iv + d).toFixed(1))
+  const currentIVIdx = scenarioIVOffsets.indexOf(0)  // index 2
   const rows = scenarioRows.map(pct => {
     const S = +(S0 * (1 + pct / 100)).toFixed(2)
     const prices = ivCols.map(iv => {
@@ -459,7 +463,7 @@ const scenarioTable = computed(() => {
     })
     return { pct, S, prices }
   })
-  return { ivCols, rows, S0 }
+  return { ivCols, rows, S0, currentIVIdx }
 })
 function wSortIcon(col) { return warrantSortCol.value === col ? (warrantSortDesc.value ? ' ▼' : ' ▲') : '' }
 
@@ -4127,9 +4131,15 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                     :class="[
                       row.pct === 0 ? 'font-bold text-lg' : '',
                       row.pct > 0 ? 'text-red-400' : row.pct < 0 ? 'text-green-400' : 'text-white',
-                      scenarioTable.ivCols[i] === scenarioWarrant.iv && row.pct === 0 ? 'bg-yellow-900/30' : ''
+                      i === scenarioTable.currentIVIdx && row.pct === 0 ? 'bg-yellow-900/30' : ''
                     ]">
                   {{ p != null ? p.toFixed(2) : '—' }}
+                  <template v-if="i === scenarioTable.currentIVIdx && row.pct === 0 && scenarioWarrant.price != null">
+                    <div class="text-xs font-normal mt-0.5"
+                         :class="Math.abs(p - scenarioWarrant.price) < 0.01 ? 'text-gray-500' : 'text-yellow-400'">
+                      市價 {{ scenarioWarrant.price.toFixed(2) }}
+                    </div>
+                  </template>
                 </td>
               </tr>
             </tbody>
