@@ -415,6 +415,52 @@ function wQSort(col) {
 function wQSortIcon(col) { return wQSortCol.value === col ? (wQSortDesc.value ? ' ▼' : ' ▲') : '' }
 
 function wChangePctColor(v) { return v == null ? 'text-gray-500' : +v > 0 ? 'text-red-400' : +v < 0 ? 'text-green-400' : 'text-gray-400' }
+
+// ── 情境分析 Black-Scholes ────────────────────────────────
+const scenarioVisible = ref(false)
+const scenarioWarrant = ref(null)
+
+function normCDF(x) {
+  const t = 1 / (1 + 0.2316419 * Math.abs(x))
+  const d = 0.39894228 * Math.exp(-x * x / 2)
+  let p = d * t * (0.31938153 + t * (-0.35656378 + t * (1.78147794 + t * (-1.82125978 + t * 1.33027443))))
+  return x > 0 ? 1 - p : p
+}
+function bsWarrantPrice(S, K, T, r, sigma, ratio, isCall) {
+  if (!S || !K || !T || T <= 0 || !sigma || sigma <= 0 || !ratio) return null
+  const d1 = (Math.log(S / K) + (r + sigma * sigma / 2) * T) / (sigma * Math.sqrt(T))
+  const d2 = d1 - sigma * Math.sqrt(T)
+  const optPrice = isCall
+    ? S * normCDF(d1) - K * Math.exp(-r * T) * normCDF(d2)
+    : K * Math.exp(-r * T) * normCDF(-d2) - S * normCDF(-d1)
+  return optPrice * ratio
+}
+function openScenario(row) {
+  scenarioWarrant.value = row
+  scenarioVisible.value = true
+}
+const scenarioRows = [-10, -8, -6, -4, -2, 0, 2, 4, 6, 8, 10]
+const scenarioIVOffsets = [-2, -1, 0, 1, 2]
+const scenarioTable = computed(() => {
+  const w = scenarioWarrant.value
+  if (!w || !w.iv || !w.strike || !w.ratio || !w.daysLeft) return null
+  const S0    = w.stockPrice || 0
+  const K     = w.strike
+  const T     = w.daysLeft / 365
+  const r     = 0.015
+  const ratio = w.ratio
+  const isCall = w.type === 'call'
+  const ivCols = scenarioIVOffsets.map(d => +(w.iv + d).toFixed(1))
+  const rows = scenarioRows.map(pct => {
+    const S = +(S0 * (1 + pct / 100)).toFixed(2)
+    const prices = ivCols.map(iv => {
+      const p = bsWarrantPrice(S, K, T, r, iv / 100, ratio, isCall)
+      return p != null ? +p.toFixed(2) : null
+    })
+    return { pct, S, prices }
+  })
+  return { ivCols, rows, S0 }
+})
 function wSortIcon(col) { return warrantSortCol.value === col ? (warrantSortDesc.value ? ' ▼' : ' ▲') : '' }
 
 // ── 漲跌排行 ─────────────────────────────────────────
@@ -3314,6 +3360,8 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <div class="flex gap-1 justify-center">
                   <button @click="openQuote(row.stockNo)"
                           class="px-1.5 py-0.5 rounded text-xs bg-green-900/40 text-green-400 hover:bg-green-800/60 border border-green-800/50 whitespace-nowrap transition">報價</button>
+                  <button @click="openScenario(row)"
+                          class="px-1.5 py-0.5 rounded text-xs bg-yellow-900/40 text-yellow-400 hover:bg-yellow-800/60 border border-yellow-800/50 whitespace-nowrap transition">情境</button>
                   <a :href="`https://warrant.pscnet.com.tw/wSettle.aspx?wid=${row.warrantNo}`" target="_blank" rel="noopener"
                      class="px-1.5 py-0.5 rounded text-xs bg-blue-900/40 text-blue-400 hover:bg-blue-800/60 border border-blue-800/50 whitespace-nowrap transition">履約</a>
                   <a :href="`https://www.warrantwin.com.tw/eyuanta/Warrant/Analyzer.aspx?WID=${row.warrantNo}`" target="_blank" rel="noopener"
@@ -3401,6 +3449,8 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <div class="flex gap-1 justify-center">
                   <button @click="openQuote(row.stockNo)"
                           class="px-1.5 py-0.5 rounded text-xs bg-green-900/40 text-green-400 hover:bg-green-800/60 border border-green-800/50 whitespace-nowrap transition">報價</button>
+                  <button @click="openScenario(row)"
+                          class="px-1.5 py-0.5 rounded text-xs bg-yellow-900/40 text-yellow-400 hover:bg-yellow-800/60 border border-yellow-800/50 whitespace-nowrap transition">情境</button>
                   <a :href="`https://warrant.pscnet.com.tw/wSettle.aspx?wid=${row.warrantNo}`" target="_blank" rel="noopener"
                      class="px-1.5 py-0.5 rounded text-xs bg-blue-900/40 text-blue-400 hover:bg-blue-800/60 border border-blue-800/50 whitespace-nowrap transition">履約</a>
                   <a :href="`https://www.warrantwin.com.tw/eyuanta/Warrant/Analyzer.aspx?WID=${row.warrantNo}`" target="_blank" rel="noopener"
@@ -4028,6 +4078,66 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
     </div>
 
   </div>
+
+  <!-- 情境分析 Modal -->
+  <Teleport to="body">
+    <div v-if="scenarioVisible" class="fixed inset-0 z-50 flex items-center justify-center" @click.self="scenarioVisible=false">
+      <div class="absolute inset-0 bg-black/75"></div>
+      <div class="relative bg-gray-950 border border-gray-700 rounded-xl shadow-2xl overflow-hidden flex flex-col" style="max-width:92vw;max-height:90vh">
+        <!-- 標題 -->
+        <div class="flex items-center justify-between px-4 py-2.5 bg-gray-900 border-b border-gray-800 shrink-0">
+          <div class="flex items-baseline gap-2">
+            <span class="text-yellow-400 font-bold text-sm">情境分析－權證價格</span>
+            <span class="text-gray-400 text-xs">{{ scenarioWarrant?.warrantName }}</span>
+          </div>
+          <div class="flex items-center gap-3 text-xs text-gray-500">
+            <span>標的現價 {{ scenarioWarrant?.stockPrice?.toFixed(2) }}</span>
+            <span>履約價 {{ scenarioWarrant?.strike }}</span>
+            <span>剩餘 {{ scenarioWarrant?.daysLeft }} 天</span>
+            <span>IV {{ scenarioWarrant?.iv?.toFixed(1) }}%</span>
+            <button @click="scenarioVisible=false" class="text-gray-500 hover:text-white px-1">✕</button>
+          </div>
+        </div>
+        <!-- 表格 -->
+        <div class="overflow-auto p-3">
+          <div v-if="!scenarioTable" class="text-gray-500 text-sm py-8 px-6 text-center">缺少計算所需資料（需有 IV、履約價、剩餘天數）</div>
+          <table v-else class="text-xs border-collapse">
+            <thead>
+              <tr>
+                <th class="px-4 py-2 text-left text-gray-400 font-medium whitespace-nowrap border border-gray-800 bg-gray-900">標的價格 / 隱含波動率</th>
+                <th v-for="iv in scenarioTable.ivCols" :key="iv"
+                    class="px-4 py-2 text-center font-semibold border border-gray-800 bg-gray-900"
+                    :class="iv === scenarioWarrant.iv ? 'text-yellow-400' : 'text-gray-300'">
+                  {{ iv.toFixed(1) }}%
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="row in scenarioTable.rows" :key="row.pct"
+                  :class="row.pct === 0 ? 'bg-gray-800' : ''">
+                <td class="px-4 py-2 whitespace-nowrap border border-gray-800"
+                    :class="row.pct === 0 ? 'text-white font-bold' : row.pct > 0 ? 'text-red-400' : 'text-green-400'">
+                  {{ row.S.toFixed(2) }}
+                  <span class="ml-1 text-xs" :class="row.pct === 0 ? 'text-gray-400' : row.pct > 0 ? 'text-red-500' : 'text-green-500'">
+                    {{ row.pct === 0 ? '（市價）' : (row.pct > 0 ? '+' : '') + row.pct + '%' }}
+                  </span>
+                </td>
+                <td v-for="(p, i) in row.prices" :key="i"
+                    class="px-4 py-2 text-center border border-gray-800"
+                    :class="[
+                      row.pct === 0 ? 'font-bold text-lg' : '',
+                      row.pct > 0 ? 'text-red-400' : row.pct < 0 ? 'text-green-400' : 'text-white',
+                      scenarioTable.ivCols[i] === scenarioWarrant.iv && row.pct === 0 ? 'bg-yellow-900/30' : ''
+                    ]">
+                  {{ p != null ? p.toFixed(2) : '—' }}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </Teleport>
 
   <!-- 五檔報價 Modal -->
   <Teleport to="body">

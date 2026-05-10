@@ -4701,6 +4701,7 @@ app.get('/api/warrant/search', async (req, res) => {
         delta,
         daysLeft,
         circulationPct,
+        stockPrice,
       }
     }).filter(Boolean)
 
