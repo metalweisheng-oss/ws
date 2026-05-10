@@ -388,7 +388,7 @@ function warrantSort(col) {
 
 const warrantCallCount    = computed(() => warrantRows.value.filter(r => r.type === 'call').length)
 const warrantPutCount     = computed(() => warrantRows.value.filter(r => r.type === 'put').length)
-const wFilterDays         = ref(30)
+const wFilterDays         = ref(90)
 const wFilterPremiumMax   = ref(15)
 const wFilterPremiumMin   = ref(-15)
 const wFilterVolume       = ref(50)
