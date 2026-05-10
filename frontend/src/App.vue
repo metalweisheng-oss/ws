@@ -3188,7 +3188,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
           <span class="ml-auto text-red-400/70 text-xs">{{ warrantQualified.length }} 檔</span>
         </div>
         <table class="w-full text-xs">
-          <thead>
+          <thead class="sticky top-0 z-10 bg-gray-900">
             <tr class="border-b border-red-900/40 text-gray-500">
               <th class="text-left px-3 py-2 font-medium whitespace-nowrap">代號</th>
               <th class="text-left px-3 py-2 font-medium whitespace-nowrap">名稱</th>
@@ -3261,7 +3261,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
       <!-- 表格 -->
       <div v-if="warrantRows.length" class="bg-gray-900 rounded-xl border border-gray-800 overflow-x-auto">
         <table class="w-full text-xs">
-          <thead>
+          <thead class="sticky top-0 z-10 bg-gray-900">
             <tr class="border-b border-gray-800 text-gray-500">
               <th class="text-left px-3 py-2.5 font-medium cursor-pointer hover:text-gray-300 whitespace-nowrap" @click="warrantSort('warrantNo')">代號{{ wSortIcon('warrantNo') }}</th>
               <th class="text-left px-3 py-2.5 font-medium whitespace-nowrap">名稱</th>
