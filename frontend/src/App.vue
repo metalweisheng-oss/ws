@@ -392,6 +392,7 @@ const wFilterDays         = ref(90)
 const wFilterPremiumMax   = ref(15)
 const wFilterPremiumMin   = ref(-15)
 const wFilterVolume       = ref(50)
+const wFilterCirculation  = ref(50)
 const wQSortCol  = ref('volume')
 const wQSortDesc = ref(true)
 const warrantQualified = computed(() => {
@@ -399,7 +400,8 @@ const warrantQualified = computed(() => {
   return warrantRows.value.filter(r =>
     r.daysLeft != null && r.daysLeft > wFilterDays.value &&
     r.premiumPct != null && r.premiumPct > wFilterPremiumMin.value && r.premiumPct < wFilterPremiumMax.value &&
-    r.volume != null && r.volume > wFilterVolume.value
+    r.volume != null && r.volume > wFilterVolume.value &&
+    (r.circulationPct == null || r.circulationPct >= wFilterCirculation.value)
   ).sort((a, b) => {
     const av = a[col] ?? (wQSortDesc.value ? -Infinity : Infinity)
     const bv = b[col] ?? (wQSortDesc.value ? -Infinity : Infinity)
@@ -3204,6 +3206,11 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
           <input v-model.number="wFilterVolume" type="number" min="0"
                  class="w-20 bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-sm text-white text-center focus:outline-none focus:border-purple-500" />
         </div>
+        <div>
+          <div class="text-xs text-gray-500 mb-1">流通率 ≥ %</div>
+          <input v-model.number="wFilterCirculation" type="number" min="0" max="100"
+                 class="w-16 bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-sm text-white text-center focus:outline-none focus:border-purple-500" />
+        </div>
       </div>
 
       <!-- 錯誤 -->
@@ -3238,7 +3245,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
       <div v-if="warrantRows.length" class="bg-gray-900 rounded-xl border border-red-800/60">
         <div class="px-4 py-2 bg-red-900/30 border-b border-red-800/40 flex items-center gap-2">
           <span class="text-red-400 font-semibold text-xs">★ 符合條件</span>
-          <span class="text-gray-500 text-xs">剩餘天 &gt; {{ wFilterDays }} ｜ {{ wFilterPremiumMin }}% &lt; 溢價率 &lt; {{ wFilterPremiumMax }}% ｜ 成交量 &gt; {{ wFilterVolume }}張</span>
+          <span class="text-gray-500 text-xs">剩餘天 &gt; {{ wFilterDays }} ｜ {{ wFilterPremiumMin }}% &lt; 溢價率 &lt; {{ wFilterPremiumMax }}% ｜ 成交量 &gt; {{ wFilterVolume }}張 ｜ 流通率 ≥ {{ wFilterCirculation }}%</span>
           <span class="ml-auto text-red-400/70 text-xs">{{ warrantQualified.length }} 檔</span>
         </div>
         <div class="overflow-x-auto overflow-y-auto max-h-64">
