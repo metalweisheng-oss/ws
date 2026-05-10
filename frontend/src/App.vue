@@ -392,7 +392,7 @@ const wFilterDays         = ref(90)
 const wFilterPremiumMax   = ref(10)
 const wFilterPremiumMin   = ref(-5)
 const wFilterVolume       = ref(50)
-const wFilterCirculation  = ref(30)
+const wFilterCirculation  = ref(100)
 const wQSortCol  = ref('volume')
 const wQSortDesc = ref(true)
 const warrantQualified = computed(() => {
