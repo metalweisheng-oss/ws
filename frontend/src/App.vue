@@ -340,7 +340,7 @@ function selectTab(t) {
 }
 
 // ── 權證查詢 ──────────────────────────────────────────
-const warrantStockNo   = ref('')
+const warrantStockNo   = ref('2059')
 const warrantStockCode = ref('')
 const warrantType      = ref('all')
 const warrantLoading   = ref(false)
