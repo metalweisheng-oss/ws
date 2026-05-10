@@ -3181,12 +3181,13 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
       </div>
 
       <!-- 符合條件區 -->
-      <div v-if="warrantRows.length" class="bg-gray-900 rounded-xl border border-red-800/60 overflow-x-auto">
+      <div v-if="warrantRows.length" class="bg-gray-900 rounded-xl border border-red-800/60">
         <div class="px-4 py-2 bg-red-900/30 border-b border-red-800/40 flex items-center gap-2">
           <span class="text-red-400 font-semibold text-xs">★ 符合條件</span>
           <span class="text-gray-500 text-xs">剩餘天 &gt; 30 ｜ -15% &lt; 溢價率 &lt; 15% ｜ 成交量 &gt; 20張</span>
           <span class="ml-auto text-red-400/70 text-xs">{{ warrantQualified.length }} 檔</span>
         </div>
+        <div class="overflow-x-auto overflow-y-auto max-h-64">
         <table class="w-full text-xs">
           <thead class="sticky top-0 z-10 bg-gray-900">
             <tr class="border-b border-red-900/40 text-gray-500">
@@ -3256,10 +3257,12 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
             </tr>
           </tbody>
         </table>
+        </div>
       </div>
 
       <!-- 表格 -->
-      <div v-if="warrantRows.length" class="bg-gray-900 rounded-xl border border-gray-800 overflow-x-auto">
+      <div v-if="warrantRows.length" class="bg-gray-900 rounded-xl border border-gray-800">
+        <div class="overflow-x-auto overflow-y-auto max-h-[70vh]">
         <table class="w-full text-xs">
           <thead class="sticky top-0 z-10 bg-gray-900">
             <tr class="border-b border-gray-800 text-gray-500">
@@ -3334,6 +3337,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
             </tr>
           </tbody>
         </table>
+        </div>
       </div>
 
       <!-- Loading -->
