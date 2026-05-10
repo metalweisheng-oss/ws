@@ -3366,12 +3366,8 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                           class="px-1.5 py-0.5 rounded text-xs bg-green-900/40 text-green-400 hover:bg-green-800/60 border border-green-800/50 whitespace-nowrap transition">報價</button>
                   <button @click="openScenario(row)"
                           class="px-1.5 py-0.5 rounded text-xs bg-yellow-900/40 text-yellow-400 hover:bg-yellow-800/60 border border-yellow-800/50 whitespace-nowrap transition">情境</button>
-                  <a :href="`https://warrant.pscnet.com.tw/wSettle.aspx?wid=${row.warrantNo}`" target="_blank" rel="noopener"
-                     class="px-1.5 py-0.5 rounded text-xs bg-blue-900/40 text-blue-400 hover:bg-blue-800/60 border border-blue-800/50 whitespace-nowrap transition">履約</a>
                   <a :href="`https://www.warrantwin.com.tw/eyuanta/Warrant/Analyzer.aspx?WID=${row.warrantNo}`" target="_blank" rel="noopener"
                      class="px-1.5 py-0.5 rounded text-xs bg-purple-900/40 text-purple-400 hover:bg-purple-800/60 border border-purple-800/50 whitespace-nowrap transition">試算</a>
-                  <a href="https://www.warrantwin.com.tw/eyuanta/Warrant/Search.aspx" target="_blank" rel="noopener"
-                     class="px-1.5 py-0.5 rounded text-xs bg-gray-800 text-gray-400 hover:bg-gray-700 border border-gray-700 whitespace-nowrap transition">搜尋</a>
                 </div>
               </td>
             </tr>
@@ -3455,12 +3451,8 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                           class="px-1.5 py-0.5 rounded text-xs bg-green-900/40 text-green-400 hover:bg-green-800/60 border border-green-800/50 whitespace-nowrap transition">報價</button>
                   <button @click="openScenario(row)"
                           class="px-1.5 py-0.5 rounded text-xs bg-yellow-900/40 text-yellow-400 hover:bg-yellow-800/60 border border-yellow-800/50 whitespace-nowrap transition">情境</button>
-                  <a :href="`https://warrant.pscnet.com.tw/wSettle.aspx?wid=${row.warrantNo}`" target="_blank" rel="noopener"
-                     class="px-1.5 py-0.5 rounded text-xs bg-blue-900/40 text-blue-400 hover:bg-blue-800/60 border border-blue-800/50 whitespace-nowrap transition">履約</a>
                   <a :href="`https://www.warrantwin.com.tw/eyuanta/Warrant/Analyzer.aspx?WID=${row.warrantNo}`" target="_blank" rel="noopener"
                      class="px-1.5 py-0.5 rounded text-xs bg-purple-900/40 text-purple-400 hover:bg-purple-800/60 border border-purple-800/50 whitespace-nowrap transition">試算</a>
-                  <a href="https://www.warrantwin.com.tw/eyuanta/Warrant/Search.aspx" target="_blank" rel="noopener"
-                     class="px-1.5 py-0.5 rounded text-xs bg-gray-800 text-gray-400 hover:bg-gray-700 border border-gray-700 whitespace-nowrap transition">搜尋</a>
                 </div>
               </td>
             </tr>
