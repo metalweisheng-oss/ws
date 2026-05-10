@@ -3213,7 +3213,9 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
 
       <!-- 摘要列 -->
       <div v-if="warrantRows.length" class="bg-gray-900 rounded-xl border border-gray-800 px-5 py-3 flex flex-wrap gap-4 items-center text-sm">
-        <span class="text-white font-semibold">{{ warrantStockName }} ({{ warrantStockCode || warrantStockNo }})</span>
+        <span class="text-white font-semibold">{{ warrantStockName }}</span>
+        <span class="text-blue-400 hover:text-blue-300 cursor-pointer underline decoration-dotted font-mono text-sm"
+              @click="openQuote(warrantStockCode || warrantStockNo)">{{ warrantStockCode || warrantStockNo }}</span>
         <span class="text-gray-500">共 {{ warrantRows.length }} 檔</span>
         <span class="px-2 py-0.5 rounded-full text-xs font-bold bg-red-500/20 text-red-400 border border-red-800">認購 {{ warrantCallCount }}</span>
         <span class="px-2 py-0.5 rounded-full text-xs font-bold bg-green-500/20 text-green-400 border border-green-800">認售 {{ warrantPutCount }}</span>
