@@ -3902,6 +3902,36 @@ app.get('/api/stock/quote/:stockNo', async (req, res) => {
   }
 })
 
+// 批量查詢委賣一（用於權證表格指示燈）
+app.post('/api/warrant/batch-asks', async (req, res) => {
+  const { warrantNos } = req.body
+  if (!Array.isArray(warrantNos) || warrantNos.length === 0)
+    return res.json({ ok: true, data: {} })
+  try {
+    const exChList = warrantNos.flatMap(no => [`tse_${no}.tw`, `otc_${no}.tw`])
+    const CHUNK = 60
+    const chunks = []
+    for (let i = 0; i < exChList.length; i += CHUNK) chunks.push(exChList.slice(i, i + CHUNK))
+    const results = await Promise.all(chunks.map(b => fetchMisRaw(b, 8000).catch(() => null)))
+    const msgArray = results.flatMap(r => r?.msgArray || [])
+    const data = {}
+    for (const item of msgArray) {
+      const no = item.c
+      if (!warrantNos.includes(no)) continue
+      const askPrices = item.a && item.a !== '-' ? item.a.split('_').map(v => (v === '-' || v === '') ? null : parseFloat(v)) : []
+      const askQtys   = item.f && item.f !== '-' ? item.f.split('_').map(v => (v === '-' || v === '') ? null : parseInt(v) || 0) : []
+      data[no] = {
+        ask1Price: askPrices[0] ?? null,
+        ask1Qty:   askQtys[0]  ?? null,
+        hasAsk:    !!(askPrices[0] != null && (askQtys[0] ?? 0) > 0)
+      }
+    }
+    res.json({ ok: true, data })
+  } catch(e) {
+    res.status(500).json({ ok: false, error: e.message })
+  }
+})
+
 // ── 逐筆成交擷取 ──────────────────────────────────────────────────────────────
 
 const tickLastState = new Map()

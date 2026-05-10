@@ -365,6 +365,8 @@ async function searchWarrant() {
     warrantRows.value      = d.rows
     warrantStockName.value = d.stockName || warrantStockNo.value
     warrantStockCode.value = d.stockCode || ''
+    warrantAskMap.value    = {}
+    fetchWarrantAsks()
   } catch(e) {
     warrantError.value = e.message
   } finally {
@@ -413,6 +415,25 @@ function wQSort(col) {
   else { wQSortCol.value = col; wQSortDesc.value = true }
 }
 function wQSortIcon(col) { return wQSortCol.value === col ? (wQSortDesc.value ? ' ▼' : ' ▲') : '' }
+
+const warrantAskMap = ref({})
+const askLoading    = ref(false)
+
+async function fetchWarrantAsks() {
+  const nos = warrantRows.value.map(r => r.warrantNo)
+  if (!nos.length) return
+  askLoading.value = true
+  try {
+    const r = await fetch(`${API}/api/warrant/batch-asks`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ warrantNos: nos })
+    })
+    const d = await r.json()
+    if (d.ok) warrantAskMap.value = d.data
+  } catch(e) {}
+  finally { askLoading.value = false }
+}
 
 function wChangePctColor(v) { return v == null ? 'text-gray-500' : +v > 0 ? 'text-red-400' : +v < 0 ? 'text-green-400' : 'text-gray-400' }
 
@@ -3297,6 +3318,10 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
           <span class="text-red-400 font-semibold text-xs">★ 符合條件</span>
           <span class="text-gray-500 text-xs">剩餘天 &gt; {{ wFilterDays }} ｜ {{ wFilterPremiumMin }}% &lt; 溢價率 &lt; {{ wFilterPremiumMax }}% ｜ 成交量 &gt; {{ wFilterVolume }}張 ｜ 流通率 ≤ {{ wFilterCirculation }}%</span>
           <span class="ml-auto text-red-400/70 text-xs">{{ warrantQualified.length }} 檔</span>
+          <button @click="fetchWarrantAsks()" :disabled="askLoading"
+                  class="px-2 py-0.5 rounded text-xs bg-blue-900/40 text-blue-400 hover:bg-blue-800/60 border border-blue-800/50 whitespace-nowrap transition disabled:opacity-50">
+            {{ askLoading ? '查詢中…' : '刷新委賣' }}
+          </button>
         </div>
         <div class="overflow-x-auto overflow-y-auto max-h-64">
         <table class="w-full text-xs">
@@ -3312,6 +3337,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               <th class="text-right px-3 py-2 font-medium whitespace-nowrap cursor-pointer hover:text-gray-300" @click="wQSort('price')">現價{{ wQSortIcon('price') }}</th>
               <th class="text-right px-3 py-2 font-medium whitespace-nowrap cursor-pointer hover:text-gray-300" @click="wQSort('changePct')">漲跌%{{ wQSortIcon('changePct') }}</th>
               <th class="text-right px-3 py-2 font-medium whitespace-nowrap cursor-pointer hover:text-gray-300" @click="wQSort('volume')">成交量{{ wQSortIcon('volume') }}</th>
+              <th class="text-right px-3 py-2 font-medium whitespace-nowrap">委賣一</th>
               <th class="text-right px-3 py-2 font-medium whitespace-nowrap cursor-pointer hover:text-gray-300" @click="wQSort('premiumPct')">溢價率{{ wQSortIcon('premiumPct') }}</th>
               <th class="text-right px-3 py-2 font-medium whitespace-nowrap cursor-pointer hover:text-gray-300" @click="wQSort('circulationPct')">流通%{{ wQSortIcon('circulationPct') }}</th>
               <th class="text-right px-3 py-2 font-medium whitespace-nowrap hidden lg:table-cell cursor-pointer hover:text-gray-300" @click="wQSort('leverage')">槓桿{{ wQSortIcon('leverage') }}</th>
@@ -3321,7 +3347,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
           </thead>
           <tbody>
             <tr v-if="!warrantQualified.length">
-              <td colspan="14" class="px-4 py-6 text-center text-gray-600 text-xs">無符合條件的權證</td>
+              <td colspan="16" class="px-4 py-6 text-center text-gray-600 text-xs">無符合條件的權證</td>
             </tr>
             <tr v-for="row in warrantQualified" :key="row.warrantNo"
                 class="border-b border-red-900/20 bg-red-900/15 hover:bg-red-900/25 transition">
@@ -3346,6 +3372,16 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <span v-else>{{ row.changePct != null ? (row.changePct > 0 ? '+' : '') + row.changePct.toFixed(2) + '%' : '—' }}</span>
               </td>
               <td class="px-3 py-2 text-right text-gray-300">{{ row.volume ? row.volume.toLocaleString() : '—' }}</td>
+              <td class="px-3 py-2 text-right">
+                <template v-if="warrantAskMap[row.warrantNo]">
+                  <span v-if="warrantAskMap[row.warrantNo].hasAsk" class="text-green-400 font-medium">
+                    {{ warrantAskMap[row.warrantNo].ask1Price?.toFixed(2) }}
+                    <span class="text-gray-400 text-xs ml-0.5">({{ warrantAskMap[row.warrantNo].ask1Qty }})</span>
+                  </span>
+                  <span v-else class="text-red-500 text-xs font-semibold">無量</span>
+                </template>
+                <span v-else class="text-gray-600">—</span>
+              </td>
               <td class="px-3 py-2 text-right"
                   :class="row.premiumPct != null && row.premiumPct < 0 ? 'text-green-400' : row.premiumPct != null && row.premiumPct < 5 ? 'text-yellow-400' : 'text-gray-400'">
                 {{ row.premiumPct != null ? (row.premiumPct > 0 ? '+' : '') + row.premiumPct.toFixed(2) + '%' : '—' }}
@@ -3392,6 +3428,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               <th class="text-right px-3 py-2.5 font-medium cursor-pointer hover:text-gray-300 whitespace-nowrap" @click="warrantSort('price')">現價{{ wSortIcon('price') }}</th>
               <th class="text-right px-3 py-2.5 font-medium cursor-pointer hover:text-gray-300 whitespace-nowrap" @click="warrantSort('changePct')">漲跌%{{ wSortIcon('changePct') }}</th>
               <th class="text-right px-3 py-2.5 font-medium cursor-pointer hover:text-gray-300 whitespace-nowrap" @click="warrantSort('volume')">成交量{{ wSortIcon('volume') }}</th>
+              <th class="text-center px-3 py-2.5 font-medium whitespace-nowrap">委賣</th>
               <th class="text-right px-3 py-2.5 font-medium cursor-pointer hover:text-gray-300 whitespace-nowrap" @click="warrantSort('premiumPct')">溢價率{{ wSortIcon('premiumPct') }}</th>
               <th class="text-right px-3 py-2.5 font-medium cursor-pointer hover:text-gray-300 whitespace-nowrap" @click="warrantSort('circulationPct')">流通%{{ wSortIcon('circulationPct') }}</th>
               <th class="text-right px-3 py-2.5 font-medium cursor-pointer hover:text-gray-300 whitespace-nowrap hidden lg:table-cell" @click="warrantSort('leverage')">槓桿{{ wSortIcon('leverage') }}</th>
@@ -3428,6 +3465,19 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <span v-else>{{ row.changePct != null ? (row.changePct > 0 ? '+' : '') + row.changePct.toFixed(2) + '%' : '—' }}</span>
               </td>
               <td class="px-3 py-2 text-right text-gray-300">{{ row.volume ? row.volume.toLocaleString() : '—' }}</td>
+              <td class="px-3 py-2 text-center">
+                <template v-if="warrantAskMap[row.warrantNo]">
+                  <span v-if="warrantAskMap[row.warrantNo].hasAsk"
+                        class="inline-block w-2 h-2 rounded-full bg-green-400"
+                        :title="`委賣一 ${warrantAskMap[row.warrantNo].ask1Price?.toFixed(2)} (${warrantAskMap[row.warrantNo].ask1Qty}張)`">
+                  </span>
+                  <span v-else
+                        class="inline-block w-2 h-2 rounded-full bg-red-500"
+                        title="無委賣掛單">
+                  </span>
+                </template>
+                <span v-else class="inline-block w-2 h-2 rounded-full bg-gray-700"></span>
+              </td>
               <td class="px-3 py-2 text-right"
                   :class="row.premiumPct != null && row.premiumPct < 0 ? 'text-green-400' : row.premiumPct != null && row.premiumPct < 5 ? 'text-yellow-400' : 'text-gray-400'">
                 {{ row.premiumPct != null ? (row.premiumPct > 0 ? '+' : '') + row.premiumPct.toFixed(2) + '%' : '—' }}
