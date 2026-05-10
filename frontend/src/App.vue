@@ -3221,6 +3221,19 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
         <span class="px-2 py-0.5 rounded-full text-xs font-bold bg-green-500/20 text-green-400 border border-green-800">認售 {{ warrantPutCount }}</span>
       </div>
 
+      <!-- 備註說明 -->
+      <div v-if="warrantRows.length" class="bg-gray-900/60 border border-gray-800 rounded-xl px-4 py-3 text-xs text-gray-500 space-y-1.5">
+        <div class="text-gray-400 font-medium mb-1">欄位說明</div>
+        <div><span class="text-gray-300">流通%</span>　剩餘可流通張數 ÷ 原始發行量。比例越低代表發行商手上籌碼越少，壓制能力越弱，權證較能真實反映標的漲跌。
+          <span class="text-red-400 ml-2">紅 ≤ 20%</span>
+          <span class="text-yellow-400 ml-1">黃 ≤ 50%</span>
+        </div>
+        <div><span class="text-gray-300">溢價率</span>　(履約價 + 權證現價 ÷ 行使比例 − 標的現價) ÷ 標的現價 × 100%。負值代表折價，數值越低越划算。</div>
+        <div><span class="text-gray-300">槓桿</span>　標的現價 × 行使比例 ÷ 權證價，反映每元權證相當於幾元標的曝險。</div>
+        <div><span class="text-gray-300">Delta</span>　標的漲 1 元時權證理論漲幅（元），已乘上行使比例換算為每張單位。</div>
+        <div class="text-gray-600 pt-1">資料來源：TWSE OpenAPI + MIS　每日盤後更新</div>
+      </div>
+
       <!-- 符合條件區 -->
       <div v-if="warrantRows.length" class="bg-gray-900 rounded-xl border border-red-800/60">
         <div class="px-4 py-2 bg-red-900/30 border-b border-red-800/40 flex items-center gap-2">
@@ -3397,19 +3410,6 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
 
       <!-- Loading -->
       <div v-if="warrantLoading" class="text-center py-12 text-gray-500 text-sm">查詢中，請稍候...</div>
-
-      <!-- 備註說明 -->
-      <div v-if="warrantRows.length" class="bg-gray-900/60 border border-gray-800 rounded-xl px-4 py-3 text-xs text-gray-500 space-y-1.5">
-        <div class="text-gray-400 font-medium mb-1">欄位說明</div>
-        <div><span class="text-gray-300">流通%</span>　剩餘可流通張數 ÷ 原始發行量。比例越低代表發行商手上籌碼越少，壓制能力越弱，權證較能真實反映標的漲跌。
-          <span class="text-red-400 ml-2">紅 ≤ 20%</span>
-          <span class="text-yellow-400 ml-1">黃 ≤ 50%</span>
-        </div>
-        <div><span class="text-gray-300">溢價率</span>　(履約價 + 權證現價 ÷ 行使比例 − 標的現價) ÷ 標的現價 × 100%。負值代表折價，數值越低越划算。</div>
-        <div><span class="text-gray-300">槓桿</span>　標的現價 × 行使比例 ÷ 權證價，反映每元權證相當於幾元標的曝險。</div>
-        <div><span class="text-gray-300">Delta</span>　標的漲 1 元時權證理論漲幅（元），已乘上行使比例換算為每張單位。</div>
-        <div class="text-gray-600 pt-1">資料來源：TWSE OpenAPI + MIS　每日盤後更新</div>
-      </div>
     </div>
 
     <!-- ══ 漲跌排行 ══════════════════════════════════════════ -->
