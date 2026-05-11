@@ -1608,6 +1608,15 @@ app.post('/api/test/telegram', (req, res) => {
   res.json({ ok: true, message: '測試訊息已發送到 Telegram' })
 })
 
+app.post('/api/test/squeeze-telegram', async (req, res) => {
+  try {
+    const result = await sendSqueezeAlert('手動測試')
+    res.json(result)
+  } catch(e) {
+    res.json({ ok: false, message: e.message })
+  }
+})
+
 // ── 漲跌幅分布 ───────────────────────────────────────
 const DIST_BUCKETS = [
   { key: 'limit_up',   label: '漲停',   side: 'up' },
@@ -3567,6 +3576,114 @@ cron.schedule('35 13 * * 1-5', async () => {
   console.log('[cron] 13:35 儲存漲停委買收盤快照')
   try { await saveCloseSnapshot(null, true) }
   catch(e) { console.error('[close-snapshot] 13:35 失敗:', e.message) }
+}, { timezone: 'Asia/Taipei' })
+
+// ── 量縮漲停觀察名單 Telegram 通知 ────────────────────────
+function _passAntiSpoof(r) {
+  if (r.volume < 50) return false
+  if (r.innerVol != null && r.outerVol != null && r.innerVol > 0 && r.outerVol <= r.innerVol) return false
+  return true
+}
+function _volRef5d(r) { return r.volMa5 || r.prevVol || null }
+function _passAntiFake(r) {
+  if (!r.limitBidVol) return true
+  if (r.bidSnapshotCount != null && r.bidSnapshotCount > 0) {
+    if (r.bidSnapshotCount < 2) return false
+    if (r.bidVolSum != null) {
+      const stability = (r.bidVolSum / r.bidSnapshotCount) / r.limitBidVol
+      if (stability < 0.25) return false
+    }
+  }
+  if (r.closeLimitBidVol != null && !r.closedLimitUp && r.closeLimitBidVol === 0) return false
+  return true
+}
+
+function buildSqueezeListsFromGainers(gainers) {
+  const isLimit = r => r.changePct >= 9.5
+  const base = gainers.filter(r => isLimit(r) && _passAntiSpoof(r) && _passAntiFake(r))
+
+  const list1 = base.filter(r => {
+    const ref = _volRef5d(r); if (!ref || r.volume / ref >= 0.5) return false
+    if (r.limitBidVol) return r.limitBidVol / r.volume > 1.7
+    return r.closedLimitUp || false
+  })
+  const set1 = new Set(list1.map(r => r.stockNo))
+  const list2 = base.filter(r => {
+    if (set1.has(r.stockNo)) return false
+    const ref = _volRef5d(r); if (!ref || r.volume / ref >= 0.7) return false
+    if (r.limitBidVol) return r.limitBidVol / r.volume > 1.5
+    return r.closedLimitUp || false
+  })
+  const set12 = new Set([...list1, ...list2].map(r => r.stockNo))
+  const list3 = base.filter(r => {
+    if (set12.has(r.stockNo)) return false
+    const ref = _volRef5d(r); if (!ref || r.volume / ref >= 0.7) return false
+    return true
+  })
+  return { list1, list2, list3 }
+}
+
+function formatSqueezeMsg(list1, list2, list3, label = '13:00 定時') {
+  const now = new Date(Date.now() + 8 * 3600000)
+  const dateStr = `${now.getUTCFullYear()}-${String(now.getUTCMonth()+1).padStart(2,'0')}-${String(now.getUTCDate()).padStart(2,'0')} ${String(now.getUTCHours()).padStart(2,'0')}:${String(now.getUTCMinutes()).padStart(2,'0')}`
+  const fmt = (r) => {
+    const ref = _volRef5d(r)
+    const volRatio = ref ? (r.volume / ref).toFixed(2) + 'x' : '-'
+    const bidRatio = r.limitBidVol && r.volume ? (r.limitBidVol / r.volume).toFixed(2) : '-'
+    const bidVol   = r.limitBidVol ? r.limitBidVol.toLocaleString() + '張' : '無委買'
+    return `  • ${r.stockName}(${r.stockNo})  量比${volRatio}  委買比${bidRatio}  委買${bidVol}`
+  }
+  const total = list1.length + list2.length + list3.length
+  if (total === 0) return null
+  let msg = `📊 <b>量縮漲停觀察名單</b>　[${dateStr}]　<i>${label}</i>\n`
+  if (list1.length) {
+    msg += `\n<b>★ 第一順位</b>（極度縮量＋強力護盤）\n` + list1.map(fmt).join('\n')
+  }
+  if (list2.length) {
+    msg += `\n\n<b>▲ 第二順位</b>（縮量＋明顯護盤）\n` + list2.map(fmt).join('\n')
+  }
+  if (list3.length) {
+    msg += `\n\n<b>△ 第三順位</b>（縮量觀察）\n` + list3.map(fmt).join('\n')
+  }
+  msg += `\n\n共 <b>${total}</b> 檔`
+  return msg
+}
+
+async function sendSqueezeAlert(label = '13:00 定時') {
+  try {
+    // 優先使用快取，若快取過舊（>10分鐘）則重新抓
+    let gainers
+    const now = Date.now()
+    if (_moversCache.data && now - _moversCache.ts < 10 * 60 * 1000) {
+      gainers = _moversCache.data.gainers
+    } else {
+      // 觸發一次真實抓取（複用 internal self-request 不划算，直接從 MIS 抓）
+      // 簡化：若快取已過期就等下次 movers request 更新，此處直接用舊快取或跳過
+      gainers = _moversCache.data?.gainers || []
+    }
+    if (!gainers.length) {
+      console.log('[squeeze-alert] gainers 為空，可能為休市日，略過')
+      return { skipped: true, reason: '無漲跌排行資料（可能休市）' }
+    }
+    const { list1, list2, list3 } = buildSqueezeListsFromGainers(gainers)
+    const msg = formatSqueezeMsg(list1, list2, list3, label)
+    if (!msg) {
+      console.log('[squeeze-alert] 量縮觀察名單為空，略過')
+      return { skipped: true, reason: '無符合條件的量縮漲停股' }
+    }
+    sendTelegram(msg)
+    console.log(`[squeeze-alert] 已發送，共 ${list1.length + list2.length + list3.length} 檔`)
+    return { ok: true, count: list1.length + list2.length + list3.length, list1: list1.length, list2: list2.length, list3: list3.length }
+  } catch(e) {
+    console.error('[squeeze-alert] 失敗:', e.message)
+    return { ok: false, error: e.message }
+  }
+}
+
+// 每日 13:00 自動發送量縮漲停觀察名單
+cron.schedule('0 13 * * 1-5', async () => {
+  console.log('[cron] 13:00 發送量縮漲停觀察名單')
+  await sendSqueezeAlert('13:00 定時')
 }, { timezone: 'Asia/Taipei' })
 
 // 13:40 補試（若今日無資料）

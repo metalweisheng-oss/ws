@@ -437,6 +437,21 @@ async function runValidate() {
   }
 }
 
+const squeezeTestLoading = ref(false)
+const squeezeTestResult  = ref(null)
+async function sendSqueezeTest() {
+  squeezeTestLoading.value = true
+  squeezeTestResult.value  = null
+  try {
+    const r = await fetch(`${API}/api/test/squeeze-telegram`, { method: 'POST' })
+    squeezeTestResult.value = await r.json()
+  } catch(e) {
+    squeezeTestResult.value = { ok: false, message: e.message }
+  } finally {
+    squeezeTestLoading.value = false
+  }
+}
+
 const warrantAskMap   = ref({})
 const askLoading      = ref(false)
 const askLastUpdated  = ref(null)
@@ -3810,6 +3825,19 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
           <span>點<span class="text-blue-400 underline decoration-dotted">代號</span> → 即時五檔</span>
           <span>點觀察區整列 → 跳到量縮清單</span>
         </div>
+      </div>
+
+      <!-- 量縮漲停觀察 Telegram 測試鈕 -->
+      <div class="flex items-center gap-3 px-1">
+        <button
+          @click="sendSqueezeTest"
+          :disabled="squeezeTestLoading"
+          class="px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-900/50 border border-blue-500/40 text-blue-300 hover:bg-blue-800/60 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+          {{ squeezeTestLoading ? '傳送中…' : '📨 測試傳送觀察名單' }}
+        </button>
+        <span v-if="squeezeTestResult" :class="squeezeTestResult.ok ? 'text-green-400' : 'text-red-400'" class="text-xs">
+          {{ squeezeTestResult.message }}
+        </span>
       </div>
 
       <!-- 量縮漲停觀察 第一順位 -->
