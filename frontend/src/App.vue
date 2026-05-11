@@ -3612,8 +3612,10 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               <td class="px-3 py-2 text-right text-gray-300 hidden lg:table-cell">
                 {{ row.delta != null ? row.delta.toFixed(4) : '—' }}
               </td>
-              <td class="px-3 py-2 text-right text-gray-400 hidden xl:table-cell">
-                {{ row.iv != null ? row.iv.toFixed(1) + '%' : '—' }}
+              <td class="px-3 py-2 text-right hidden xl:table-cell">
+                <span v-if="row.iv != null" class="text-gray-400">{{ row.iv.toFixed(1) }}%</span>
+                <span v-else-if="row.ivStale" class="text-yellow-600 text-xs" title="昨收價與今日標的股價落差過大，IV 無解（請等今日成交價更新）">價格失效</span>
+                <span v-else class="text-gray-600">—</span>
               </td>
               <td class="px-3 py-2">
                 <div class="flex gap-1 justify-center">

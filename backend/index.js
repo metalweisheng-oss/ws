@@ -4560,19 +4560,27 @@ function bsPrice(S, K, T, r, sigma, isCall, q = 0) {
 
 function calcIV(S, K, T, r, marketPrice, isCall, q = 0) {
   if (!S || !K || !T || marketPrice <= 0) return null
+  // 先確認解存在於 [lo, hi] 區間內
+  const loP = bsPrice(S, K, T, r, 0.001, isCall, q)
+  const hiP = bsPrice(S, K, T, r, 15,    isCall, q)
+  if (marketPrice < loP - 1e-6 || marketPrice > hiP + 1e-6) return null
   const Sq = S * Math.exp(-q * T)
   const sqrtT = Math.sqrt(T)
-  let sigma = 0.5
-  for (let i = 0; i < 20; i++) {
-    const d1 = (Math.log(Sq / K) + (r + sigma * sigma / 2) * T) / (sigma * sqrtT)
+  let lo = 0.001, hi = 15, sigma = 0.5
+  for (let i = 0; i < 100; i++) {
+    const d1    = (Math.log(Sq / K) + (r + sigma * sigma / 2) * T) / (sigma * sqrtT)
     const price = bsPrice(S, K, T, r, sigma, isCall, q)
-    const vega  = Sq * Math.exp(-d1 * d1 / 2) / Math.sqrt(2 * Math.PI) * sqrtT
-    if (vega < 1e-10) break
-    const diff = price - marketPrice
+    const diff  = price - marketPrice
     if (Math.abs(diff) < 1e-7) break
-    sigma -= diff / vega
-    if (sigma <= 0.001) sigma = 0.001
-    if (sigma > 15) sigma = 15
+    // 收緊 bracket
+    if (diff < 0) lo = sigma; else hi = sigma
+    // 嘗試 Newton step；若超出 bracket 則改用 bisection
+    const vega = Sq * Math.exp(-d1 * d1 / 2) / Math.sqrt(2 * Math.PI) * sqrtT
+    if (vega > 1e-10) {
+      const candidate = sigma - diff / vega
+      if (candidate > lo && candidate < hi) { sigma = candidate; continue }
+    }
+    sigma = (lo + hi) / 2
   }
   return sigma > 0 ? +(sigma * 100).toFixed(2) : null
 }
@@ -4928,6 +4936,9 @@ app.get('/api/warrant/search', async (req, res) => {
       const isCall = wtype === 'call'
       const T = daysLeft ? daysLeft / 365 : null  // 距到期年分
 
+      // 已到期（daysLeft=0）且無今日成交 → 跳過
+      if (!daysLeft && !zVal) return null
+
       // 溢價率 = (履約價 + 權證價/行使比例 - 標的現價) / 標的現價 × 100
       const premiumPct = (stockPrice && price && ratio && strike)
         ? +((strike + price / ratio - stockPrice) / stockPrice * 100).toFixed(2) : null
@@ -4938,8 +4949,10 @@ app.get('/api/warrant/search', async (req, res) => {
 
       // IV（Black-Scholes + Merton 股息調整，用每股等值換算）
       const optPrice = (price && ratio) ? price / ratio : null
+      // 昨收 + 今日標的大幅波動時，optPrice 可能低於/高於內含值 → iv=null，標記 ivStale
       const iv = (stockPrice && strike && T && optPrice)
         ? calcIV(stockPrice, strike, T, R, optPrice, isCall, Q) : null
+      const ivStale = !iv && zVal == null && price != null  // 有昨收但 IV 無解（多因標的今日劇烈波動）
 
       // Delta（已乘行使比例）
       const sigmaDec = iv ? iv / 100 : null
@@ -4965,6 +4978,7 @@ app.get('/api/warrant/search', async (req, res) => {
         volume,
         premiumPct,
         iv,
+        ivStale,
         leverage,
         delta,
         daysLeft,
