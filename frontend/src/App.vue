@@ -3848,7 +3848,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <div class="text-xs text-gray-500">{{ r.stockNo }}</div>
               </td>
               <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.volMa5?.toLocaleString() ?? r.prevVol?.toLocaleString() ?? '-' }}</td>
-              <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.volume.toLocaleString() }}</td>
+              <td class="px-3 py-2 text-right font-mono text-xs" :class="r.volume >= 100000 ? 'text-rose-400 font-bold' : 'text-gray-400'">{{ r.volume.toLocaleString() }}</td>
               <td class="px-3 py-2 text-right font-mono text-xs" :class="bidRatioClass(r)">
                 <template v-if="r.limitBidVol">{{ r.volume ? (r.limitBidVol / r.volume).toFixed(2) : '-' }}</template>
                 <span v-else-if="r.closedLimitUp" class="text-orange-400 text-xs">漲停收</span>
@@ -3912,7 +3912,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <div class="text-xs text-gray-500">{{ r.stockNo }}</div>
               </td>
               <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.volMa5?.toLocaleString() ?? r.prevVol?.toLocaleString() ?? '-' }}</td>
-              <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.volume.toLocaleString() }}</td>
+              <td class="px-3 py-2 text-right font-mono text-xs" :class="r.volume >= 100000 ? 'text-rose-400 font-bold' : 'text-gray-400'">{{ r.volume.toLocaleString() }}</td>
               <td class="px-3 py-2 text-right font-mono text-xs" :class="bidRatioClass(r)">
                 <template v-if="r.limitBidVol">{{ r.volume ? (r.limitBidVol / r.volume).toFixed(2) : '-' }}</template>
                 <span v-else-if="r.closedLimitUp" class="text-orange-400 text-xs">漲停收</span>
@@ -3975,7 +3975,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <div class="text-xs text-gray-500">{{ r.stockNo }}</div>
               </td>
               <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.volMa5?.toLocaleString() ?? r.prevVol?.toLocaleString() ?? '-' }}</td>
-              <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.volume.toLocaleString() }}</td>
+              <td class="px-3 py-2 text-right font-mono text-xs" :class="r.volume >= 100000 ? 'text-rose-400 font-bold' : 'text-gray-400'">{{ r.volume.toLocaleString() }}</td>
               <td class="px-3 py-2 text-right font-mono text-xs" :class="bidRatioClass(r)">
                 {{ r.limitBidVol && r.volume ? (r.limitBidVol / r.volume).toFixed(2) : '-' }}
               </td>
@@ -4033,7 +4033,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <div class="text-xs text-gray-500">{{ r.stockNo }}</div>
               </td>
               <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.volMa5?.toLocaleString() ?? r.prevVol?.toLocaleString() ?? '-' }}</td>
-              <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.volume.toLocaleString() }}</td>
+              <td class="px-3 py-2 text-right font-mono text-xs" :class="r.volume >= 100000 ? 'text-rose-400 font-bold' : 'text-gray-400'">{{ r.volume.toLocaleString() }}</td>
               <td class="px-3 py-2 text-right font-mono text-xs" :class="bidRatioClass(r)">
                 {{ r.volume ? (r.limitBidVol / r.volume).toFixed(2) : '-' }}
               </td>
@@ -4091,7 +4091,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <div class="text-xs text-gray-500">{{ r.stockNo }}</div>
               </td>
               <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.volMa5?.toLocaleString() ?? r.prevVol?.toLocaleString() ?? '-' }}</td>
-              <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.volume.toLocaleString() }}</td>
+              <td class="px-3 py-2 text-right font-mono text-xs" :class="r.volume >= 100000 ? 'text-rose-400 font-bold' : 'text-gray-400'">{{ r.volume.toLocaleString() }}</td>
               <td class="px-3 py-2 text-right font-mono text-xs" :class="bidRatioClass(r)">
                 {{ r.volume ? (r.limitBidVol / r.volume).toFixed(2) : '-' }}
               </td>
@@ -4148,7 +4148,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <div class="text-xs text-gray-500">{{ r.stockNo }}</div>
               </td>
               <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.volMa5?.toLocaleString() ?? r.prevVol?.toLocaleString() ?? '-' }}</td>
-              <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.volume.toLocaleString() }}</td>
+              <td class="px-3 py-2 text-right font-mono text-xs" :class="r.volume >= 100000 ? 'text-rose-400 font-bold' : 'text-gray-400'">{{ r.volume.toLocaleString() }}</td>
               <td class="px-3 py-2 text-right font-mono text-xs" :class="bidRatioClass(r)">
                 {{ r.limitBidVol && r.volume ? (r.limitBidVol / r.volume).toFixed(2) : '-' }}
               </td>
