@@ -3655,10 +3655,10 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
           <thead>
             <tr class="border-b border-gray-800 bg-gray-950">
               <th class="px-3 py-2 text-left text-xs text-gray-500 font-normal">代號／名稱</th>
-              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">昨日量</th>
+              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">5日均量</th>
               <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">今日量</th>
               <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">漲停委買比</th>
-              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">1日量比</th>
+              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">5日量比</th>
               <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">漲停委買量</th>
               <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">連漲停</th>
             </tr>
@@ -3674,15 +3674,15 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <div class="text-white font-medium hover:text-purple-400 transition">{{ r.stockName }}</div>
                 <div class="text-xs text-gray-500">{{ r.stockNo }}</div>
               </td>
-              <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.prevVol?.toLocaleString() ?? '-' }}</td>
+              <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.volMa5?.toLocaleString() ?? r.prevVol?.toLocaleString() ?? '-' }}</td>
               <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.volume.toLocaleString() }}</td>
               <td class="px-3 py-2 text-right font-mono text-xs text-green-400 font-bold">
                 <template v-if="r.limitBidVol">{{ r.volume ? (r.limitBidVol / r.volume).toFixed(2) : '-' }}</template>
                 <span v-else-if="r.closedLimitUp" class="text-orange-400 text-xs">漲停收</span>
                 <template v-else>-</template>
               </td>
-              <td class="px-3 py-2 text-right font-mono text-xs" :class="volRatio1dClass(r)">
-                {{ r.prevVol ? (r.volume / r.prevVol).toFixed(2) : '-' }}
+              <td class="px-3 py-2 text-right font-mono text-xs" :class="volRatio5dClass(r)">
+                {{ r.volMa5 ? (r.volume / r.volMa5).toFixed(2) : r.prevVol ? (r.volume / r.prevVol).toFixed(2) : '-' }}
               </td>
               <td class="px-3 py-2 text-right font-mono text-xs text-blue-300">
                 <template v-if="r.limitBidVol">{{ r.limitBidVol.toLocaleString() }}</template>
@@ -3709,10 +3709,10 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
           <thead>
             <tr class="border-b border-gray-800 bg-gray-950">
               <th class="px-3 py-2 text-left text-xs text-gray-500 font-normal">代號／名稱</th>
-              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">昨日量</th>
+              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">5日均量</th>
               <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">今日量</th>
               <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">漲停委買比</th>
-              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">1日量比</th>
+              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">5日量比</th>
               <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">漲停委買量</th>
               <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">連漲停</th>
             </tr>
@@ -3728,15 +3728,15 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <div class="text-white font-medium hover:text-purple-400 transition">{{ r.stockName }}</div>
                 <div class="text-xs text-gray-500">{{ r.stockNo }}</div>
               </td>
-              <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.prevVol?.toLocaleString() ?? '-' }}</td>
+              <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.volMa5?.toLocaleString() ?? r.prevVol?.toLocaleString() ?? '-' }}</td>
               <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.volume.toLocaleString() }}</td>
               <td class="px-3 py-2 text-right font-mono text-xs text-green-400 font-bold">
                 <template v-if="r.limitBidVol">{{ r.volume ? (r.limitBidVol / r.volume).toFixed(2) : '-' }}</template>
                 <span v-else-if="r.closedLimitUp" class="text-orange-400 text-xs">漲停收</span>
                 <template v-else>-</template>
               </td>
-              <td class="px-3 py-2 text-right font-mono text-xs" :class="volRatio1dClass(r)">
-                {{ r.prevVol ? (r.volume / r.prevVol).toFixed(2) : '-' }}
+              <td class="px-3 py-2 text-right font-mono text-xs" :class="volRatio5dClass(r)">
+                {{ r.volMa5 ? (r.volume / r.volMa5).toFixed(2) : r.prevVol ? (r.volume / r.prevVol).toFixed(2) : '-' }}
               </td>
               <td class="px-3 py-2 text-right font-mono text-xs text-blue-300">
                 <template v-if="r.limitBidVol">{{ r.limitBidVol.toLocaleString() }}</template>
@@ -3762,10 +3762,10 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
           <thead>
             <tr class="border-b border-gray-800 bg-gray-950">
               <th class="px-3 py-2 text-left text-xs text-gray-500 font-normal">代號／名稱</th>
-              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">昨日量</th>
+              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">5日均量</th>
               <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">今日量</th>
               <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">漲停委買比</th>
-              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">1日量比</th>
+              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">5日量比</th>
               <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">漲停委買量</th>
               <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">連漲停</th>
             </tr>
@@ -3781,13 +3781,13 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <div class="text-white font-medium hover:text-purple-400 transition">{{ r.stockName }}</div>
                 <div class="text-xs text-gray-500">{{ r.stockNo }}</div>
               </td>
-              <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.prevVol?.toLocaleString() ?? '-' }}</td>
+              <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.volMa5?.toLocaleString() ?? r.prevVol?.toLocaleString() ?? '-' }}</td>
               <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.volume.toLocaleString() }}</td>
               <td class="px-3 py-2 text-right font-mono text-xs" :class="r.limitBidVol && r.limitBidVol / r.volume > 1.6 ? 'text-green-400 font-bold' : r.limitBidVol ? 'text-gray-400' : 'text-gray-600'">
                 {{ r.limitBidVol && r.volume ? (r.limitBidVol / r.volume).toFixed(2) : '-' }}
               </td>
-              <td class="px-3 py-2 text-right font-mono text-xs" :class="volRatio1dClass(r)">
-                {{ r.prevVol ? (r.volume / r.prevVol).toFixed(2) : '-' }}
+              <td class="px-3 py-2 text-right font-mono text-xs" :class="volRatio5dClass(r)">
+                {{ r.volMa5 ? (r.volume / r.volMa5).toFixed(2) : r.prevVol ? (r.volume / r.prevVol).toFixed(2) : '-' }}
               </td>
               <td class="px-3 py-2 text-right font-mono text-xs text-gray-500">{{ r.limitBidVol?.toLocaleString() ?? '-' }}</td>
               <td class="px-3 py-2 text-right font-mono text-xs text-yellow-400">
@@ -3810,10 +3810,10 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
           <thead>
             <tr class="border-b border-gray-800 bg-gray-950">
               <th class="px-3 py-2 text-left text-xs text-gray-500 font-normal">代號／名稱</th>
-              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">昨日量</th>
+              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">5日均量</th>
               <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">今日量</th>
               <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">漲停委買比</th>
-              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">1日量比</th>
+              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">5日量比</th>
               <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">漲停委買量</th>
               <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">連漲停</th>
             </tr>
@@ -3829,13 +3829,13 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <div class="text-white font-medium hover:text-purple-400 transition">{{ r.stockName }}</div>
                 <div class="text-xs text-gray-500">{{ r.stockNo }}</div>
               </td>
-              <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.prevVol?.toLocaleString() ?? '-' }}</td>
+              <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.volMa5?.toLocaleString() ?? r.prevVol?.toLocaleString() ?? '-' }}</td>
               <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.volume.toLocaleString() }}</td>
               <td class="px-3 py-2 text-right font-mono text-xs text-green-400 font-bold">
                 {{ r.volume ? (r.limitBidVol / r.volume).toFixed(2) : '-' }}
               </td>
-              <td class="px-3 py-2 text-right font-mono text-xs" :class="volRatio1dClass(r)">
-                {{ r.prevVol ? (r.volume / r.prevVol).toFixed(2) : '-' }}
+              <td class="px-3 py-2 text-right font-mono text-xs" :class="volRatio5dClass(r)">
+                {{ r.volMa5 ? (r.volume / r.volMa5).toFixed(2) : r.prevVol ? (r.volume / r.prevVol).toFixed(2) : '-' }}
               </td>
               <td class="px-3 py-2 text-right font-mono text-xs text-amber-300">{{ r.limitBidVol?.toLocaleString() ?? '-' }}</td>
               <td class="px-3 py-2 text-right font-mono text-xs text-yellow-400">
@@ -3858,10 +3858,10 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
           <thead>
             <tr class="border-b border-gray-800 bg-gray-950">
               <th class="px-3 py-2 text-left text-xs text-gray-500 font-normal">代號／名稱</th>
-              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">昨日量</th>
+              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">5日均量</th>
               <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">今日量</th>
               <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">漲停委買比</th>
-              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">1日量比</th>
+              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">5日量比</th>
               <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">漲停委買量</th>
               <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">連漲停</th>
             </tr>
@@ -3877,13 +3877,13 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <div class="text-white font-medium hover:text-purple-400 transition">{{ r.stockName }}</div>
                 <div class="text-xs text-gray-500">{{ r.stockNo }}</div>
               </td>
-              <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.prevVol?.toLocaleString() ?? '-' }}</td>
+              <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.volMa5?.toLocaleString() ?? r.prevVol?.toLocaleString() ?? '-' }}</td>
               <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.volume.toLocaleString() }}</td>
               <td class="px-3 py-2 text-right font-mono text-xs text-green-400 font-bold">
                 {{ r.volume ? (r.limitBidVol / r.volume).toFixed(2) : '-' }}
               </td>
-              <td class="px-3 py-2 text-right font-mono text-xs" :class="volRatio1dClass(r)">
-                {{ r.prevVol ? (r.volume / r.prevVol).toFixed(2) : '-' }}
+              <td class="px-3 py-2 text-right font-mono text-xs" :class="volRatio5dClass(r)">
+                {{ r.volMa5 ? (r.volume / r.volMa5).toFixed(2) : r.prevVol ? (r.volume / r.prevVol).toFixed(2) : '-' }}
               </td>
               <td class="px-3 py-2 text-right font-mono text-xs text-amber-400">{{ r.limitBidVol?.toLocaleString() ?? '-' }}</td>
               <td class="px-3 py-2 text-right font-mono text-xs text-yellow-400">
@@ -3905,10 +3905,10 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
           <thead>
             <tr class="border-b border-gray-800 bg-gray-950">
               <th class="px-3 py-2 text-left text-xs text-gray-500 font-normal">代號／名稱</th>
-              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">昨日量</th>
+              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">5日均量</th>
               <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">今日量</th>
               <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">漲停委買比</th>
-              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">1日量比</th>
+              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">5日量比</th>
               <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">漲停委買量</th>
               <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">連漲停</th>
             </tr>
@@ -3924,13 +3924,13 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <div class="text-white font-medium hover:text-purple-400 transition">{{ r.stockName }}</div>
                 <div class="text-xs text-gray-500">{{ r.stockNo }}</div>
               </td>
-              <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.prevVol?.toLocaleString() ?? '-' }}</td>
+              <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.volMa5?.toLocaleString() ?? r.prevVol?.toLocaleString() ?? '-' }}</td>
               <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.volume.toLocaleString() }}</td>
               <td class="px-3 py-2 text-right font-mono text-xs" :class="r.limitBidVol && r.limitBidVol / r.volume > 1.6 ? 'text-green-400 font-bold' : r.limitBidVol ? 'text-gray-400' : 'text-gray-600'">
                 {{ r.limitBidVol && r.volume ? (r.limitBidVol / r.volume).toFixed(2) : '-' }}
               </td>
-              <td class="px-3 py-2 text-right font-mono text-xs" :class="volRatio1dClass(r)">
-                {{ r.prevVol ? (r.volume / r.prevVol).toFixed(2) : '-' }}
+              <td class="px-3 py-2 text-right font-mono text-xs" :class="volRatio5dClass(r)">
+                {{ r.volMa5 ? (r.volume / r.volMa5).toFixed(2) : r.prevVol ? (r.volume / r.prevVol).toFixed(2) : '-' }}
               </td>
               <td class="px-3 py-2 text-right font-mono text-xs text-gray-500">{{ r.limitBidVol?.toLocaleString() ?? '-' }}</td>
               <td class="px-3 py-2 text-right font-mono text-xs text-yellow-400">
