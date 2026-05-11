@@ -731,6 +731,9 @@ const volIncreaseLimitList3 = computed(() => {
   })
 })
 
+const limitUpDisplay   = computed(() => moversGainers.value.filter(r => r.changePct >= 9.5))
+const limitDownDisplay = computed(() => moversLosers.value.filter(r => r.changePct <= -9.5))
+
 function goToWarrant(stockNo) {
   warrantStockNo.value = stockNo
   selectTab('warrant')
@@ -4000,7 +4003,8 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
         <!-- 漲幅排行 -->
         <div class="bg-gray-900 rounded-xl border border-gray-800">
           <div class="px-4 py-3 border-b border-gray-800 flex items-center gap-2">
-            <span class="text-red-400 font-semibold text-sm">▲ 漲幅排行 TOP 50</span>
+            <span class="text-red-400 font-semibold text-sm">▲ 漲停個股</span>
+            <span class="ml-auto text-xs text-gray-500">{{ limitUpDisplay.length }} 支</span>
           </div>
           <table class="w-full text-sm">
             <thead class="sticky top-0 z-10">
@@ -4020,7 +4024,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               </tr>
             </thead>
             <tbody>
-              <tr v-for="(r, i) in moversGainers" :key="r.stockNo"
+              <tr v-for="(r, i) in limitUpDisplay" :key="r.stockNo"
                   class="border-b border-gray-800/50 transition"
                   :class="rowBgClass(r)">
                 <td class="px-3 py-2 text-gray-600 text-xs">{{ i + 1 }}</td>
@@ -4058,7 +4062,8 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
         <!-- 跌幅排行 -->
         <div class="bg-gray-900 rounded-xl border border-gray-800">
           <div class="px-4 py-3 border-b border-gray-800 flex items-center gap-2">
-            <span class="text-green-400 font-semibold text-sm">▼ 跌幅排行 TOP 50</span>
+            <span class="text-green-400 font-semibold text-sm">▼ 跌停個股</span>
+            <span class="ml-auto text-xs text-gray-500">{{ limitDownDisplay.length }} 支</span>
           </div>
           <table class="w-full text-sm">
             <thead class="sticky top-0 z-10">
@@ -4078,7 +4083,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               </tr>
             </thead>
             <tbody>
-              <tr v-for="(r, i) in moversLosers" :key="r.stockNo"
+              <tr v-for="(r, i) in limitDownDisplay" :key="r.stockNo"
                   class="border-b border-gray-800/50 transition"
                   :class="rowBgClass(r)">
                 <td class="px-3 py-2 text-gray-600 text-xs">{{ i + 1 }}</td>
