@@ -4156,26 +4156,31 @@ app.get('/api/market/movers', async (req, res) => {
         LEFT JOIN ma m ON m.stock_no = t.stock_no
         LEFT JOIN daily_limit_bid dlb ON dlb.stock_no = t.stock_no AND dlb.trade_date = $1::date
         WHERE t.volume > 0
-        ORDER BY change_pct DESC
+        ORDER BY change_pct DESC, t.volume DESC, (t.close * t.volume) DESC
       `, [dateParam])
 
-      const movers = rows.map(r => ({
-        stockNo:    r.stock_no,
-        stockName:  r.stock_name,
-        price:      parseFloat(r.price),
-        prevClose:  parseFloat(r.prev_close),
-        change:     parseFloat(r.change),
-        changePct:  parseFloat(r.change_pct),
-        volume:     Math.round(parseInt(r.volume) / 1000),
-        ma3:        r.ma3 != null ? parseFloat(r.ma3) : null,
-        prevMa3:    r.prev_ma3 != null ? parseFloat(r.prev_ma3) : null,
-        volMa3:     r.vol_ma3 != null ? Math.round(parseInt(r.vol_ma3) / 1000) : null,
-        prevVol:    r.prev_vol != null ? Math.round(parseInt(r.prev_vol) / 1000) : null,
-        prevOpen:    r.prev_open != null ? parseFloat(r.prev_open) : null,
-        prevVolMa3:  r.prev_vol_ma3 != null ? Math.round(parseInt(r.prev_vol_ma3) / 1000) : null,
-        limitBidVol:    r.limit_bid_vol != null ? parseInt(r.limit_bid_vol) : null,
-        closedLimitUp:  r.closed_limit_up || false,
-      }))
+      const movers = rows.map(r => {
+        const vol = Math.round(parseInt(r.volume) / 1000)
+        const price = parseFloat(r.price)
+        return {
+          stockNo:    r.stock_no,
+          stockName:  r.stock_name,
+          price,
+          prevClose:  parseFloat(r.prev_close),
+          change:     parseFloat(r.change),
+          changePct:  parseFloat(r.change_pct),
+          volume:     vol,
+          turnover:   +(price * vol / 1e5).toFixed(2),
+          ma3:        r.ma3 != null ? parseFloat(r.ma3) : null,
+          prevMa3:    r.prev_ma3 != null ? parseFloat(r.prev_ma3) : null,
+          volMa3:     r.vol_ma3 != null ? Math.round(parseInt(r.vol_ma3) / 1000) : null,
+          prevVol:    r.prev_vol != null ? Math.round(parseInt(r.prev_vol) / 1000) : null,
+          prevOpen:    r.prev_open != null ? parseFloat(r.prev_open) : null,
+          prevVolMa3:  r.prev_vol_ma3 != null ? Math.round(parseInt(r.prev_vol_ma3) / 1000) : null,
+          limitBidVol:    r.limit_bid_vol != null ? parseInt(r.limit_bid_vol) : null,
+          closedLimitUp:  r.closed_limit_up || false,
+        }
+      })
 
       // 計算連續漲停／跌停天數
       const limitNos = movers.filter(m => m.changePct >= 9.5 || m.changePct <= -9.5).map(m => m.stockNo)
@@ -4309,6 +4314,7 @@ app.get('/api/market/movers', async (req, res) => {
           price: z, prevClose: y,
           change: +(z - y).toFixed(2),
           changePct, volume: vol,
+          turnover: +(z * vol / 1e5).toFixed(2),
           limitBidVol,
           innerVol, outerVol,
           ma3:        maMap[item.c]?.ma3       ?? null,
@@ -4321,7 +4327,11 @@ app.get('/api/market/movers', async (req, res) => {
       }
     }
 
-    movers.sort((a, b) => b.changePct - a.changePct)
+    movers.sort((a, b) => {
+      if (b.changePct !== a.changePct) return b.changePct - a.changePct
+      if (b.volume !== a.volume) return b.volume - a.volume
+      return (b.turnover || 0) - (a.turnover || 0)
+    })
 
     // 計算連續漲停／跌停天數（今日從 MIS 確認 +1，再往前查 DB）
     const limitNos = movers.filter(m => m.changePct >= 9.5 || m.changePct <= -9.5).map(m => m.stockNo)
