@@ -3573,16 +3573,49 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
         </button>
       </div>
 
-      <!-- 操作說明 -->
-      <div class="bg-gray-900/60 border border-gray-800 rounded-xl px-4 py-3 text-xs text-gray-500 space-y-1.5">
-        <div class="flex flex-wrap gap-x-5 gap-y-1">
-          <span>點股票<span class="text-white font-medium">名稱</span> → 權證查詢</span>
-          <span>點股票<span class="text-blue-400 font-medium underline decoration-dotted">代號</span> → 即時五檔 + 價量明細</span>
-          <span>點整列（觀察區）→ 跳往量縮觀察清單</span>
+      <!-- 顏色與操作說明 -->
+      <div class="bg-gray-900/60 border border-gray-800 rounded-xl px-4 py-3 text-xs space-y-2.5">
+
+        <!-- 列底色 -->
+        <div class="flex flex-wrap gap-x-4 gap-y-1.5 items-center">
+          <span class="text-gray-600 shrink-0 font-medium">列底色</span>
+          <span class="flex items-center gap-1.5">
+            <span class="inline-block w-3 h-3 rounded-sm bg-red-900/60 border border-red-700/40"></span>
+            <span class="text-gray-300">量增漲停</span>
+            <span class="text-gray-600 ml-1">今量 1.5～3x 昨量，且漲停委買比 &gt;1.5</span>
+          </span>
+          <span class="flex items-center gap-1.5">
+            <span class="inline-block w-3 h-3 rounded-sm bg-blue-900/60 border border-blue-700/40"></span>
+            <span class="text-gray-300">量縮漲停</span>
+            <span class="text-gray-600 ml-1">今量 &lt; 昨量 50%，且漲停委買比 &gt;2</span>
+          </span>
         </div>
-        <div class="flex flex-wrap gap-x-5 gap-y-1 text-gray-600">
-          <span>五檔：每 10 秒更新，顯示即時委買委賣五檔、成交、漲跌、幅度</span>
-          <span>價量明細：每 20 秒快照一次成交價與成交量，非逐筆即時，同一區間多筆成交僅保留最後一筆，資料保存 60 天</span>
+
+        <!-- 量比數字色 -->
+        <div class="flex flex-wrap gap-x-4 gap-y-1.5 items-center">
+          <span class="text-gray-600 shrink-0 font-medium">量比色</span>
+          <span class="text-yellow-400 font-bold">黃 ≥2x</span><span class="text-gray-600">爆量</span>
+          <span class="text-gray-600">｜</span>
+          <span class="text-purple-400 font-bold">紫 &lt;0.5x</span><span class="text-gray-600">大縮（1日）</span>
+          <span class="text-gray-600">｜</span>
+          <span class="text-red-400 font-bold">紅 0.5～0.7x</span><span class="text-gray-600">縮量（1日）</span>
+          <span class="text-gray-600">｜</span>
+          <span class="text-orange-400 font-bold">橙 &lt;0.5x</span><span class="text-gray-600">大縮（3日均）</span>
+        </div>
+
+        <!-- 漲停委買比色 -->
+        <div class="flex flex-wrap gap-x-4 gap-y-1.5 items-center">
+          <span class="text-gray-600 shrink-0 font-medium">委買比色</span>
+          <span class="text-green-400 font-bold">綠 &gt;1.6</span><span class="text-gray-600">強力買壓，委買量超過成交量 1.6 倍</span>
+          <span class="text-gray-600">｜</span>
+          <span class="text-gray-400">灰</span><span class="text-gray-600">有委買但比值 ≤1.6</span>
+        </div>
+
+        <!-- 操作 -->
+        <div class="flex flex-wrap gap-x-4 gap-y-1 border-t border-gray-800 pt-2 text-gray-600">
+          <span>點<span class="text-white">名稱</span> → 權證查詢</span>
+          <span>點<span class="text-blue-400 underline decoration-dotted">代號</span> → 即時五檔</span>
+          <span>點觀察區整列 → 跳到量縮清單</span>
         </div>
       </div>
 
