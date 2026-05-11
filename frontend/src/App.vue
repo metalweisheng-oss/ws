@@ -600,9 +600,9 @@ function volRatio1dClass(r) {
   if (ratio >= 2)  return 'text-yellow-400 font-bold'
   return 'text-gray-400'
 }
-function volRatio3dClass(r) {
-  if (!r.volMa3) return 'text-gray-600'
-  const ratio = r.volume / r.volMa3
+function volRatio5dClass(r) {
+  if (!r.volMa5) return 'text-gray-600'
+  const ratio = r.volume / r.volMa5
   if (ratio < 0.5) return 'text-orange-400 font-bold'
   if (ratio >= 2)  return 'text-yellow-400 font-bold'
   return 'text-gray-400'
@@ -3610,7 +3610,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
           <span class="text-gray-600">｜</span>
           <span class="text-red-400 font-bold">紅 0.5～0.7x</span><span class="text-gray-600">縮量（1日）</span>
           <span class="text-gray-600">｜</span>
-          <span class="text-orange-400 font-bold">橙 &lt;0.5x</span><span class="text-gray-600">大縮（3日均）</span>
+          <span class="text-orange-400 font-bold">橙 &lt;0.5x</span><span class="text-gray-600">大縮（5日均）</span>
         </div>
 
         <!-- 漲停委買比色 -->
@@ -3947,7 +3947,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
           <div class="flex items-center gap-2"><span class="text-gray-400">■ 灰色</span><span>0.7 ～ 2　正常</span></div>
           <div class="flex items-center gap-2"><span class="text-red-400 font-bold">■ 紅色粗體</span><span>0.5 ～ 0.7　縮量</span></div>
           <div class="flex items-center gap-2"><span class="text-purple-400 font-bold">■ 紫色粗體</span><span>&lt; 0.5　極度縮量</span></div>
-          <div class="font-semibold text-gray-500 col-span-full mt-1">3日量比（今日量 ÷ 3日均量）</div>
+          <div class="font-semibold text-gray-500 col-span-full mt-1">5日量比（今日量 ÷ 5日均量）</div>
           <div class="flex items-center gap-2"><span class="text-yellow-400 font-bold">■ 黃色粗體</span><span>≥ 2　爆量</span></div>
           <div class="flex items-center gap-2"><span class="text-gray-400">■ 灰色</span><span>0.5 ～ 2　正常</span></div>
           <div class="flex items-center gap-2"><span class="text-orange-400 font-bold">■ 橘色粗體</span><span>&lt; 0.5　縮量</span></div>
@@ -4010,13 +4010,13 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <th class="px-3 py-2 text-right">昨日價格</th>
                 <th class="px-3 py-2 text-right">現價</th>
                 <th class="px-3 py-2 text-right leading-tight">漲跌幅<br><span class="text-gray-600">(連續天數)</span></th>
-                <th class="px-3 py-2 text-right">3日均量</th>
+                <th class="px-3 py-2 text-right">5日均量</th>
                 <th class="px-3 py-2 text-right">1日量</th>
                 <th class="px-3 py-2 text-right leading-tight">今日成交量<br><span class="text-gray-600">(漲停委買量)</span></th>
                 <th class="px-3 py-2 text-right leading-tight">成交金額<br><span class="text-gray-600">(億元)</span></th>
                 <th class="px-3 py-2 text-right leading-tight">漲停委買比<br><span class="text-gray-600">委買量÷成交量</span></th>
                 <th class="px-3 py-2 text-right leading-tight">1日量比<br><span class="text-gray-600">今÷昨</span></th>
-                <th class="px-3 py-2 text-right leading-tight">3日量比<br><span class="text-gray-600">今÷3日均</span></th>
+                <th class="px-3 py-2 text-right leading-tight">5日量比<br><span class="text-gray-600">今÷5日均</span></th>
               </tr>
             </thead>
             <tbody>
@@ -4033,7 +4033,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <td class="px-3 py-2 text-right font-bold text-red-400">
                   +{{ r.changePct.toFixed(1) }}%<span v-if="r.limitDays" class="text-yellow-400"> ({{ r.limitDays }})</span>
                 </td>
-                <td class="px-3 py-2 text-right text-gray-400 font-mono text-xs">{{ r.volMa3 != null ? r.volMa3.toLocaleString() : '-' }}</td>
+                <td class="px-3 py-2 text-right text-gray-400 font-mono text-xs">{{ r.volMa5 != null ? r.volMa5.toLocaleString() : '-' }}</td>
                 <td class="px-3 py-2 text-right text-gray-500 font-mono text-xs">{{ r.prevVol != null ? r.prevVol.toLocaleString() : '-' }}</td>
                 <td class="px-3 py-2 text-right font-mono text-xs" :class="r.limitBidVol && r.limitBidVol / r.volume > 1.6 ? 'text-red-300' : 'text-gray-400'">
                   {{ r.volume.toLocaleString() }}<span v-if="r.limitBidVol" :class="r.limitBidVol / r.volume > 1.6 ? 'text-green-400' : 'text-gray-500'"> ({{ r.limitBidVol.toLocaleString() }})</span>
@@ -4047,8 +4047,8 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <td class="px-3 py-2 text-right font-mono text-xs" :class="volRatio1dClass(r)">
                   {{ r.prevVol ? (r.volume / r.prevVol).toFixed(2) : '-' }}
                 </td>
-                <td class="px-3 py-2 text-right font-mono text-xs" :class="volRatio3dClass(r)">
-                  {{ r.volMa3 ? (r.volume / r.volMa3).toFixed(2) : '-' }}
+                <td class="px-3 py-2 text-right font-mono text-xs" :class="volRatio5dClass(r)">
+                  {{ r.volMa5 ? (r.volume / r.volMa5).toFixed(2) : '-' }}
                 </td>
               </tr>
             </tbody>
@@ -4068,13 +4068,13 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <th class="px-3 py-2 text-right">昨日價格</th>
                 <th class="px-3 py-2 text-right">現價</th>
                 <th class="px-3 py-2 text-right leading-tight">漲跌幅<br><span class="text-gray-600">(連續天數)</span></th>
-                <th class="px-3 py-2 text-right">3日均量</th>
+                <th class="px-3 py-2 text-right">5日均量</th>
                 <th class="px-3 py-2 text-right">1日量</th>
                 <th class="px-3 py-2 text-right leading-tight">今日成交量<br><span class="text-gray-600">(漲停委買量)</span></th>
                 <th class="px-3 py-2 text-right leading-tight">成交金額<br><span class="text-gray-600">(億元)</span></th>
                 <th class="px-3 py-2 text-right leading-tight">漲停委買比<br><span class="text-gray-600">委買量÷成交量</span></th>
                 <th class="px-3 py-2 text-right leading-tight">1日量比<br><span class="text-gray-600">今÷昨</span></th>
-                <th class="px-3 py-2 text-right leading-tight">3日量比<br><span class="text-gray-600">今÷3日均</span></th>
+                <th class="px-3 py-2 text-right leading-tight">5日量比<br><span class="text-gray-600">今÷5日均</span></th>
               </tr>
             </thead>
             <tbody>
@@ -4091,7 +4091,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <td class="px-3 py-2 text-right font-bold text-green-400">
                   {{ r.changePct.toFixed(1) }}%<span v-if="r.limitDays" class="text-yellow-400"> ({{ r.limitDays }})</span>
                 </td>
-                <td class="px-3 py-2 text-right text-gray-400 font-mono text-xs">{{ r.volMa3 != null ? r.volMa3.toLocaleString() : '-' }}</td>
+                <td class="px-3 py-2 text-right text-gray-400 font-mono text-xs">{{ r.volMa5 != null ? r.volMa5.toLocaleString() : '-' }}</td>
                 <td class="px-3 py-2 text-right text-gray-500 font-mono text-xs">{{ r.prevVol != null ? r.prevVol.toLocaleString() : '-' }}</td>
                 <td class="px-3 py-2 text-right font-mono text-xs" :class="r.limitBidVol && r.limitBidVol / r.volume > 1.6 ? 'text-red-300' : 'text-gray-400'">
                   {{ r.volume.toLocaleString() }}<span v-if="r.limitBidVol" :class="r.limitBidVol / r.volume > 1.6 ? 'text-green-400' : 'text-gray-500'"> ({{ r.limitBidVol.toLocaleString() }})</span>
@@ -4105,8 +4105,8 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <td class="px-3 py-2 text-right font-mono text-xs" :class="volRatio1dClass(r)">
                   {{ r.prevVol ? (r.volume / r.prevVol).toFixed(2) : '-' }}
                 </td>
-                <td class="px-3 py-2 text-right font-mono text-xs" :class="volRatio3dClass(r)">
-                  {{ r.volMa3 ? (r.volume / r.volMa3).toFixed(2) : '-' }}
+                <td class="px-3 py-2 text-right font-mono text-xs" :class="volRatio5dClass(r)">
+                  {{ r.volMa5 ? (r.volume / r.volMa5).toFixed(2) : '-' }}
                 </td>
               </tr>
             </tbody>

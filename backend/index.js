@@ -4161,9 +4161,9 @@ app.get('/api/market/movers', async (req, res) => {
                  MAX(CASE WHEN rn = 2 THEN volume END)::bigint AS prev_vol,
                  MAX(CASE WHEN rn = 2 THEN open_p END)::float AS prev_open,
                  ROUND(AVG(CASE WHEN rn BETWEEN 3 AND 5 THEN volume END))::bigint AS prev_vol_ma3,
-                 ROUND(AVG(CASE WHEN rn BETWEEN 2 AND 6 THEN volume END))::bigint AS vol_ma5
+                 ROUND(AVG(CASE WHEN rn <= 5 THEN volume END))::bigint AS vol_ma5
           FROM hist
-          WHERE rn <= 6
+          WHERE rn <= 5
           GROUP BY stock_no
           HAVING COUNT(CASE WHEN rn <= 3 THEN 1 END) = 3
              AND COUNT(CASE WHEN rn BETWEEN 3 AND 5 THEN 1 END) = 3
