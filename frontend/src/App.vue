@@ -4183,6 +4183,10 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
           <div class="flex items-center gap-2"><span class="text-yellow-400 font-bold">■ 黃色粗體</span><span>≥ 2　爆量</span></div>
           <div class="flex items-center gap-2"><span class="text-gray-400">■ 灰色</span><span>0.5 ～ 2　正常</span></div>
           <div class="flex items-center gap-2"><span class="text-orange-400 font-bold">■ 橘色粗體</span><span>&lt; 0.5　縮量</span></div>
+          <div class="font-semibold text-gray-500 col-span-full mt-1">今日成交量欄顏色</div>
+          <div class="flex items-center gap-2"><span class="text-rose-400 font-bold">■ 玫瑰色粗體</span><span>≥ 10萬張　超大量，市場高度關注，籌碼流動快、主力動向值得追蹤</span></div>
+          <div class="flex items-center gap-2"><span class="text-red-300">■ 淡紅色</span><span>有漲停委買且比值 &gt; 1.6　強力護盤訊號</span></div>
+          <div class="flex items-center gap-2"><span class="text-gray-400">■ 灰色</span><span>一般成交量</span></div>
           <div class="font-semibold text-gray-500 col-span-full mt-1">列背景</div>
           <div class="flex items-center gap-2"><span class="px-2 py-0.5 rounded bg-red-900/40 text-red-300">紅底（主力換手）</span><span>符合量增漲停觀察第一或第二順位</span></div>
           <div class="flex items-center gap-2"><span class="px-2 py-0.5 rounded bg-blue-900/40 text-blue-300">藍底（量縮漲停）</span><span>符合量縮漲停觀察第一、二或三順位</span></div>
@@ -4305,7 +4309,8 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 </td>
                 <td class="px-3 py-2 text-right text-gray-400 font-mono text-xs">{{ r.volMa5 != null ? r.volMa5.toLocaleString() : '-' }}</td>
                 <td class="px-3 py-2 text-right text-gray-500 font-mono text-xs">{{ r.prevVol != null ? r.prevVol.toLocaleString() : '-' }}</td>
-                <td class="px-3 py-2 text-right font-mono text-xs" :class="r.limitBidVol && r.limitBidVol / r.volume > 1.6 ? 'text-red-300' : 'text-gray-400'">
+                <td class="px-3 py-2 text-right font-mono text-xs"
+                    :class="r.volume >= 100000 ? 'text-rose-400 font-bold' : r.limitBidVol && r.limitBidVol / r.volume > 1.6 ? 'text-red-300' : 'text-gray-400'">
                   {{ r.volume.toLocaleString() }}<span v-if="r.limitBidVol" :class="r.limitBidVol / r.volume > 1.6 ? 'text-green-400' : 'text-gray-500'"> ({{ r.limitBidVol.toLocaleString() }})</span>
                 </td>
                 <td class="px-3 py-2 text-right font-mono text-xs text-gray-300">
@@ -4369,7 +4374,8 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 </td>
                 <td class="px-3 py-2 text-right text-gray-400 font-mono text-xs">{{ r.volMa5 != null ? r.volMa5.toLocaleString() : '-' }}</td>
                 <td class="px-3 py-2 text-right text-gray-500 font-mono text-xs">{{ r.prevVol != null ? r.prevVol.toLocaleString() : '-' }}</td>
-                <td class="px-3 py-2 text-right font-mono text-xs" :class="r.limitBidVol && r.limitBidVol / r.volume > 1.6 ? 'text-red-300' : 'text-gray-400'">
+                <td class="px-3 py-2 text-right font-mono text-xs"
+                    :class="r.volume >= 100000 ? 'text-rose-400 font-bold' : r.limitBidVol && r.limitBidVol / r.volume > 1.6 ? 'text-red-300' : 'text-gray-400'">
                   {{ r.volume.toLocaleString() }}<span v-if="r.limitBidVol" :class="r.limitBidVol / r.volume > 1.6 ? 'text-green-400' : 'text-gray-500'"> ({{ r.limitBidVol.toLocaleString() }})</span>
                 </td>
                 <td class="px-3 py-2 text-right font-mono text-xs text-gray-300">
