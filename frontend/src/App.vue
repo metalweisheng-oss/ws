@@ -433,7 +433,7 @@ async function fetchWarrantAsks() {
     })
     const d = await r.json()
     if (d.ok) {
-      warrantAskMap.value  = d.data
+      warrantAskMap.value  = { ...warrantAskMap.value, ...d.data }
       askLastUpdated.value = new Date().toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
     }
   } catch(e) {}
