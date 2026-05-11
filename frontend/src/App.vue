@@ -559,12 +559,33 @@ function onMoversDateChange() {
   }
 }
 
+function twNowMinutes() {
+  const now = new Date(Date.now() + 8 * 3600000)
+  return now.getUTCHours() * 60 + now.getUTCMinutes()
+}
+function isMarketHours() {
+  const m = twNowMinutes()
+  return m >= 9 * 60 && m < 13 * 60 + 30
+}
+function isNearOpen() {
+  const m = twNowMinutes()
+  return m >= 8 * 60 + 50 && m < 9 * 60 + 20
+}
+
 function startMoversAutoRefresh() {
   clearInterval(moversTimer)
   moversTimer = null
   fetchMoversDates()
   fetchMovers()
-  moversTimer = setInterval(fetchMovers, 30000)
+  const interval = isNearOpen() ? 10000 : 30000
+  moversTimer = setInterval(() => {
+    fetchMovers()
+    // 開盤後轉回 30 秒
+    if (!isNearOpen() && moversTimer) {
+      clearInterval(moversTimer)
+      moversTimer = setInterval(fetchMovers, 30000)
+    }
+  }, interval)
 }
 function stopMoversAutoRefresh() {
   clearInterval(moversTimer)
@@ -3893,8 +3914,13 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
       <div v-if="moversLoading && !moversGainers.length" class="text-center py-20 text-gray-500 text-sm">資料載入中，請稍候...</div>
 
       <!-- 非交易時段提示 -->
-      <div v-if="!moversLoading && !moversDate && !moversGainers.length && !moversLosers.length" class="text-center py-20 text-gray-600 text-sm">
-        非交易時段，目前無即時資料
+      <div v-if="!moversLoading && !moversDate && !moversGainers.length && !moversLosers.length" class="text-center py-20 space-y-3">
+        <div class="text-gray-500 text-sm">
+          {{ isMarketHours() ? '市場剛開盤，資料更新中…' : '非交易時段，目前無即時資料' }}
+        </div>
+        <button @click="fetchMovers()" class="px-4 py-1.5 rounded-lg text-xs bg-gray-800 text-gray-400 hover:bg-gray-700 border border-gray-700 transition">
+          手動重新整理
+        </button>
       </div>
 
       <!-- 兩欄排行表 -->
