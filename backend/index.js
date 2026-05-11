@@ -2597,6 +2597,9 @@ app.get('/api/debug/screener-check', async (req, res) => {
     `)
     await pool.query(`ALTER TABLE market_daily ADD COLUMN IF NOT EXISTS short_bal BIGINT`).catch(()=>{})
     await pool.query(`ALTER TABLE daily_limit_bid ADD COLUMN IF NOT EXISTS closed_limit_up BOOLEAN DEFAULT FALSE`).catch(()=>{})
+    await pool.query(`ALTER TABLE daily_limit_bid ADD COLUMN IF NOT EXISTS bid_snapshot_count INTEGER DEFAULT 0`).catch(()=>{})
+    await pool.query(`ALTER TABLE daily_limit_bid ADD COLUMN IF NOT EXISTS bid_vol_sum BIGINT DEFAULT 0`).catch(()=>{})
+    await pool.query(`ALTER TABLE daily_limit_bid ADD COLUMN IF NOT EXISTS close_limit_bid_vol BIGINT`).catch(()=>{})
     await pool.query(`
       CREATE TABLE IF NOT EXISTS daily_limit_bid (
         stock_no      VARCHAR(10),
@@ -3819,18 +3822,23 @@ async function saveCloseSnapshot(dateStr, isClose = true) {
   for (const [stockNo, tradeDate, vol] of bidRecords) {
     if (isClose) {
       await pool.query(`
-        INSERT INTO daily_limit_bid (stock_no, trade_date, limit_bid_vol, closed_limit_up)
-        VALUES ($1, $2, $3, TRUE)
+        INSERT INTO daily_limit_bid (stock_no, trade_date, limit_bid_vol, closed_limit_up, close_limit_bid_vol, bid_snapshot_count, bid_vol_sum)
+        VALUES ($1, $2, $3, TRUE, $3, 1, $3)
         ON CONFLICT (stock_no, trade_date) DO UPDATE SET
-          limit_bid_vol = GREATEST(EXCLUDED.limit_bid_vol, daily_limit_bid.limit_bid_vol),
-          closed_limit_up = TRUE
+          limit_bid_vol        = GREATEST(EXCLUDED.limit_bid_vol, daily_limit_bid.limit_bid_vol),
+          closed_limit_up      = TRUE,
+          close_limit_bid_vol  = $3,
+          bid_snapshot_count   = COALESCE(daily_limit_bid.bid_snapshot_count, 0) + 1,
+          bid_vol_sum          = COALESCE(daily_limit_bid.bid_vol_sum, 0) + $3
       `, [stockNo, tradeDate, vol])
     } else {
       await pool.query(`
-        INSERT INTO daily_limit_bid (stock_no, trade_date, limit_bid_vol)
-        VALUES ($1, $2, $3)
+        INSERT INTO daily_limit_bid (stock_no, trade_date, limit_bid_vol, bid_snapshot_count, bid_vol_sum)
+        VALUES ($1, $2, $3, 1, $3)
         ON CONFLICT (stock_no, trade_date) DO UPDATE SET
-          limit_bid_vol = GREATEST(EXCLUDED.limit_bid_vol, daily_limit_bid.limit_bid_vol)
+          limit_bid_vol      = GREATEST(EXCLUDED.limit_bid_vol, daily_limit_bid.limit_bid_vol),
+          bid_snapshot_count = COALESCE(daily_limit_bid.bid_snapshot_count, 0) + 1,
+          bid_vol_sum        = COALESCE(daily_limit_bid.bid_vol_sum, 0) + $3
       `, [stockNo, tradeDate, vol])
     }
   }
@@ -4174,7 +4182,8 @@ app.get('/api/market/movers', async (req, res) => {
                ROUND(((t.close - p.prev_close) / p.prev_close * 100)::numeric, 2) AS change_pct,
                ROUND((t.close - p.prev_close)::numeric, 2) AS change,
                m.ma3, m.prev_ma3, m.vol_ma3, m.prev_vol, m.prev_open, m.prev_vol_ma3, m.vol_ma5,
-               dlb.limit_bid_vol, dlb.closed_limit_up
+               dlb.limit_bid_vol, dlb.closed_limit_up,
+               dlb.bid_snapshot_count, dlb.bid_vol_sum, dlb.close_limit_bid_vol
         FROM today t
         JOIN prev p ON p.stock_no = t.stock_no
         LEFT JOIN ma m ON m.stock_no = t.stock_no
@@ -4202,8 +4211,11 @@ app.get('/api/market/movers', async (req, res) => {
           prevOpen:    r.prev_open != null ? parseFloat(r.prev_open) : null,
           prevVolMa3:  r.prev_vol_ma3 != null ? Math.round(parseInt(r.prev_vol_ma3) / 1000) : null,
           volMa5:      r.vol_ma5 != null ? Math.round(parseInt(r.vol_ma5) / 1000) : null,
-          limitBidVol:    r.limit_bid_vol != null ? parseInt(r.limit_bid_vol) : null,
-          closedLimitUp:  r.closed_limit_up || false,
+          limitBidVol:       r.limit_bid_vol        != null ? parseInt(r.limit_bid_vol)        : null,
+          closedLimitUp:     r.closed_limit_up      || false,
+          bidSnapshotCount:  r.bid_snapshot_count   != null ? parseInt(r.bid_snapshot_count)   : null,
+          bidVolSum:         r.bid_vol_sum          != null ? parseInt(r.bid_vol_sum)          : null,
+          closeLimitBidVol:  r.close_limit_bid_vol  != null ? parseInt(r.close_limit_bid_vol)  : null,
         }
       })
 
@@ -4260,8 +4272,9 @@ app.get('/api/market/movers', async (req, res) => {
   }
 
   try {
-    const [{ rows: stockRows }, { rows: maRows }] = await Promise.all([
+    const [{ rows: stockRows }, { rows: dlbRows }, { rows: maRows }] = await Promise.all([
       pool.query(`SELECT DISTINCT ON (stock_no) stock_no, stock_name FROM market_daily ORDER BY stock_no, trade_date DESC`),
+      pool.query(`SELECT stock_no, bid_snapshot_count, bid_vol_sum, close_limit_bid_vol FROM daily_limit_bid WHERE trade_date = CURRENT_DATE`).catch(() => ({ rows: [] })),
       pool.query(`
         WITH ranked AS (
           SELECT stock_no, open_p::numeric, close::numeric, volume::numeric,
@@ -4287,6 +4300,13 @@ app.get('/api/market/movers', async (req, res) => {
 
     const nameMap = {}
     for (const r of stockRows) nameMap[r.stock_no] = r.stock_name
+
+    const dlbMap = {}
+    for (const r of dlbRows) dlbMap[r.stock_no] = {
+      bidSnapshotCount: r.bid_snapshot_count != null ? parseInt(r.bid_snapshot_count) : null,
+      bidVolSum:        r.bid_vol_sum        != null ? parseInt(r.bid_vol_sum)        : null,
+      closeLimitBidVol: r.close_limit_bid_vol != null ? parseInt(r.close_limit_bid_vol) : null,
+    }
 
     const maMap = {}
     for (const r of maRows) maMap[r.stock_no] = {
@@ -4349,8 +4369,11 @@ app.get('/api/market/movers', async (req, res) => {
           volMa3:     maMap[item.c]?.volMa3    ?? null,
           prevVol:    maMap[item.c]?.prevVol   ?? null,
           prevOpen:   maMap[item.c]?.prevOpen  ?? null,
-          prevVolMa3: maMap[item.c]?.prevVolMa3 ?? null,
-          volMa5:     maMap[item.c]?.volMa5    ?? null,
+          prevVolMa3:       maMap[item.c]?.prevVolMa3       ?? null,
+          volMa5:           maMap[item.c]?.volMa5           ?? null,
+          bidSnapshotCount: dlbMap[item.c]?.bidSnapshotCount ?? null,
+          bidVolSum:        dlbMap[item.c]?.bidVolSum        ?? null,
+          closeLimitBidVol: dlbMap[item.c]?.closeLimitBidVol ?? null,
         })
       }
     }

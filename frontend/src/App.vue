@@ -629,10 +629,39 @@ function passAntiSpoof(r) {
 // 以5日均量為基準；無5日均量時退用前一日量
 function volRef5d(r) { return r.volMa5 || r.prevVol || null }
 
+// 假掛單三重過濾（僅在有快照資料時生效，歷史資料無資料自動跳過）
+// ① 至少出現 2 次快照（排除一閃而過的假掛）
+// ② 平均委買 / 最大委買 ≥ 0.25（穩定性，排除先拉大再撤的假掛）
+// ③ 收盤前有委買 OR 漲停收盤（排除盤中撤單）
+function passAntiFake(r) {
+  if (!r.limitBidVol) return true
+  if (r.bidSnapshotCount != null && r.bidSnapshotCount > 0) {
+    if (r.bidSnapshotCount < 2) return false
+    if (r.bidVolSum != null) {
+      const stability = (r.bidVolSum / r.bidSnapshotCount) / r.limitBidVol
+      if (stability < 0.25) return false
+    }
+  }
+  if (r.closeLimitBidVol != null && !r.closedLimitUp && r.closeLimitBidVol === 0) return false
+  return true
+}
+
+// 可信度等級 (用於顯示)
+function bidCredibility(r) {
+  if (!r.limitBidVol) return null
+  if (r.bidSnapshotCount == null || r.bidSnapshotCount === 0) return 'unknown'
+  const stability = r.bidVolSum ? (r.bidVolSum / r.bidSnapshotCount) / r.limitBidVol : 0
+  const closeOk = r.closedLimitUp || (r.closeLimitBidVol != null && r.closeLimitBidVol > 0)
+  if (r.bidSnapshotCount >= 3 && stability >= 0.5 && closeOk) return 'high'
+  if (r.bidSnapshotCount >= 2 && stability >= 0.25) return 'medium'
+  return 'low'
+}
+
 const limitSqueezeList1 = computed(() => {
   return moversGainers.value.filter(r => {
     if (r.changePct < 9.5) return false
     if (!passAntiSpoof(r)) return false
+    if (!passAntiFake(r)) return false
     const ref = volRef5d(r)
     if (!ref || r.volume / ref >= 0.5) return false
     if (r.limitBidVol) return r.limitBidVol / r.volume > 1.7
@@ -645,6 +674,7 @@ const limitSqueezeList2 = computed(() => {
     if (tier1.has(r.stockNo)) return false
     if (r.changePct < 9.5) return false
     if (!passAntiSpoof(r)) return false
+    if (!passAntiFake(r)) return false
     const ref = volRef5d(r)
     if (!ref || r.volume / ref >= 0.7) return false
     if (r.limitBidVol) return r.limitBidVol / r.volume > 1.5
@@ -660,6 +690,7 @@ const limitSqueezeList3 = computed(() => {
     if (tier12.has(r.stockNo)) return false
     if (r.changePct < 9.5) return false
     if (!passAntiSpoof(r)) return false
+    if (!passAntiFake(r)) return false
     const ref = volRef5d(r)
     if (!ref || r.volume / ref >= 0.7) return false
     return true
@@ -690,6 +721,7 @@ const volIncreaseLimitList1 = computed(() => {
   return moversGainers.value.filter(r => {
     if (r.changePct < 9.5) return false
     if (!passAntiSpoof(r)) return false
+    if (!passAntiFake(r)) return false
     if (!r.limitBidVol) return false
     const ref = volRef5d(r)
     if (!ref) return false
@@ -706,6 +738,7 @@ const volIncreaseLimitList2 = computed(() => {
     if (tier1.has(r.stockNo)) return false
     if (r.changePct < 9.5) return false
     if (!passAntiSpoof(r)) return false
+    if (!passAntiFake(r)) return false
     if (!r.limitBidVol) return false
     const ref = volRef5d(r)
     if (!ref) return false
@@ -723,6 +756,7 @@ const volIncreaseLimitList3 = computed(() => {
     if (tier12.has(r.stockNo)) return false
     if (r.changePct < 9.5) return false
     if (!passAntiSpoof(r)) return false
+    if (!passAntiFake(r)) return false
     const ref = volRef5d(r)
     if (!ref) return false
     const ratio = r.volume / ref
@@ -3661,11 +3695,12 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">5日量比</th>
               <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">漲停委買量</th>
               <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">連漲停</th>
+              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">委買可信度</th>
             </tr>
           </thead>
           <tbody>
             <tr v-if="!limitSqueezeList1.length">
-              <td colspan="7" class="px-3 py-4 text-center text-gray-700 text-xs">目前無符合條件</td>
+              <td colspan="8" class="px-3 py-4 text-center text-gray-700 text-xs">目前無符合條件</td>
             </tr>
             <tr v-for="r in limitSqueezeList1" :key="r.stockNo"
                 class="border-b border-gray-800/50 bg-blue-900/15 hover:bg-blue-900/25 transition cursor-pointer"
@@ -3692,6 +3727,12 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               <td class="px-3 py-2 text-right font-mono text-xs text-yellow-400">
                 {{ r.limitDays ? r.limitDays + '天' : '-' }}
               </td>
+              <td class="px-3 py-2 text-right font-mono text-xs">
+                <span v-if="bidCredibility(r) === 'high'"   class="text-green-400">●高</span>
+                <span v-else-if="bidCredibility(r) === 'medium'" class="text-yellow-400">●中</span>
+                <span v-else-if="bidCredibility(r) === 'low'"    class="text-red-400">●低</span>
+                <span v-else class="text-gray-600">－</span>
+              </td>
             </tr>
           </tbody>
         </table>
@@ -3715,11 +3756,12 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">5日量比</th>
               <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">漲停委買量</th>
               <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">連漲停</th>
+              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">委買可信度</th>
             </tr>
           </thead>
           <tbody>
             <tr v-if="!limitSqueezeList2.length">
-              <td colspan="7" class="px-3 py-4 text-center text-gray-700 text-xs">目前無符合條件</td>
+              <td colspan="8" class="px-3 py-4 text-center text-gray-700 text-xs">目前無符合條件</td>
             </tr>
             <tr v-for="r in limitSqueezeList2" :key="r.stockNo"
                 class="border-b border-gray-800/50 bg-blue-900/10 hover:bg-blue-900/20 transition cursor-pointer"
@@ -3746,6 +3788,12 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               <td class="px-3 py-2 text-right font-mono text-xs text-yellow-400">
                 {{ r.limitDays ? r.limitDays + '天' : '-' }}
               </td>
+              <td class="px-3 py-2 text-right font-mono text-xs">
+                <span v-if="bidCredibility(r) === 'high'"   class="text-green-400">●高</span>
+                <span v-else-if="bidCredibility(r) === 'medium'" class="text-yellow-400">●中</span>
+                <span v-else-if="bidCredibility(r) === 'low'"    class="text-red-400">●低</span>
+                <span v-else class="text-gray-600">－</span>
+              </td>
             </tr>
           </tbody>
         </table>
@@ -3768,11 +3816,12 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">5日量比</th>
               <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">漲停委買量</th>
               <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">連漲停</th>
+              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">委買可信度</th>
             </tr>
           </thead>
           <tbody>
             <tr v-if="!limitSqueezeList3.length">
-              <td colspan="7" class="px-3 py-4 text-center text-gray-700 text-xs">目前無符合條件</td>
+              <td colspan="8" class="px-3 py-4 text-center text-gray-700 text-xs">目前無符合條件</td>
             </tr>
             <tr v-for="r in limitSqueezeList3" :key="r.stockNo"
                 class="border-b border-gray-800/50 hover:bg-gray-800/20 transition cursor-pointer"
@@ -3792,6 +3841,12 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               <td class="px-3 py-2 text-right font-mono text-xs text-gray-500">{{ r.limitBidVol?.toLocaleString() ?? '-' }}</td>
               <td class="px-3 py-2 text-right font-mono text-xs text-yellow-400">
                 {{ r.limitDays ? r.limitDays + '天' : '-' }}
+              </td>
+              <td class="px-3 py-2 text-right font-mono text-xs">
+                <span v-if="bidCredibility(r) === 'high'"   class="text-green-400">●高</span>
+                <span v-else-if="bidCredibility(r) === 'medium'" class="text-yellow-400">●中</span>
+                <span v-else-if="bidCredibility(r) === 'low'"    class="text-red-400">●低</span>
+                <span v-else class="text-gray-600">－</span>
               </td>
             </tr>
           </tbody>
@@ -3816,11 +3871,12 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">5日量比</th>
               <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">漲停委買量</th>
               <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">連漲停</th>
+              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">委買可信度</th>
             </tr>
           </thead>
           <tbody>
             <tr v-if="!volIncreaseLimitList1.length">
-              <td colspan="7" class="px-3 py-4 text-center text-gray-700 text-xs">目前無符合條件</td>
+              <td colspan="8" class="px-3 py-4 text-center text-gray-700 text-xs">目前無符合條件</td>
             </tr>
             <tr v-for="r in volIncreaseLimitList1" :key="r.stockNo"
                 class="border-b border-gray-800/50 bg-amber-900/15 hover:bg-amber-900/25 transition cursor-pointer"
@@ -3840,6 +3896,12 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               <td class="px-3 py-2 text-right font-mono text-xs text-amber-300">{{ r.limitBidVol?.toLocaleString() ?? '-' }}</td>
               <td class="px-3 py-2 text-right font-mono text-xs text-yellow-400">
                 {{ r.limitDays ? r.limitDays + '天' : '-' }}
+              </td>
+              <td class="px-3 py-2 text-right font-mono text-xs">
+                <span v-if="bidCredibility(r) === 'high'"   class="text-green-400">●高</span>
+                <span v-else-if="bidCredibility(r) === 'medium'" class="text-yellow-400">●中</span>
+                <span v-else-if="bidCredibility(r) === 'low'"    class="text-red-400">●低</span>
+                <span v-else class="text-gray-600">－</span>
               </td>
             </tr>
           </tbody>
@@ -3864,11 +3926,12 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">5日量比</th>
               <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">漲停委買量</th>
               <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">連漲停</th>
+              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">委買可信度</th>
             </tr>
           </thead>
           <tbody>
             <tr v-if="!volIncreaseLimitList2.length">
-              <td colspan="7" class="px-3 py-4 text-center text-gray-700 text-xs">目前無符合條件</td>
+              <td colspan="8" class="px-3 py-4 text-center text-gray-700 text-xs">目前無符合條件</td>
             </tr>
             <tr v-for="r in volIncreaseLimitList2" :key="r.stockNo"
                 class="border-b border-gray-800/50 bg-amber-900/10 hover:bg-amber-900/20 transition cursor-pointer"
@@ -3888,6 +3951,12 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               <td class="px-3 py-2 text-right font-mono text-xs text-amber-400">{{ r.limitBidVol?.toLocaleString() ?? '-' }}</td>
               <td class="px-3 py-2 text-right font-mono text-xs text-yellow-400">
                 {{ r.limitDays ? r.limitDays + '天' : '-' }}
+              </td>
+              <td class="px-3 py-2 text-right font-mono text-xs">
+                <span v-if="bidCredibility(r) === 'high'"   class="text-green-400">●高</span>
+                <span v-else-if="bidCredibility(r) === 'medium'" class="text-yellow-400">●中</span>
+                <span v-else-if="bidCredibility(r) === 'low'"    class="text-red-400">●低</span>
+                <span v-else class="text-gray-600">－</span>
               </td>
             </tr>
           </tbody>
@@ -3911,11 +3980,12 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">5日量比</th>
               <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">漲停委買量</th>
               <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">連漲停</th>
+              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">委買可信度</th>
             </tr>
           </thead>
           <tbody>
             <tr v-if="!volIncreaseLimitList3.length">
-              <td colspan="7" class="px-3 py-4 text-center text-gray-700 text-xs">目前無符合條件</td>
+              <td colspan="8" class="px-3 py-4 text-center text-gray-700 text-xs">目前無符合條件</td>
             </tr>
             <tr v-for="r in volIncreaseLimitList3" :key="r.stockNo"
                 class="border-b border-gray-800/50 hover:bg-amber-900/10 transition cursor-pointer"
@@ -3935,6 +4005,12 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               <td class="px-3 py-2 text-right font-mono text-xs text-gray-500">{{ r.limitBidVol?.toLocaleString() ?? '-' }}</td>
               <td class="px-3 py-2 text-right font-mono text-xs text-yellow-400">
                 {{ r.limitDays ? r.limitDays + '天' : '-' }}
+              </td>
+              <td class="px-3 py-2 text-right font-mono text-xs">
+                <span v-if="bidCredibility(r) === 'high'"   class="text-green-400">●高</span>
+                <span v-else-if="bidCredibility(r) === 'medium'" class="text-yellow-400">●中</span>
+                <span v-else-if="bidCredibility(r) === 'low'"    class="text-red-400">●低</span>
+                <span v-else class="text-gray-600">－</span>
               </td>
             </tr>
           </tbody>
@@ -3978,6 +4054,36 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
           <div class="flex items-center gap-2 col-span-full"><span class="text-amber-300 font-bold">★ 第一順位</span><span>5日量比 1.5～5x 且 委買比 &gt; 2 且 首板或二板　→ 最佳換手訊號</span></div>
           <div class="flex items-center gap-2 col-span-full"><span class="text-amber-400">▲ 第二順位</span><span>5日量比 1.5～5x 且 委買比 &gt; 1.5　→ 換手充分，含三板以上（不與一重複）</span></div>
           <div class="flex items-center gap-2 col-span-full"><span class="text-amber-600">△ 第三順位</span><span>5日量比 1.5～5x 不限委買比　→ 量增觀察，委買資料不足時仍列入（不與一、二重複）</span></div>
+
+          <div class="font-semibold text-gray-500 col-span-full mt-2">委買可信度（假掛單過濾）</div>
+          <div class="text-gray-600 col-span-full text-xs mb-0.5">
+            假掛單手法：主力先掛出大量委買造成護盤假象，待散戶追價後悄悄撤單。<br>
+            系統每 30 分鐘對所有漲停股拍攝委買快照，並以三項指標判斷委買真實性：
+          </div>
+          <div class="flex items-start gap-2 col-span-full">
+            <span class="text-green-400 font-bold whitespace-nowrap">① 快照持續性</span>
+            <span>委買需在 ≥ 2 次快照中出現（間距 30 分鐘）。僅出現一次即排除，因真實護盤方不敢讓委買消失超過半小時。</span>
+          </div>
+          <div class="flex items-start gap-2 col-span-full">
+            <span class="text-green-400 font-bold whitespace-nowrap">② 委買穩定性</span>
+            <span>各快照的平均委買量 ÷ 最大委買量 ≥ 0.25。假掛單通常「早盤衝高、盤中撤掉」，使平均值遠低於峰值；真實護盤則全天穩定。</span>
+          </div>
+          <div class="flex items-start gap-2 col-span-full">
+            <span class="text-green-400 font-bold whitespace-nowrap">③ 收盤前委買</span>
+            <span>若未漲停收盤，收盤快照委買量必須 &gt; 0；否則代表委買在收盤前被撤走（假掛單最常見的收尾方式）。</span>
+          </div>
+          <div class="flex items-center gap-2 col-span-full mt-0.5">
+            <span class="text-green-400">●高</span><span>三項全通過（快照 ≥ 3、穩定性 ≥ 0.5、收盤有委買）</span>
+          </div>
+          <div class="flex items-center gap-2 col-span-full">
+            <span class="text-yellow-400">●中</span><span>快照 ≥ 2 且穩定性 ≥ 0.25（收盤資料待確認）</span>
+          </div>
+          <div class="flex items-center gap-2 col-span-full">
+            <span class="text-red-400">●低</span><span>未通過過濾（不應出現在觀察區，若出現代表剛進入第一個快照周期）</span>
+          </div>
+          <div class="flex items-center gap-2 col-span-full">
+            <span class="text-gray-600">－</span><span>無快照資料（歷史資料、或今日首次入選尚未完成第二次快照）</span>
+          </div>
         </div>
       </div>
 
