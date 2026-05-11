@@ -3634,6 +3634,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
       <div class="bg-gray-900 border border-blue-500/40 rounded-xl overflow-hidden">
         <div class="px-4 py-3 border-b border-blue-500/30 flex items-center gap-2 flex-wrap">
           <span class="text-blue-300 font-semibold text-sm">★ 量縮漲停觀察　第一順位</span>
+          <span class="text-gray-600 text-xs">1日量比 &lt; 0.5　且　委買比 &gt; 1.7</span>
           <span v-if="moversDate" class="text-xs text-gray-600">（歷史資料）</span>
           <span class="ml-auto text-xs text-blue-400">{{ limitSqueezeList1.length }} 支</span>
         </div>
@@ -3687,6 +3688,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
       <div class="bg-gray-900 border border-blue-900/50 rounded-xl overflow-hidden">
         <div class="px-4 py-3 border-b border-blue-900/40 flex items-center gap-2 flex-wrap">
           <span class="text-blue-400 font-semibold text-sm">▲ 量縮漲停觀察　第二順位</span>
+          <span class="text-gray-600 text-xs">1日量比 &lt; 0.7　且　委買比 &gt; 1.5</span>
           <span v-if="moversDate" class="text-xs text-gray-600">（歷史資料）</span>
           <span class="ml-auto text-xs text-blue-600">{{ limitSqueezeList2.length }} 支</span>
         </div>
@@ -3738,8 +3740,9 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
 
       <!-- 量縮漲停觀察 第三順位 -->
       <div class="bg-gray-900 border border-gray-800/60 rounded-xl overflow-hidden">
-        <div class="px-4 py-3 border-b border-gray-800/40 flex items-center gap-2">
+        <div class="px-4 py-3 border-b border-gray-800/40 flex items-center gap-2 flex-wrap">
           <span class="text-gray-400 font-semibold text-sm">△ 量縮漲停觀察　第三順位</span>
+          <span class="text-gray-600 text-xs">1日量比 &lt; 0.7　不限委買比</span>
           <span class="ml-auto text-xs text-gray-600">{{ limitSqueezeList3.length }} 支</span>
         </div>
         <table class="w-full text-sm">
@@ -3786,6 +3789,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
       <div class="bg-gray-900 border border-amber-500/40 rounded-xl overflow-hidden">
         <div class="px-4 py-3 border-b border-amber-500/30 flex items-center gap-2 flex-wrap">
           <span class="text-amber-300 font-semibold text-sm">★ 量增漲停觀察（主力換手）　第一順位</span>
+          <span class="text-gray-600 text-xs">1日量比 1.5～3x　且　委買比 &gt; 2</span>
           <span v-if="moversDate" class="text-xs text-gray-600">（歷史資料）</span>
           <span class="ml-auto text-xs text-amber-400">{{ volIncreaseLimitList1.length }} 支</span>
         </div>
@@ -3833,6 +3837,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
       <div class="bg-gray-900 border border-amber-900/50 rounded-xl overflow-hidden">
         <div class="px-4 py-3 border-b border-amber-900/40 flex items-center gap-2 flex-wrap">
           <span class="text-amber-400 font-semibold text-sm">▲ 量增漲停觀察（主力換手）　第二順位</span>
+          <span class="text-gray-600 text-xs">1日量比 1.5～3x　且　委買比 &gt; 1.5</span>
           <span v-if="moversDate" class="text-xs text-gray-600">（歷史資料）</span>
           <span class="ml-auto text-xs text-amber-600">{{ volIncreaseLimitList2.length }} 支</span>
         </div>
@@ -3878,8 +3883,9 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
 
       <!-- 量增漲停觀察 第三順位 -->
       <div class="bg-gray-900 border border-amber-900/30 rounded-xl overflow-hidden">
-        <div class="px-4 py-3 border-b border-amber-900/20 flex items-center gap-2">
+        <div class="px-4 py-3 border-b border-amber-900/20 flex items-center gap-2 flex-wrap">
           <span class="text-amber-600 font-semibold text-sm">△ 量增漲停觀察（主力換手）　第三順位</span>
+          <span class="text-gray-600 text-xs">1日量比 1.5～3x　不限委買比</span>
           <span class="ml-auto text-xs text-amber-800">{{ volIncreaseLimitList3.length }} 支</span>
         </div>
         <table class="w-full text-sm">
