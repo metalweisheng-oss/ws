@@ -4546,24 +4546,27 @@ function normCDF(x) {
   return 0.5 * (1 + sign * (1 - poly * Math.exp(-x * x)))
 }
 
-function bsPrice(S, K, T, r, sigma, isCall) {
+// q = 連續股息殖利率（Merton 調整），預設 0
+function bsPrice(S, K, T, r, sigma, isCall, q = 0) {
   if (T <= 0 || sigma <= 0) return Math.max(0, isCall ? S - K : K - S)
+  const Sq = S * Math.exp(-q * T)  // 股息調整後現值
   const sqrtT = Math.sqrt(T)
-  const d1 = (Math.log(S / K) + (r + sigma * sigma / 2) * T) / (sigma * sqrtT)
+  const d1 = (Math.log(Sq / K) + (r + sigma * sigma / 2) * T) / (sigma * sqrtT)
   const d2 = d1 - sigma * sqrtT
   return isCall
-    ? S * normCDF(d1) - K * Math.exp(-r * T) * normCDF(d2)
-    : K * Math.exp(-r * T) * normCDF(-d2) - S * normCDF(-d1)
+    ? Sq * normCDF(d1) - K * Math.exp(-r * T) * normCDF(d2)
+    : K * Math.exp(-r * T) * normCDF(-d2) - Sq * normCDF(-d1)
 }
 
-function calcIV(S, K, T, r, marketPrice, isCall) {
+function calcIV(S, K, T, r, marketPrice, isCall, q = 0) {
   if (!S || !K || !T || marketPrice <= 0) return null
+  const Sq = S * Math.exp(-q * T)
   const sqrtT = Math.sqrt(T)
   let sigma = 0.5
   for (let i = 0; i < 20; i++) {
-    const d1 = (Math.log(S / K) + (r + sigma * sigma / 2) * T) / (sigma * sqrtT)
-    const price = bsPrice(S, K, T, r, sigma, isCall)
-    const vega  = S * Math.exp(-d1 * d1 / 2) / Math.sqrt(2 * Math.PI) * sqrtT
+    const d1 = (Math.log(Sq / K) + (r + sigma * sigma / 2) * T) / (sigma * sqrtT)
+    const price = bsPrice(S, K, T, r, sigma, isCall, q)
+    const vega  = Sq * Math.exp(-d1 * d1 / 2) / Math.sqrt(2 * Math.PI) * sqrtT
     if (vega < 1e-10) break
     const diff = price - marketPrice
     if (Math.abs(diff) < 1e-7) break
@@ -4574,14 +4577,15 @@ function calcIV(S, K, T, r, marketPrice, isCall) {
   return sigma > 0 ? +(sigma * 100).toFixed(2) : null
 }
 
-function calcDelta(S, K, T, r, sigma, isCall) {
+function calcDelta(S, K, T, r, sigma, isCall, q = 0) {
   if (!S || !K || !T || !sigma) return null
-  const d1 = (Math.log(S / K) + (r + sigma * sigma / 2) * T) / (sigma * Math.sqrt(T))
+  const Sq = S * Math.exp(-q * T)
+  const d1 = (Math.log(Sq / K) + (r + sigma * sigma / 2) * T) / (sigma * Math.sqrt(T))
   return +((isCall ? normCDF(d1) : normCDF(d1) - 1)).toFixed(4)
 }
 
 // In-memory cache for large TWSE warrant/company OpenAPI datasets (1-hour TTL, stale-while-revalidate)
-const _warrantApiCache = { basic: null, company: null, ts: 0, refreshing: false }
+const _warrantApiCache = { basic: null, company: null, divYield: null, ts: 0, refreshing: false }
 const WARRANT_CACHE_TTL = 60 * 60 * 1000
 
 function _refreshWarrantCache() {
@@ -4590,9 +4594,18 @@ function _refreshWarrantCache() {
   Promise.all([
     fetchUrl('https://openapi.twse.com.tw/v1/opendata/t187ap37_L'),
     fetchUrl('https://openapi.twse.com.tw/v1/opendata/t187ap03_L'),
-  ]).then(([basicRaw, companyRaw]) => {
+    fetchUrl('https://openapi.twse.com.tw/v1/exchangeReport/BWIBBU_d'),
+  ]).then(([basicRaw, companyRaw, divRaw]) => {
     _warrantApiCache.basic = basicRaw
     _warrantApiCache.company = companyRaw
+    // Build code → dividend yield decimal map
+    const divYield = {}
+    for (const row of Array.isArray(divRaw) ? divRaw : []) {
+      const code = row.Code || row['代號']
+      const y = parseFloat(row.DividendYield || row['殖利率(%)'] || '0')
+      if (code && !isNaN(y)) divYield[code] = y / 100
+    }
+    _warrantApiCache.divYield = divYield
     _warrantApiCache.ts = Date.now()
     _warrantApiCache.refreshing = false
     console.log('[warrant cache] refreshed', new Date().toISOString())
@@ -4607,27 +4620,35 @@ async function getWarrantBaseData() {
   const stale = !_warrantApiCache.basic || (now - _warrantApiCache.ts) >= WARRANT_CACHE_TTL
 
   if (!stale) {
-    return { basicRaw: _warrantApiCache.basic, companyRaw: _warrantApiCache.company }
+    return { basicRaw: _warrantApiCache.basic, companyRaw: _warrantApiCache.company, divYield: _warrantApiCache.divYield || {} }
   }
 
   // Have stale data: return immediately and refresh in background
   if (_warrantApiCache.basic) {
     _refreshWarrantCache()
-    return { basicRaw: _warrantApiCache.basic, companyRaw: _warrantApiCache.company }
+    return { basicRaw: _warrantApiCache.basic, companyRaw: _warrantApiCache.company, divYield: _warrantApiCache.divYield || {} }
   }
 
   // Cold start: must wait for first fetch
   _warrantApiCache.refreshing = true
-  const [basicRaw, companyRaw] = await Promise.all([
+  const [basicRaw, companyRaw, divRaw] = await Promise.all([
     fetchUrl('https://openapi.twse.com.tw/v1/opendata/t187ap37_L'),
     fetchUrl('https://openapi.twse.com.tw/v1/opendata/t187ap03_L'),
+    fetchUrl('https://openapi.twse.com.tw/v1/exchangeReport/BWIBBU_d'),
   ])
   _warrantApiCache.basic = basicRaw
   _warrantApiCache.company = companyRaw
+  const divYield = {}
+  for (const row of Array.isArray(divRaw) ? divRaw : []) {
+    const code = row.Code || row['代號']
+    const y = parseFloat(row.DividendYield || row['殖利率(%)'] || '0')
+    if (code && !isNaN(y)) divYield[code] = y / 100
+  }
+  _warrantApiCache.divYield = divYield
   _warrantApiCache.ts = Date.now()
   _warrantApiCache.refreshing = false
   console.log('[warrant cache] cold-start loaded', new Date().toISOString())
-  return { basicRaw, companyRaw }
+  return { basicRaw, companyRaw, divYield }
 }
 
 // Pre-warm cache on startup so first user request is instant
@@ -4664,7 +4685,7 @@ app.get('/api/warrant/search', async (req, res) => {
   if (!stockNo) return res.status(400).json({ error: '請輸入標的代號或名稱' })
 
   try {
-    const { basicRaw, companyRaw } = await getWarrantBaseData()
+    const { basicRaw, companyRaw, divYield } = await getWarrantBaseData()
 
     // Build code <-> name maps from TWSE listed company list
     const codeToName = {}
@@ -4735,6 +4756,7 @@ app.get('/api/warrant/search', async (req, res) => {
     const stockPrice = sZ ?? sY ?? null
 
     const R = 0.015  // 台灣無風險利率（年化 1.5%）
+    const Q = divYield[resolvedStockNo] ?? 0  // 標的股連續股息殖利率（Merton 調整）
 
     // Join and map fields
     const rows = filteredWarrants.map(r => {
@@ -4785,15 +4807,15 @@ app.get('/api/warrant/search', async (req, res) => {
       const leverage = (stockPrice && price && ratio && price > 0)
         ? +(stockPrice * ratio / price).toFixed(2) : null
 
-      // IV（Black-Scholes 反推，用每股等值換算）
+      // IV（Black-Scholes + Merton 股息調整，用每股等值換算）
       const optPrice = (price && ratio) ? price / ratio : null
       const iv = (stockPrice && strike && T && optPrice)
-        ? calcIV(stockPrice, strike, T, R, optPrice, isCall) : null
+        ? calcIV(stockPrice, strike, T, R, optPrice, isCall, Q) : null
 
-      // Delta（Black-Scholes，結果已乘行使比例轉成「每張權證對股價的敏感度」）
+      // Delta（已乘行使比例）
       const sigmaDec = iv ? iv / 100 : null
       const bsDelta  = (stockPrice && strike && T && sigmaDec)
-        ? calcDelta(stockPrice, strike, T, R, sigmaDec, isCall) : null
+        ? calcDelta(stockPrice, strike, T, R, sigmaDec, isCall, Q) : null
       const delta = (bsDelta != null && ratio)
         ? +(bsDelta * ratio).toFixed(4) : null
 
@@ -4819,6 +4841,7 @@ app.get('/api/warrant/search', async (req, res) => {
         daysLeft,
         circulationPct,
         stockPrice,
+        dividendYield: Q > 0 ? +(Q * 100).toFixed(2) : null,
       }
     }).filter(Boolean)
 

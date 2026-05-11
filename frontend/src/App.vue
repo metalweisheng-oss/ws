@@ -459,14 +459,15 @@ function normCDF(x) {
   const poly = ((((a[4]*t + a[3])*t + a[2])*t + a[1])*t + a[0]) * t
   return 0.5 * (1 + sign * (1 - poly * Math.exp(-x * x)))
 }
-function bsWarrantPrice(S, K, T, r, sigma, ratio, isCall) {
+function bsWarrantPrice(S, K, T, r, sigma, ratio, isCall, q = 0) {
   if (!S || !K || !T || T <= 0 || !sigma || sigma <= 0 || !ratio) return null
+  const Sq = S * Math.exp(-q * T)  // Merton 股息調整
   const sqrtT = Math.sqrt(T)
-  const d1 = (Math.log(S / K) + (r + sigma * sigma / 2) * T) / (sigma * sqrtT)
+  const d1 = (Math.log(Sq / K) + (r + sigma * sigma / 2) * T) / (sigma * sqrtT)
   const d2 = d1 - sigma * sqrtT
   const optPrice = isCall
-    ? S * normCDF(d1) - K * Math.exp(-r * T) * normCDF(d2)
-    : K * Math.exp(-r * T) * normCDF(-d2) - S * normCDF(-d1)
+    ? Sq * normCDF(d1) - K * Math.exp(-r * T) * normCDF(d2)
+    : K * Math.exp(-r * T) * normCDF(-d2) - Sq * normCDF(-d1)
   return optPrice * ratio
 }
 function openScenario(row) {
@@ -482,6 +483,7 @@ const scenarioTable = computed(() => {
   const K     = w.strike
   const T     = w.daysLeft / 365
   const r     = 0.015
+  const q     = w.dividendYield ? w.dividendYield / 100 : 0
   const ratio = w.ratio
   const isCall = w.type === 'call'
   const ivCols = scenarioIVOffsets.map(d => +(w.iv + d).toFixed(1))
@@ -489,7 +491,7 @@ const scenarioTable = computed(() => {
   const rows = scenarioRows.map(pct => {
     const S = +(S0 * (1 + pct / 100)).toFixed(2)
     const prices = ivCols.map(iv => {
-      const p = bsWarrantPrice(S, K, T, r, iv / 100, ratio, isCall)
+      const p = bsWarrantPrice(S, K, T, r, iv / 100, ratio, isCall, q)
       return p != null ? +p.toFixed(2) : null
     })
     return { pct, S, prices }
@@ -4418,6 +4420,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
             <span>履約價 {{ scenarioWarrant?.strike }}</span>
             <span>剩餘 {{ scenarioWarrant?.daysLeft }} 天</span>
             <span>IV {{ scenarioWarrant?.iv?.toFixed(1) }}%</span>
+            <span v-if="scenarioWarrant?.dividendYield" class="text-green-500">殖利率 {{ scenarioWarrant.dividendYield }}%（已調整）</span>
             <button @click="scenarioVisible=false" class="text-gray-500 hover:text-white px-1">✕</button>
           </div>
         </div>
