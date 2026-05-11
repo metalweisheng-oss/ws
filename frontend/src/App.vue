@@ -507,6 +507,15 @@ const moversError     = ref('')
 const moversUpdatedAt = ref('')
 const moversDate      = ref('')        // '' = 今日即時，'YYYY-MM-DD' = 歷史
 const moversDates     = ref([])        // 可選日期清單
+const warrantCoveredSet = ref(new Set())
+
+async function fetchWarrantCoverage() {
+  try {
+    const r = await fetch(`${API}/api/warrant/covered-stocks`)
+    const d = await r.json()
+    if (d.ok) warrantCoveredSet.value = new Set(d.stocks)
+  } catch(e) {}
+}
 const moversRealtime  = ref(true)
 let   moversTimer     = null
 
@@ -542,6 +551,7 @@ async function fetchMovers() {
     moversUpdatedAt.value = d.updatedAt
       ? new Date(d.updatedAt).toLocaleTimeString('zh-TW')
       : (d.date || '')
+    if (!warrantCoveredSet.value.size) fetchWarrantCoverage()
   } catch(e) {
     moversError.value = e.message
   } finally {
@@ -3706,7 +3716,10 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 class="border-b border-gray-800/50 bg-blue-900/15 hover:bg-blue-900/25 transition cursor-pointer"
                 @click="goToWarrant(r.stockNo)">
               <td class="px-3 py-2">
-                <div class="text-white font-medium hover:text-purple-400 transition">{{ r.stockName }}</div>
+                <div class="flex items-center gap-1">
+                  <span class="text-white font-medium hover:text-purple-400 transition">{{ r.stockName }}</span>
+                  <span v-if="warrantCoveredSet.has(r.stockNo)" class="text-xs bg-purple-900/60 text-purple-300 px-1 py-0.5 rounded">有證</span>
+                </div>
                 <div class="text-xs text-gray-500">{{ r.stockNo }}</div>
               </td>
               <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.volMa5?.toLocaleString() ?? r.prevVol?.toLocaleString() ?? '-' }}</td>
@@ -3767,7 +3780,10 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 class="border-b border-gray-800/50 bg-blue-900/10 hover:bg-blue-900/20 transition cursor-pointer"
                 @click="goToWarrant(r.stockNo)">
               <td class="px-3 py-2">
-                <div class="text-white font-medium hover:text-purple-400 transition">{{ r.stockName }}</div>
+                <div class="flex items-center gap-1">
+                  <span class="text-white font-medium hover:text-purple-400 transition">{{ r.stockName }}</span>
+                  <span v-if="warrantCoveredSet.has(r.stockNo)" class="text-xs bg-purple-900/60 text-purple-300 px-1 py-0.5 rounded">有證</span>
+                </div>
                 <div class="text-xs text-gray-500">{{ r.stockNo }}</div>
               </td>
               <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.volMa5?.toLocaleString() ?? r.prevVol?.toLocaleString() ?? '-' }}</td>
@@ -3827,7 +3843,10 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 class="border-b border-gray-800/50 hover:bg-gray-800/20 transition cursor-pointer"
                 @click="goToWarrant(r.stockNo)">
               <td class="px-3 py-2">
-                <div class="text-white font-medium hover:text-purple-400 transition">{{ r.stockName }}</div>
+                <div class="flex items-center gap-1">
+                  <span class="text-white font-medium hover:text-purple-400 transition">{{ r.stockName }}</span>
+                  <span v-if="warrantCoveredSet.has(r.stockNo)" class="text-xs bg-purple-900/60 text-purple-300 px-1 py-0.5 rounded">有證</span>
+                </div>
                 <div class="text-xs text-gray-500">{{ r.stockNo }}</div>
               </td>
               <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.volMa5?.toLocaleString() ?? r.prevVol?.toLocaleString() ?? '-' }}</td>
@@ -3882,7 +3901,10 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 class="border-b border-gray-800/50 bg-amber-900/15 hover:bg-amber-900/25 transition cursor-pointer"
                 @click="goToWarrant(r.stockNo)">
               <td class="px-3 py-2">
-                <div class="text-white font-medium hover:text-purple-400 transition">{{ r.stockName }}</div>
+                <div class="flex items-center gap-1">
+                  <span class="text-white font-medium hover:text-purple-400 transition">{{ r.stockName }}</span>
+                  <span v-if="warrantCoveredSet.has(r.stockNo)" class="text-xs bg-purple-900/60 text-purple-300 px-1 py-0.5 rounded">有證</span>
+                </div>
                 <div class="text-xs text-gray-500">{{ r.stockNo }}</div>
               </td>
               <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.volMa5?.toLocaleString() ?? r.prevVol?.toLocaleString() ?? '-' }}</td>
@@ -3937,7 +3959,10 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 class="border-b border-gray-800/50 bg-amber-900/10 hover:bg-amber-900/20 transition cursor-pointer"
                 @click="goToWarrant(r.stockNo)">
               <td class="px-3 py-2">
-                <div class="text-white font-medium hover:text-purple-400 transition">{{ r.stockName }}</div>
+                <div class="flex items-center gap-1">
+                  <span class="text-white font-medium hover:text-purple-400 transition">{{ r.stockName }}</span>
+                  <span v-if="warrantCoveredSet.has(r.stockNo)" class="text-xs bg-purple-900/60 text-purple-300 px-1 py-0.5 rounded">有證</span>
+                </div>
                 <div class="text-xs text-gray-500">{{ r.stockNo }}</div>
               </td>
               <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.volMa5?.toLocaleString() ?? r.prevVol?.toLocaleString() ?? '-' }}</td>
@@ -3991,7 +4016,10 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 class="border-b border-gray-800/50 hover:bg-amber-900/10 transition cursor-pointer"
                 @click="goToWarrant(r.stockNo)">
               <td class="px-3 py-2">
-                <div class="text-white font-medium hover:text-purple-400 transition">{{ r.stockName }}</div>
+                <div class="flex items-center gap-1">
+                  <span class="text-white font-medium hover:text-purple-400 transition">{{ r.stockName }}</span>
+                  <span v-if="warrantCoveredSet.has(r.stockNo)" class="text-xs bg-purple-900/60 text-purple-300 px-1 py-0.5 rounded">有證</span>
+                </div>
                 <div class="text-xs text-gray-500">{{ r.stockNo }}</div>
               </td>
               <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.volMa5?.toLocaleString() ?? r.prevVol?.toLocaleString() ?? '-' }}</td>
@@ -4135,7 +4163,12 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                   :class="rowBgClass(r)">
                 <td class="px-3 py-2 text-gray-600 text-xs">{{ i + 1 }}</td>
                 <td class="px-3 py-2">
-                  <div class="text-white font-medium hover:text-purple-400 transition cursor-pointer" @click="goToWarrant(r.stockNo)">{{ r.stockName }}</div>
+                  <div class="flex items-center gap-1">
+                    <span class="text-white font-medium hover:text-purple-400 transition cursor-pointer" @click="goToWarrant(r.stockNo)">{{ r.stockName }}</span>
+                    <span v-if="warrantCoveredSet.has(r.stockNo)"
+                      class="text-xs bg-purple-900/60 text-purple-300 px-1 py-0.5 rounded cursor-pointer hover:bg-purple-800/80 transition"
+                      title="有券商發行權證，點此查詢" @click.stop="goToWarrant(r.stockNo)">有證</span>
+                  </div>
                   <div class="text-xs text-blue-400 hover:text-blue-300 cursor-pointer underline decoration-dotted" @click.stop="openQuote(r.stockNo)">{{ r.stockNo }}</div>
                 </td>
                 <td class="px-3 py-2 text-right text-gray-400 font-mono text-xs">{{ fmtPrice(r.prevClose) }}</td>
@@ -4194,7 +4227,12 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                   :class="rowBgClass(r)">
                 <td class="px-3 py-2 text-gray-600 text-xs">{{ i + 1 }}</td>
                 <td class="px-3 py-2">
-                  <div class="text-white font-medium hover:text-purple-400 transition cursor-pointer" @click="goToWarrant(r.stockNo)">{{ r.stockName }}</div>
+                  <div class="flex items-center gap-1">
+                    <span class="text-white font-medium hover:text-purple-400 transition cursor-pointer" @click="goToWarrant(r.stockNo)">{{ r.stockName }}</span>
+                    <span v-if="warrantCoveredSet.has(r.stockNo)"
+                      class="text-xs bg-purple-900/60 text-purple-300 px-1 py-0.5 rounded cursor-pointer hover:bg-purple-800/80 transition"
+                      title="有券商發行權證，點此查詢" @click.stop="goToWarrant(r.stockNo)">有證</span>
+                  </div>
                   <div class="text-xs text-blue-400 hover:text-blue-300 cursor-pointer underline decoration-dotted" @click.stop="openQuote(r.stockNo)">{{ r.stockNo }}</div>
                 </td>
                 <td class="px-3 py-2 text-right text-gray-400 font-mono text-xs">{{ fmtPrice(r.prevClose) }}</td>

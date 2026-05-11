@@ -4633,6 +4633,32 @@ async function getWarrantBaseData() {
 // Pre-warm cache on startup so first user request is instant
 setTimeout(() => _refreshWarrantCache(), 5000)
 
+// 回傳今日仍有效權證的標的股票代號清單（供漲跌排行榜顯示提示用）
+app.get('/api/warrant/covered-stocks', async (req, res) => {
+  try {
+    const { basicRaw, companyRaw } = await getWarrantBaseData()
+    const nameToCode = {}
+    for (const row of Array.isArray(companyRaw) ? companyRaw : []) {
+      const code = (row['公司代號'] || '').trim()
+      const name = (row['公司簡稱'] || '').trim()
+      if (code && name) nameToCode[name] = code
+    }
+    const today = new Date(Date.now() + 8 * 3600000)
+    const todayRoc = String(today.getFullYear() - 1911).padStart(3, '0')
+      + String(today.getMonth() + 1).padStart(2, '0')
+      + String(today.getDate()).padStart(2, '0')
+    const covered = new Set()
+    for (const r of Array.isArray(basicRaw) ? basicRaw : []) {
+      if ((r['最後交易日'] || '') < todayRoc) continue
+      const code = nameToCode[r['標的證券/指數']]
+      if (code) covered.add(code)
+    }
+    res.json({ ok: true, stocks: [...covered] })
+  } catch(e) {
+    res.status(500).json({ ok: false, error: e.message })
+  }
+})
+
 app.get('/api/warrant/search', async (req, res) => {
   const { stockNo, type = 'all' } = req.query
   if (!stockNo) return res.status(400).json({ error: '請輸入標的代號或名稱' })
