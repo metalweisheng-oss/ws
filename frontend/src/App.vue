@@ -3611,6 +3611,17 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
           <span class="text-gray-400">灰</span><span class="text-gray-600">有委買但比值 ≤1.6</span>
         </div>
 
+        <!-- 排序規則 -->
+        <div class="flex flex-wrap gap-x-4 gap-y-1.5 items-center">
+          <span class="text-gray-600 shrink-0 font-medium">排序</span>
+          <span class="text-gray-400">① 漲跌幅%</span>
+          <span class="text-gray-600">→</span>
+          <span class="text-gray-400">② 成交量（張）</span>
+          <span class="text-gray-600">→</span>
+          <span class="text-gray-400">③ 成交金額（億）</span>
+          <span class="text-gray-600 ml-1">同漲幅時量大優先，量相同時金額大優先</span>
+        </div>
+
         <!-- 操作 -->
         <div class="flex flex-wrap gap-x-4 gap-y-1 border-t border-gray-800 pt-2 text-gray-600">
           <span>點<span class="text-white">名稱</span> → 權證查詢</span>
