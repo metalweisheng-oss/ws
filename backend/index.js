@@ -4129,7 +4129,7 @@ app.get('/api/market/movers/dates', async (req, res) => {
 })
 
 app.get('/api/market/movers', async (req, res) => {
-  const limit = Math.min(parseInt(req.query.limit) || 50, 50)
+  const limit = parseInt(req.query.limit) || 200
   const dateParam = req.query.date || ''   // YYYY-MM-DD；空 = 今日即時
 
   // ── 歷史日期：從 DB 計算 ─────────────────────────────
@@ -4394,14 +4394,14 @@ app.get('/api/market/movers', async (req, res) => {
       } catch(e) { /* ignore */ }
     }
 
-    const gainers = movers.slice(0, 50)
-    const losers  = [...movers].reverse().slice(0, 50)
+    const allGainers = movers
+    const allLosers  = [...movers].reverse()
     const updatedAt = new Date().toISOString()
 
-    _moversCache.data = { gainers, losers, total: movers.length, updatedAt }
+    _moversCache.data = { gainers: allGainers, losers: allLosers, total: movers.length, updatedAt }
     _moversCache.ts = now
 
-    res.json({ gainers: gainers.slice(0, limit), losers: losers.slice(0, limit), total: movers.length, updatedAt, realtime: true })
+    res.json({ gainers: allGainers.slice(0, limit), losers: allLosers.slice(0, limit), total: movers.length, updatedAt, realtime: true })
   } catch(e) {
     res.status(500).json({ error: e.message })
   }

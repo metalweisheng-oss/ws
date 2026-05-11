@@ -531,7 +531,7 @@ async function fetchMovers() {
   moversLoading.value = true
   moversError.value   = ''
   try {
-    const qs = moversDate.value ? `?date=${moversDate.value}&limit=50` : '?limit=50'
+    const qs = moversDate.value ? `?date=${moversDate.value}&limit=200` : '?limit=200'
     const r = await fetch(`${API}/api/market/movers${qs}`)
     const d = await r.json()
     if (d.error) throw new Error(d.error)
