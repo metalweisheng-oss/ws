@@ -3835,8 +3835,8 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
           class="px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-900/50 border border-blue-500/40 text-blue-300 hover:bg-blue-800/60 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
           {{ squeezeTestLoading ? '傳送中…' : '📨 傳送觀察名單' }}
         </button>
-        <span v-if="squeezeTestResult" :class="squeezeTestResult.ok ? 'text-green-400' : 'text-red-400'" class="text-xs">
-          {{ squeezeTestResult.message }}
+        <span v-if="squeezeTestResult" :class="squeezeTestResult.ok ? 'text-green-400' : squeezeTestResult.skipped ? 'text-yellow-400' : 'text-red-400'" class="text-xs">
+          {{ squeezeTestResult.message || squeezeTestResult.reason }}
         </span>
       </div>
 

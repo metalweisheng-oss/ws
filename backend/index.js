@@ -3598,6 +3598,37 @@ function _passAntiFake(r) {
   return true
 }
 
+function buildSurgeListsFromGainers(gainers) {
+  const isLimit = r => r.changePct >= 9.5
+  const base = gainers.filter(r => isLimit(r) && _passAntiSpoof(r) && _passAntiFake(r))
+
+  const list1 = base.filter(r => {
+    if (!r.limitBidVol) return false
+    const ref = _volRef5d(r); if (!ref) return false
+    const ratio = r.volume / ref
+    if (ratio < 1.5 || ratio >= 5) return false
+    if (r.limitDays != null && r.limitDays > 1) return false
+    return r.limitBidVol / r.volume > 2
+  })
+  const set1 = new Set(list1.map(r => r.stockNo))
+  const list2 = base.filter(r => {
+    if (set1.has(r.stockNo)) return false
+    if (!r.limitBidVol) return false
+    const ref = _volRef5d(r); if (!ref) return false
+    const ratio = r.volume / ref
+    if (ratio < 1.5 || ratio >= 5) return false
+    return r.limitBidVol / r.volume > 1.5
+  })
+  const set12 = new Set([...list1, ...list2].map(r => r.stockNo))
+  const list3 = base.filter(r => {
+    if (set12.has(r.stockNo)) return false
+    const ref = _volRef5d(r); if (!ref) return false
+    const ratio = r.volume / ref
+    return ratio >= 1.5 && ratio < 5
+  })
+  return { list1, list2, list3 }
+}
+
 function buildSqueezeListsFromGainers(gainers) {
   const isLimit = r => r.changePct >= 9.5
   const base = gainers.filter(r => isLimit(r) && _passAntiSpoof(r) && _passAntiFake(r))
@@ -3649,6 +3680,33 @@ function formatSqueezeMsg(list1, list2, list3, label = '13:00 定時') {
   return msg
 }
 
+function formatSurgeMsg(list1, list2, list3, label = '13:00 定時') {
+  const now = new Date(Date.now() + 8 * 3600000)
+  const dateStr = `${now.getUTCFullYear()}-${String(now.getUTCMonth()+1).padStart(2,'0')}-${String(now.getUTCDate()).padStart(2,'0')} ${String(now.getUTCHours()).padStart(2,'0')}:${String(now.getUTCMinutes()).padStart(2,'0')}`
+  const fmt = (r) => {
+    const ref = _volRef5d(r)
+    const volRatio = ref ? (r.volume / ref).toFixed(2) + 'x' : '-'
+    const bidRatio = r.limitBidVol && r.volume ? (r.limitBidVol / r.volume).toFixed(2) : '-'
+    const bidVol   = r.limitBidVol ? r.limitBidVol.toLocaleString() + '張' : '-'
+    const days     = r.limitDays != null ? `${r.limitDays + 1}板` : '首板'
+    return `  • ${r.stockName}(${r.stockNo})  ${days}  量比${volRatio}  委買比${bidRatio}  委買${bidVol}`
+  }
+  const total = list1.length + list2.length + list3.length
+  if (total === 0) return null
+  let msg = `🔥 <b>量增漲停觀察名單</b>　[${dateStr}]　<i>${label}</i>\n`
+  if (list1.length) {
+    msg += `\n<b>★ 第一順位</b>（首/二板＋量增＋強力護盤）\n` + list1.map(fmt).join('\n')
+  }
+  if (list2.length) {
+    msg += `\n\n<b>▲ 第二順位</b>（量增＋明顯護盤）\n` + list2.map(fmt).join('\n')
+  }
+  if (list3.length) {
+    msg += `\n\n<b>△ 第三順位</b>（量增觀察）\n` + list3.map(fmt).join('\n')
+  }
+  msg += `\n\n共 <b>${total}</b> 檔`
+  return msg
+}
+
 async function getWarrantCoveredSet() {
   try {
     const { basicRaw, companyRaw } = await getWarrantBaseData()
@@ -3689,24 +3747,36 @@ async function sendSqueezeAlert(label = '13:00 定時') {
       console.log('[squeeze-alert] gainers 為空，可能為休市日，略過')
       return { skipped: true, reason: '無漲跌排行資料（可能休市）' }
     }
-    const { list1, list2, list3 } = buildSqueezeListsFromGainers(gainers)
+    const squeezeRaw = buildSqueezeListsFromGainers(gainers)
+    const surgeRaw   = buildSurgeListsFromGainers(gainers)
 
     // 只保留有效權證的個股
     const covered = await getWarrantCoveredSet()
     const filterW = arr => covered && covered.size > 0 ? arr.filter(r => covered.has(r.stockNo)) : arr
-    const wList1 = filterW(list1)
-    const wList2 = filterW(list2)
-    const wList3 = filterW(list3)
 
-    const msg = formatSqueezeMsg(wList1, wList2, wList3, label)
-    if (!msg) {
-      console.log('[squeeze-alert] 過濾後觀察名單為空，略過')
-      return { skipped: true, reason: '無符合條件且有權證的量縮漲停股' }
+    const sq1 = filterW(squeezeRaw.list1), sq2 = filterW(squeezeRaw.list2), sq3 = filterW(squeezeRaw.list3)
+    const sg1 = filterW(surgeRaw.list1),   sg2 = filterW(surgeRaw.list2),   sg3 = filterW(surgeRaw.list3)
+
+    const sqMsg = formatSqueezeMsg(sq1, sq2, sq3, label)
+    const sgMsg = formatSurgeMsg(sg1, sg2, sg3, label)
+
+    if (!sqMsg && !sgMsg) {
+      console.log('[squeeze-alert] 過濾後兩份名單皆為空，略過')
+      return { skipped: true, reason: '無符合條件且有權證的漲停股' }
     }
-    sendTelegram(msg)
-    const total = wList1.length + wList2.length + wList3.length
-    console.log(`[squeeze-alert] 已發送，共 ${total} 檔（含權證過濾）`)
-    return { ok: true, count: total, list1: wList1.length, list2: wList2.length, list3: wList3.length, message: `已傳送，共 ${total} 檔` }
+    if (sqMsg) sendTelegram(sqMsg)
+    if (sgMsg) sendTelegram(sgMsg)
+
+    const sqTotal = sq1.length + sq2.length + sq3.length
+    const sgTotal = sg1.length + sg2.length + sg3.length
+    const total   = sqTotal + sgTotal
+    console.log(`[squeeze-alert] 已發送，量縮 ${sqTotal} 檔 / 量增 ${sgTotal} 檔（含權證過濾）`)
+    return {
+      ok: true, total,
+      squeeze: { count: sqTotal, list1: sq1.length, list2: sq2.length, list3: sq3.length },
+      surge:   { count: sgTotal, list1: sg1.length, list2: sg2.length, list3: sg3.length },
+      message: `已傳送，量縮 ${sqTotal} 檔、量增 ${sgTotal} 檔`
+    }
   } catch(e) {
     console.error('[squeeze-alert] 失敗:', e.message)
     return { ok: false, error: e.message, message: e.message }
