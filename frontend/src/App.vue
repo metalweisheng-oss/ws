@@ -626,12 +626,15 @@ function passAntiSpoof(r) {
   if (r.innerVol != null && r.outerVol != null && r.innerVol > 0 && r.outerVol <= r.innerVol) return false
   return true
 }
+// 以5日均量為基準；無5日均量時退用前一日量
+function volRef5d(r) { return r.volMa5 || r.prevVol || null }
+
 const limitSqueezeList1 = computed(() => {
   return moversGainers.value.filter(r => {
     if (r.changePct < 9.5) return false
     if (!passAntiSpoof(r)) return false
-
-    if (!r.prevVol || r.volume / r.prevVol >= 0.5) return false
+    const ref = volRef5d(r)
+    if (!ref || r.volume / ref >= 0.5) return false
     if (r.limitBidVol) return r.limitBidVol / r.volume > 1.7
     return r.closedLimitUp || false
   })
@@ -642,8 +645,8 @@ const limitSqueezeList2 = computed(() => {
     if (tier1.has(r.stockNo)) return false
     if (r.changePct < 9.5) return false
     if (!passAntiSpoof(r)) return false
-
-    if (!r.prevVol || r.volume / r.prevVol >= 0.7) return false
+    const ref = volRef5d(r)
+    if (!ref || r.volume / ref >= 0.7) return false
     if (r.limitBidVol) return r.limitBidVol / r.volume > 1.5
     return r.closedLimitUp || false
   })
@@ -657,8 +660,8 @@ const limitSqueezeList3 = computed(() => {
     if (tier12.has(r.stockNo)) return false
     if (r.changePct < 9.5) return false
     if (!passAntiSpoof(r)) return false
-
-    if (!r.prevVol || r.volume / r.prevVol >= 0.7) return false
+    const ref = volRef5d(r)
+    if (!ref || r.volume / ref >= 0.7) return false
     return true
   })
 })
@@ -687,9 +690,13 @@ const volIncreaseLimitList1 = computed(() => {
   return moversGainers.value.filter(r => {
     if (r.changePct < 9.5) return false
     if (!passAntiSpoof(r)) return false
-    if (!r.limitBidVol || !r.prevVol) return false
-    const ratio1d = r.volume / r.prevVol
-    if (ratio1d <= 1.5 || ratio1d >= 3) return false
+    if (!r.limitBidVol) return false
+    const ref = volRef5d(r)
+    if (!ref) return false
+    const ratio = r.volume / ref
+    if (ratio < 1.5 || ratio >= 5) return false
+    // 僅限首板（limitDays 未設）或二板（limitDays=1）
+    if (r.limitDays != null && r.limitDays > 1) return false
     return r.limitBidVol / r.volume > 2
   })
 })
@@ -699,9 +706,11 @@ const volIncreaseLimitList2 = computed(() => {
     if (tier1.has(r.stockNo)) return false
     if (r.changePct < 9.5) return false
     if (!passAntiSpoof(r)) return false
-    if (!r.limitBidVol || !r.prevVol) return false
-    const ratio1d = r.volume / r.prevVol
-    if (ratio1d <= 1.5 || ratio1d >= 3) return false
+    if (!r.limitBidVol) return false
+    const ref = volRef5d(r)
+    if (!ref) return false
+    const ratio = r.volume / ref
+    if (ratio < 1.5 || ratio >= 5) return false
     return r.limitBidVol / r.volume > 1.5
   })
 })
@@ -714,9 +723,10 @@ const volIncreaseLimitList3 = computed(() => {
     if (tier12.has(r.stockNo)) return false
     if (r.changePct < 9.5) return false
     if (!passAntiSpoof(r)) return false
-    if (!r.prevVol) return false
-    const ratio1d = r.volume / r.prevVol
-    if (ratio1d <= 1.5 || ratio1d >= 3) return false
+    const ref = volRef5d(r)
+    if (!ref) return false
+    const ratio = r.volume / ref
+    if (ratio < 1.5 || ratio >= 5) return false
     return true
   })
 })
@@ -3634,7 +3644,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
       <div class="bg-gray-900 border border-blue-500/40 rounded-xl overflow-hidden">
         <div class="px-4 py-3 border-b border-blue-500/30 flex items-center gap-2 flex-wrap">
           <span class="text-blue-300 font-semibold text-sm">★ 量縮漲停觀察　第一順位</span>
-          <span class="text-gray-600 text-xs">1日量比 &lt; 0.5　且　委買比 &gt; 1.7</span>
+          <span class="text-gray-600 text-xs">5日量比 &lt; 0.5　且　委買比 &gt; 1.7</span>
           <span v-if="moversDate" class="text-xs text-gray-600">（歷史資料）</span>
           <span class="ml-auto text-xs text-blue-400">{{ limitSqueezeList1.length }} 支</span>
         </div>
@@ -3688,7 +3698,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
       <div class="bg-gray-900 border border-blue-900/50 rounded-xl overflow-hidden">
         <div class="px-4 py-3 border-b border-blue-900/40 flex items-center gap-2 flex-wrap">
           <span class="text-blue-400 font-semibold text-sm">▲ 量縮漲停觀察　第二順位</span>
-          <span class="text-gray-600 text-xs">1日量比 &lt; 0.7　且　委買比 &gt; 1.5</span>
+          <span class="text-gray-600 text-xs">5日量比 &lt; 0.7　且　委買比 &gt; 1.5</span>
           <span v-if="moversDate" class="text-xs text-gray-600">（歷史資料）</span>
           <span class="ml-auto text-xs text-blue-600">{{ limitSqueezeList2.length }} 支</span>
         </div>
@@ -3742,7 +3752,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
       <div class="bg-gray-900 border border-gray-800/60 rounded-xl overflow-hidden">
         <div class="px-4 py-3 border-b border-gray-800/40 flex items-center gap-2 flex-wrap">
           <span class="text-gray-400 font-semibold text-sm">△ 量縮漲停觀察　第三順位</span>
-          <span class="text-gray-600 text-xs">1日量比 &lt; 0.7　不限委買比</span>
+          <span class="text-gray-600 text-xs">5日量比 &lt; 0.7　不限委買比</span>
           <span class="ml-auto text-xs text-gray-600">{{ limitSqueezeList3.length }} 支</span>
         </div>
         <table class="w-full text-sm">
@@ -3789,7 +3799,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
       <div class="bg-gray-900 border border-amber-500/40 rounded-xl overflow-hidden">
         <div class="px-4 py-3 border-b border-amber-500/30 flex items-center gap-2 flex-wrap">
           <span class="text-amber-300 font-semibold text-sm">★ 量增漲停觀察（主力換手）　第一順位</span>
-          <span class="text-gray-600 text-xs">1日量比 1.5～3x　且　委買比 &gt; 2</span>
+          <span class="text-gray-600 text-xs">5日量比 1.5～5x　且　委買比 &gt; 2　且　首板／二板</span>
           <span v-if="moversDate" class="text-xs text-gray-600">（歷史資料）</span>
           <span class="ml-auto text-xs text-amber-400">{{ volIncreaseLimitList1.length }} 支</span>
         </div>
@@ -3837,7 +3847,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
       <div class="bg-gray-900 border border-amber-900/50 rounded-xl overflow-hidden">
         <div class="px-4 py-3 border-b border-amber-900/40 flex items-center gap-2 flex-wrap">
           <span class="text-amber-400 font-semibold text-sm">▲ 量增漲停觀察（主力換手）　第二順位</span>
-          <span class="text-gray-600 text-xs">1日量比 1.5～3x　且　委買比 &gt; 1.5</span>
+          <span class="text-gray-600 text-xs">5日量比 1.5～5x　且　委買比 &gt; 1.5</span>
           <span v-if="moversDate" class="text-xs text-gray-600">（歷史資料）</span>
           <span class="ml-auto text-xs text-amber-600">{{ volIncreaseLimitList2.length }} 支</span>
         </div>
@@ -3885,7 +3895,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
       <div class="bg-gray-900 border border-amber-900/30 rounded-xl overflow-hidden">
         <div class="px-4 py-3 border-b border-amber-900/20 flex items-center gap-2 flex-wrap">
           <span class="text-amber-600 font-semibold text-sm">△ 量增漲停觀察（主力換手）　第三順位</span>
-          <span class="text-gray-600 text-xs">1日量比 1.5～3x　不限委買比</span>
+          <span class="text-gray-600 text-xs">5日量比 1.5～5x　不限委買比</span>
           <span class="ml-auto text-xs text-amber-800">{{ volIncreaseLimitList3.length }} 支</span>
         </div>
         <table class="w-full text-sm">
@@ -3944,16 +3954,27 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
           <div class="font-semibold text-gray-500 col-span-full mt-1">列背景</div>
           <div class="flex items-center gap-2"><span class="px-2 py-0.5 rounded bg-red-900/40 text-red-300">紅底（主力換手）</span><span>符合量增漲停觀察第一或第二順位</span></div>
           <div class="flex items-center gap-2"><span class="px-2 py-0.5 rounded bg-blue-900/40 text-blue-300">藍底（量縮漲停）</span><span>符合量縮漲停觀察第一、二或三順位</span></div>
-          <div class="font-semibold text-gray-500 col-span-full mt-1">量縮漲停觀察區（籌碼集中且惜售）</div>
-          <div class="text-gray-600 col-span-full text-xs mb-0.5">共同前提：今日漲停（漲幅 ≥ 9.5%）且 成交量 ≥ 50張 且 外盤量 &gt; 內盤量（無資料則略過）</div>
-          <div class="flex items-center gap-2 col-span-full"><span class="text-blue-300 font-bold">★ 第一順位</span><span>1日量比 &lt; 0.5 且 漲停委買比 &gt; 1.7（歷史模式以漲停收盤替代）</span></div>
-          <div class="flex items-center gap-2 col-span-full"><span class="text-blue-400">▲ 第二順位</span><span>1日量比 &lt; 0.7 且 漲停委買比 &gt; 1.5（歷史模式以漲停收盤替代，不與第一順位重複）</span></div>
-          <div class="flex items-center gap-2 col-span-full"><span class="text-gray-400">△ 第三順位</span><span>1日量比 &lt; 0.7，不限漲停委買比（不與第一、二順位重複）</span></div>
-          <div class="font-semibold text-gray-500 col-span-full mt-1">量增漲停觀察區（主力換手）</div>
-          <div class="text-gray-600 col-span-full text-xs mb-0.5">共同前提：今日漲停（漲幅 ≥ 9.5%）且 1.5 &lt; 1日量比 &lt; 3 且 成交量 ≥ 50張 且 外盤量 &gt; 內盤量（無資料則略過）</div>
-          <div class="flex items-center gap-2 col-span-full"><span class="text-amber-300 font-bold">★ 第一順位</span><span>漲停委買比 &gt; 2</span></div>
-          <div class="flex items-center gap-2 col-span-full"><span class="text-amber-400">▲ 第二順位</span><span>漲停委買比 &gt; 1.5（不與第一順位重複）</span></div>
-          <div class="flex items-center gap-2 col-span-full"><span class="text-amber-600">△ 第三順位</span><span>不限漲停委買比（不與第一、二順位重複）</span></div>
+
+          <div class="font-semibold text-gray-500 col-span-full mt-2">量縮漲停觀察區（籌碼集中、惜售）</div>
+          <div class="text-gray-600 col-span-full text-xs mb-0.5">
+            共同前提：漲停（漲幅 ≥ 9.5%）＋ 成交量 ≥ 50張 ＋ 外盤量 &gt; 內盤量（無資料略過）<br>
+            量比基準：<b class="text-gray-400">5日均量</b>（前5個交易日平均成交量）；無5日資料時退用昨日量<br>
+            邏輯：量縮 → 籌碼集中、市場惜售；委買比高 → 仍有大量資金排隊，隔日續漲機率高
+          </div>
+          <div class="flex items-center gap-2 col-span-full"><span class="text-blue-300 font-bold">★ 第一順位</span><span>5日量比 &lt; 0.5 且 漲停委買比 &gt; 1.7　→ 極度縮量＋強力護盤</span></div>
+          <div class="flex items-center gap-2 col-span-full"><span class="text-blue-400">▲ 第二順位</span><span>5日量比 &lt; 0.7 且 漲停委買比 &gt; 1.5　→ 縮量＋明顯護盤（不與一重複）</span></div>
+          <div class="flex items-center gap-2 col-span-full"><span class="text-gray-400">△ 第三順位</span><span>5日量比 &lt; 0.7 不限委買比　→ 縮量觀察，委買資料不足時仍列入（不與一、二重複）</span></div>
+
+          <div class="font-semibold text-gray-500 col-span-full mt-2">量增漲停觀察區（主力換手）</div>
+          <div class="text-gray-600 col-span-full text-xs mb-0.5">
+            共同前提：漲停（漲幅 ≥ 9.5%）＋ 5日量比 1.5～5x ＋ 成交量 ≥ 50張 ＋ 外盤量 &gt; 內盤量（無資料略過）<br>
+            量比上限 5x：超過5倍多為散戶追買或炒作，排除；1.5～5x 為主力積極換手的合理區間<br>
+            邏輯：量增說明主力在積極建倉或換手；委買比高說明漲停後仍有資金護盤意願<br>
+            連板分層：<b class="text-gray-400">首板（首次漲停）</b>量增最值得關注；<b class="text-gray-400">二板</b>仍可追蹤；三板以上已有溢價風險，退入第二以下順位
+          </div>
+          <div class="flex items-center gap-2 col-span-full"><span class="text-amber-300 font-bold">★ 第一順位</span><span>5日量比 1.5～5x 且 委買比 &gt; 2 且 首板或二板　→ 最佳換手訊號</span></div>
+          <div class="flex items-center gap-2 col-span-full"><span class="text-amber-400">▲ 第二順位</span><span>5日量比 1.5～5x 且 委買比 &gt; 1.5　→ 換手充分，含三板以上（不與一重複）</span></div>
+          <div class="flex items-center gap-2 col-span-full"><span class="text-amber-600">△ 第三順位</span><span>5日量比 1.5～5x 不限委買比　→ 量增觀察，委買資料不足時仍列入（不與一、二重複）</span></div>
         </div>
       </div>
 
