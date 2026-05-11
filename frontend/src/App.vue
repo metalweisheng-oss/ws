@@ -416,6 +416,27 @@ function wQSort(col) {
 }
 function wQSortIcon(col) { return wQSortCol.value === col ? (wQSortDesc.value ? ' ▼' : ' ▲') : '' }
 
+const validateResult  = ref(null)
+const validateLoading = ref(false)
+const validateError   = ref('')
+async function runValidate() {
+  const code = warrantStockCode.value || warrantStockNo.value
+  if (!code) return
+  validateLoading.value = true
+  validateError.value   = ''
+  validateResult.value  = null
+  try {
+    const r = await fetch(`${API}/api/warrant/validate?stockNo=${encodeURIComponent(code)}`)
+    const d = await r.json()
+    if (d.error) throw new Error(d.error)
+    validateResult.value = d
+  } catch(e) {
+    validateError.value = e.message
+  } finally {
+    validateLoading.value = false
+  }
+}
+
 const warrantAskMap   = ref({})
 const askLoading      = ref(false)
 const askLastUpdated  = ref(null)
@@ -3608,6 +3629,88 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
           </tbody>
         </table>
         </div>
+      </div>
+
+      <!-- IV 驗證區 -->
+      <div v-if="warrantRows.length" class="bg-gray-900 rounded-xl border border-gray-700">
+        <div class="px-4 py-3 border-b border-gray-800 flex items-center gap-3">
+          <span class="text-sm font-medium text-gray-300">IV 正確性驗證</span>
+          <span class="text-xs text-gray-500">以 bid/ask 中間價為基準，比較含/不含股息調整的 IV 差異</span>
+          <button @click="runValidate" :disabled="validateLoading"
+                  class="ml-auto px-3 py-1 rounded-lg text-xs font-medium bg-blue-900/50 text-blue-300 hover:bg-blue-800/60 border border-blue-800/50 transition disabled:opacity-50">
+            {{ validateLoading ? '驗證中...' : '執行驗證' }}
+          </button>
+        </div>
+
+        <div v-if="validateError" class="px-4 py-3 text-xs text-red-400">{{ validateError }}</div>
+
+        <!-- 統計摘要 -->
+        <div v-if="validateResult" class="px-4 py-3 border-b border-gray-800 flex flex-wrap gap-x-6 gap-y-1.5 text-xs">
+          <span class="text-gray-500">標的：<span class="text-white">{{ validateResult.stockName }}</span></span>
+          <span class="text-gray-500">股價：<span class="text-white">{{ validateResult.stockPrice?.toFixed(2) }}</span></span>
+          <span v-if="validateResult.dividendYield" class="text-gray-500">殖利率：<span class="text-green-400">{{ validateResult.dividendYield }}%</span></span>
+          <span class="text-gray-500">有 bid/ask 的權證：<span class="text-white">{{ validateResult.validCount }}</span> / {{ validateResult.total }}</span>
+          <span class="text-gray-500">收盤價在 bid-ask 內：
+            <span :class="validateResult.withinSpreadPct >= 80 ? 'text-green-400' : validateResult.withinSpreadPct >= 50 ? 'text-yellow-400' : 'text-red-400'">
+              {{ validateResult.withinSpreadPct }}%
+            </span>
+            <span class="text-gray-600">（{{ validateResult.withinSpread }}/{{ validateResult.validCount }}）</span>
+          </span>
+          <span v-if="validateResult.ivDivEffectAvg != null" class="text-gray-500">
+            股息調整平均 IV 修正：
+            <span class="text-cyan-400">{{ validateResult.ivDivEffectAvg > 0 ? '+' : '' }}{{ validateResult.ivDivEffectAvg }}%</span>
+          </span>
+        </div>
+
+        <!-- 明細表 -->
+        <div v-if="validateResult?.rows?.length" class="overflow-x-auto">
+          <table class="w-full text-xs border-collapse">
+            <thead>
+              <tr class="bg-gray-800/60 text-gray-400">
+                <th class="px-3 py-2 text-left font-medium">權證</th>
+                <th class="px-3 py-2 text-right font-medium">類型</th>
+                <th class="px-3 py-2 text-right font-medium">剩餘天</th>
+                <th class="px-3 py-2 text-right font-medium">收盤價</th>
+                <th class="px-3 py-2 text-right font-medium">Bid</th>
+                <th class="px-3 py-2 text-right font-medium">Ask</th>
+                <th class="px-3 py-2 text-right font-medium">Mid</th>
+                <th class="px-3 py-2 text-right font-medium">在Spread內</th>
+                <th class="px-3 py-2 text-right font-medium">IV (含股息)</th>
+                <th class="px-3 py-2 text-right font-medium">IV (不含)</th>
+                <th class="px-3 py-2 text-right font-medium">股息修正</th>
+                <th class="px-3 py-2 text-right font-medium">IV vs Mid差</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="r in validateResult.rows.slice(0, 50)" :key="r.code"
+                  class="border-t border-gray-800/50 hover:bg-gray-800/30">
+                <td class="px-3 py-1.5 font-mono text-gray-300">{{ r.code }}<div class="text-gray-600" style="font-size:10px">{{ r.name }}</div></td>
+                <td class="px-3 py-1.5 text-right" :class="r.type==='call'?'text-green-400':'text-red-400'">{{ r.type==='call'?'認購':'認售' }}</td>
+                <td class="px-3 py-1.5 text-right text-gray-400">{{ r.daysLeft }}</td>
+                <td class="px-3 py-1.5 text-right font-mono" :class="r.tradedToday?'text-white':'text-gray-500'">{{ r.closePrice?.toFixed(2) ?? '-' }}</td>
+                <td class="px-3 py-1.5 text-right font-mono text-green-400">{{ r.bid?.toFixed(2) ?? '-' }}</td>
+                <td class="px-3 py-1.5 text-right font-mono text-red-400">{{ r.ask?.toFixed(2) ?? '-' }}</td>
+                <td class="px-3 py-1.5 text-right font-mono text-gray-300">{{ r.midPrice?.toFixed(3) ?? '-' }}</td>
+                <td class="px-3 py-1.5 text-center">
+                  <span v-if="r.withinSpread === true" class="text-green-400">✓</span>
+                  <span v-else-if="r.withinSpread === false" class="text-red-400">✗</span>
+                  <span v-else class="text-gray-600">-</span>
+                </td>
+                <td class="px-3 py-1.5 text-right font-mono text-yellow-300">{{ r.ivCloseQ?.toFixed(1) ?? '-' }}%</td>
+                <td class="px-3 py-1.5 text-right font-mono text-gray-400">{{ r.ivClose0?.toFixed(1) ?? '-' }}%</td>
+                <td class="px-3 py-1.5 text-right font-mono"
+                    :class="r.ivDivEffect && Math.abs(r.ivDivEffect) >= 0.5 ? 'text-cyan-400' : 'text-gray-600'">
+                  {{ r.ivDivEffect != null ? (r.ivDivEffect > 0 ? '+' : '') + r.ivDivEffect.toFixed(2) + '%' : '-' }}
+                </td>
+                <td class="px-3 py-1.5 text-right font-mono"
+                    :class="r.midDiffPct != null ? (Math.abs(r.midDiffPct) < 1 ? 'text-green-400' : Math.abs(r.midDiffPct) < 5 ? 'text-yellow-400' : 'text-red-400') : 'text-gray-600'">
+                  {{ r.midDiffPct != null ? (r.midDiffPct > 0 ? '+' : '') + r.midDiffPct + '%' : '-' }}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div v-else-if="!validateLoading && !validateResult" class="px-4 py-4 text-xs text-gray-600 text-center">點擊「執行驗證」以對當前查詢的標的進行 IV 準確性驗證</div>
       </div>
 
       <!-- Loading -->

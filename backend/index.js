@@ -4680,6 +4680,135 @@ app.get('/api/warrant/covered-stocks', async (req, res) => {
   }
 })
 
+// IV 驗證端點：取指定標的的活躍權證，比較 BS理論價 vs bid/ask 中間價
+app.get('/api/warrant/validate', async (req, res) => {
+  const { stockNo } = req.query
+  if (!stockNo) return res.status(400).json({ error: '請輸入標的代號' })
+
+  try {
+    const { basicRaw, companyRaw, divYield } = await getWarrantBaseData()
+    const codeToName = {}, nameToCode = {}
+    for (const row of Array.isArray(companyRaw) ? companyRaw : []) {
+      const code = (row['公司代號'] || '').trim()
+      const name = (row['公司簡稱'] || '').trim()
+      if (code && name) { codeToName[code] = name; nameToCode[name] = code }
+    }
+    // resolve input
+    let resolvedCode = stockNo.trim(), resolvedName = codeToName[resolvedCode]
+    if (!resolvedName) {
+      const hit = Object.keys(nameToCode).find(n => n.includes(stockNo))
+      if (hit) { resolvedCode = nameToCode[hit]; resolvedName = hit }
+    }
+    if (!resolvedCode) return res.json({ rows: [], stockName: '', total: 0 })
+
+    const today = new Date()
+    const todayRoc = String(today.getFullYear() - 1911).padStart(3,'0')
+      + String(today.getMonth()+1).padStart(2,'0') + String(today.getDate()).padStart(2,'0')
+
+    const warrants = (Array.isArray(basicRaw) ? basicRaw : []).filter(r =>
+      r['標的證券/指數'] === resolvedName && r['最後交易日'] >= todayRoc
+    )
+    const allCodes = warrants.map(r => r['権証代号'] || r['權證代號'])
+
+    // Fetch MIS: warrant prices + bid/ask
+    const batches = []
+    for (let i = 0; i < allCodes.length; i += 100) batches.push(allCodes.slice(i, i+100))
+    const [batchResults, stockMis] = await Promise.all([
+      Promise.all(batches.map(b => fetchMisBatch(b).catch(() => null))),
+      fetchMisBatch([resolvedCode]).catch(() => null),
+    ])
+    const priceMap = {}
+    for (const mis of batchResults)
+      for (const item of mis?.msgArray || []) priceMap[item.c] = item
+
+    const sMis = stockMis?.msgArray?.[0] || {}
+    const sZ = sMis.z && sMis.z !== '-' ? parseFloat(sMis.z) : null
+    const sY = sMis.y && sMis.y !== '-' ? parseFloat(sMis.y) : null
+    const stockPrice = sZ ?? sY ?? null
+    if (!stockPrice) return res.json({ rows: [], stockName: resolvedName, stockPrice: null, total: 0, error: '無法取得標的股價' })
+
+    const R = 0.015
+    const Q = divYield[resolvedCode] ?? 0
+
+    const rows = warrants.map(r => {
+      const code = r['権証代号'] || r['權證代號']
+      const wtype = r['權證類型']?.includes('售') ? 'put' : 'call'
+      const isCall = wtype === 'call'
+
+      const ratioRaw = parseFloat(r['最新標的履約配發數量(每仟單位權證)']) || null
+      const ratio = ratioRaw ? +(ratioRaw / 1000).toFixed(4) : null
+      const strike = parseFloat(r['最新履約價格(元)/履約指數']) || null
+      const expiryDate = rocToGregorian(r['最後交易日'])
+      const daysLeft = expiryDate ? Math.max(0, Math.round((expiryDate - today) / 86400000)) : null
+      if (!ratio || !strike || !daysLeft || daysLeft <= 0) return null
+
+      const mis = priceMap[code] || {}
+      const zVal = mis.z && mis.z !== '-' ? parseFloat(mis.z) : null
+      const yVal = mis.y && mis.y !== '-' ? parseFloat(mis.y) : null
+      const closePrice = zVal ?? yVal ?? null
+      const tradedToday = zVal != null
+
+      // Parse best bid/ask from MIS (format: "2.12_2.11_..." or "-")
+      const bidRaw = mis.b && mis.b !== '-' ? mis.b.split('_').find(x => x && !isNaN(parseFloat(x))) : null
+      const askRaw = mis.a && mis.a !== '-' ? mis.a.split('_').find(x => x && !isNaN(parseFloat(x))) : null
+      const bid = bidRaw ? parseFloat(bidRaw) : null
+      const ask = askRaw ? parseFloat(askRaw) : null
+      const midPrice = (bid != null && ask != null) ? +((bid + ask) / 2).toFixed(4) : null
+
+      const T = daysLeft / 365
+      const optClose = closePrice ? closePrice / ratio : null
+      const optMid   = midPrice   ? midPrice   / ratio : null
+
+      // IV from close price (with & without dividend)
+      const ivCloseQ = optClose ? calcIV(stockPrice, strike, T, R, optClose, isCall, Q) : null
+      const ivClose0 = optClose ? calcIV(stockPrice, strike, T, R, optClose, isCall, 0) : null
+
+      // IV from bid/ask mid price (with dividend)
+      const ivMidQ = optMid ? calcIV(stockPrice, strike, T, R, optMid, isCall, Q) : null
+
+      // Theoretical price from IV_close_Q → should roundtrip back to closePrice
+      const theoFromClose = ivCloseQ ? +(bsPrice(stockPrice, strike, T, R, ivCloseQ/100, isCall, Q) * ratio).toFixed(4) : null
+
+      // How close is theoFromClose to bid-ask mid?
+      const midDiff = (theoFromClose != null && midPrice != null) ? +(theoFromClose - midPrice).toFixed(4) : null
+      const midDiffPct = (midDiff != null && midPrice != null && midPrice > 0) ? +(midDiff / midPrice * 100).toFixed(2) : null
+
+      // Is close price within bid-ask spread?
+      const withinSpread = (bid != null && ask != null && closePrice != null)
+        ? closePrice >= bid - 0.001 && closePrice <= ask + 0.001 : null
+
+      return {
+        code, name: r['権証简称'] || r['權證簡稱'] || '', type: wtype,
+        strike, daysLeft, ratio,
+        closePrice, bid, ask, midPrice, tradedToday,
+        ivCloseQ: ivCloseQ ? +ivCloseQ.toFixed(2) : null,
+        ivClose0: ivClose0 ? +ivClose0.toFixed(2) : null,
+        ivMidQ:   ivMidQ   ? +ivMidQ.toFixed(2)   : null,
+        ivDivEffect: (ivCloseQ != null && ivClose0 != null) ? +(ivCloseQ - ivClose0).toFixed(3) : null,
+        theoFromClose,
+        midDiff, midDiffPct,
+        withinSpread,
+      }
+    }).filter(Boolean)
+
+    const valid = rows.filter(r => r.ivCloseQ && r.midPrice)
+    const withinCount = valid.filter(r => r.withinSpread === true).length
+    const ivDivEffectAvg = valid.length
+      ? +(valid.reduce((s,r) => s + (r.ivDivEffect ?? 0), 0) / valid.length).toFixed(3) : null
+
+    res.json({
+      stockName: resolvedName, stockCode: resolvedCode, stockPrice,
+      dividendYield: Q > 0 ? +(Q * 100).toFixed(2) : null,
+      total: rows.length, validCount: valid.length,
+      withinSpread: withinCount, withinSpreadPct: valid.length ? +(withinCount / valid.length * 100).toFixed(1) : null,
+      ivDivEffectAvg,
+      rows: rows.filter(r => r.ivCloseQ).sort((a,b) => (b.daysLeft||0)-(a.daysLeft||0)),
+    })
+  } catch(e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
 app.get('/api/warrant/search', async (req, res) => {
   const { stockNo, type = 'all' } = req.query
   if (!stockNo) return res.status(400).json({ error: '請輸入標的代號或名稱' })
