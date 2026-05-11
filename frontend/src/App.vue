@@ -3428,6 +3428,11 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
         <div><span class="text-gray-300">溢價率</span>　(履約價 + 權證現價 ÷ 行使比例 − 標的現價) ÷ 標的現價 × 100%。負值代表折價，數值越低越划算。</div>
         <div><span class="text-gray-300">槓桿</span>　標的現價 × 行使比例 ÷ 權證價，反映每元權證相當於幾元標的曝險。</div>
         <div><span class="text-gray-300">Delta</span>　標的漲 1 元時權證理論漲幅（元），已乘上行使比例換算為每張單位。</div>
+        <div><span class="text-gray-300">成交量色階</span>
+          <span class="text-orange-400 font-bold ml-2">橙色粗體 ≥ 10萬張</span><span class="text-gray-600">　市場熱度極高，流動性佳但籌碼複雜，需注意發行商是否趁機對沖壓制</span>
+          <span class="text-white ml-3">白色 ≥ 1萬張</span><span class="text-gray-600">　量能活躍</span>
+          <span class="text-gray-400 ml-3">灰色 &lt; 1萬張</span><span class="text-gray-600">　一般量</span>
+        </div>
         <div class="text-gray-600 pt-1">資料來源：TWSE OpenAPI + MIS　每日盤後更新</div>
       </div>
 
@@ -3491,7 +3496,10 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <span v-if="row.noTrade" class="text-gray-600 text-xs">無成交</span>
                 <span v-else>{{ row.changePct != null ? (row.changePct > 0 ? '+' : '') + row.changePct.toFixed(2) + '%' : '—' }}</span>
               </td>
-              <td class="px-3 py-2 text-right text-gray-300">{{ row.volume ? row.volume.toLocaleString() : '—' }}</td>
+              <td class="px-3 py-2 text-right font-mono"
+                  :class="row.volume >= 100000 ? 'text-orange-400 font-bold' : row.volume >= 10000 ? 'text-white' : 'text-gray-400'">
+                {{ row.volume ? row.volume.toLocaleString() : '—' }}
+              </td>
               <td class="px-3 py-2 text-right">
                 <template v-if="warrantAskMap[row.warrantNo]">
                   <span v-if="warrantAskMap[row.warrantNo].hasAsk" class="text-green-400 font-medium">
