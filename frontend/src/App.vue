@@ -667,6 +667,14 @@ function bidCredibility(r) {
   return 'low'
 }
 
+function bidRatioClass(r) {
+  if (!r.limitBidVol || !r.volume) return 'text-gray-600'
+  const ratio = r.limitBidVol / r.volume
+  if (ratio > 1.6) return 'text-green-400 font-bold'
+  if (ratio > 1)   return 'text-cyan-400'
+  return 'text-gray-400'
+}
+
 const limitSqueezeList1 = computed(() => {
   return moversGainers.value.filter(r => {
     if (r.changePct < 9.5) return false
@@ -3665,7 +3673,9 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
           <span class="text-gray-600 shrink-0 font-medium">委買比色</span>
           <span class="text-green-400 font-bold">綠 &gt;1.6</span><span class="text-gray-600">強力買壓，委買量超過成交量 1.6 倍</span>
           <span class="text-gray-600">｜</span>
-          <span class="text-gray-400">灰</span><span class="text-gray-600">有委買但比值 ≤1.6</span>
+          <span class="text-cyan-400">青 1～1.6</span><span class="text-gray-600">有委買意願，尚未達強力護盤門檻</span>
+          <span class="text-gray-600">｜</span>
+          <span class="text-gray-400">灰 ≤1</span><span class="text-gray-600">委買量未超過成交量</span>
         </div>
 
         <!-- 排序規則 -->
@@ -3724,7 +3734,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               </td>
               <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.volMa5?.toLocaleString() ?? r.prevVol?.toLocaleString() ?? '-' }}</td>
               <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.volume.toLocaleString() }}</td>
-              <td class="px-3 py-2 text-right font-mono text-xs text-green-400 font-bold">
+              <td class="px-3 py-2 text-right font-mono text-xs" :class="bidRatioClass(r)">
                 <template v-if="r.limitBidVol">{{ r.volume ? (r.limitBidVol / r.volume).toFixed(2) : '-' }}</template>
                 <span v-else-if="r.closedLimitUp" class="text-orange-400 text-xs">漲停收</span>
                 <template v-else>-</template>
@@ -3788,7 +3798,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               </td>
               <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.volMa5?.toLocaleString() ?? r.prevVol?.toLocaleString() ?? '-' }}</td>
               <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.volume.toLocaleString() }}</td>
-              <td class="px-3 py-2 text-right font-mono text-xs text-green-400 font-bold">
+              <td class="px-3 py-2 text-right font-mono text-xs" :class="bidRatioClass(r)">
                 <template v-if="r.limitBidVol">{{ r.volume ? (r.limitBidVol / r.volume).toFixed(2) : '-' }}</template>
                 <span v-else-if="r.closedLimitUp" class="text-orange-400 text-xs">漲停收</span>
                 <template v-else>-</template>
@@ -3851,7 +3861,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               </td>
               <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.volMa5?.toLocaleString() ?? r.prevVol?.toLocaleString() ?? '-' }}</td>
               <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.volume.toLocaleString() }}</td>
-              <td class="px-3 py-2 text-right font-mono text-xs" :class="r.limitBidVol && r.limitBidVol / r.volume > 1.6 ? 'text-green-400 font-bold' : r.limitBidVol ? 'text-gray-400' : 'text-gray-600'">
+              <td class="px-3 py-2 text-right font-mono text-xs" :class="bidRatioClass(r)">
                 {{ r.limitBidVol && r.volume ? (r.limitBidVol / r.volume).toFixed(2) : '-' }}
               </td>
               <td class="px-3 py-2 text-right font-mono text-xs" :class="volRatio5dClass(r)">
@@ -3909,7 +3919,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               </td>
               <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.volMa5?.toLocaleString() ?? r.prevVol?.toLocaleString() ?? '-' }}</td>
               <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.volume.toLocaleString() }}</td>
-              <td class="px-3 py-2 text-right font-mono text-xs text-green-400 font-bold">
+              <td class="px-3 py-2 text-right font-mono text-xs" :class="bidRatioClass(r)">
                 {{ r.volume ? (r.limitBidVol / r.volume).toFixed(2) : '-' }}
               </td>
               <td class="px-3 py-2 text-right font-mono text-xs" :class="volRatio5dClass(r)">
@@ -3967,7 +3977,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               </td>
               <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.volMa5?.toLocaleString() ?? r.prevVol?.toLocaleString() ?? '-' }}</td>
               <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.volume.toLocaleString() }}</td>
-              <td class="px-3 py-2 text-right font-mono text-xs text-green-400 font-bold">
+              <td class="px-3 py-2 text-right font-mono text-xs" :class="bidRatioClass(r)">
                 {{ r.volume ? (r.limitBidVol / r.volume).toFixed(2) : '-' }}
               </td>
               <td class="px-3 py-2 text-right font-mono text-xs" :class="volRatio5dClass(r)">
@@ -4024,7 +4034,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               </td>
               <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.volMa5?.toLocaleString() ?? r.prevVol?.toLocaleString() ?? '-' }}</td>
               <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.volume.toLocaleString() }}</td>
-              <td class="px-3 py-2 text-right font-mono text-xs" :class="r.limitBidVol && r.limitBidVol / r.volume > 1.6 ? 'text-green-400 font-bold' : r.limitBidVol ? 'text-gray-400' : 'text-gray-600'">
+              <td class="px-3 py-2 text-right font-mono text-xs" :class="bidRatioClass(r)">
                 {{ r.limitBidVol && r.volume ? (r.limitBidVol / r.volume).toFixed(2) : '-' }}
               </td>
               <td class="px-3 py-2 text-right font-mono text-xs" :class="volRatio5dClass(r)">
@@ -4186,7 +4196,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <td class="px-3 py-2 text-right font-mono text-xs text-gray-300">
                   {{ r.turnover != null ? r.turnover.toFixed(1) : '-' }}
                 </td>
-                <td class="px-3 py-2 text-right font-mono text-xs" :class="r.limitBidVol && r.limitBidVol / r.volume > 1.6 ? 'text-green-400 font-bold' : r.limitBidVol ? 'text-gray-400' : 'text-gray-600'">
+                <td class="px-3 py-2 text-right font-mono text-xs" :class="bidRatioClass(r)">
                   {{ r.limitBidVol && r.volume ? (r.limitBidVol / r.volume).toFixed(2) : '-' }}
                 </td>
                 <td class="px-3 py-2 text-right font-mono text-xs" :class="volRatio1dClass(r)">
@@ -4250,7 +4260,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <td class="px-3 py-2 text-right font-mono text-xs text-gray-300">
                   {{ r.turnover != null ? r.turnover.toFixed(1) : '-' }}
                 </td>
-                <td class="px-3 py-2 text-right font-mono text-xs" :class="r.limitBidVol && r.limitBidVol / r.volume > 1.6 ? 'text-green-400 font-bold' : r.limitBidVol ? 'text-gray-400' : 'text-gray-600'">
+                <td class="px-3 py-2 text-right font-mono text-xs" :class="bidRatioClass(r)">
                   {{ r.limitBidVol && r.volume ? (r.limitBidVol / r.volume).toFixed(2) : '-' }}
                 </td>
                 <td class="px-3 py-2 text-right font-mono text-xs" :class="volRatio1dClass(r)">
