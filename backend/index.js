@@ -3550,14 +3550,14 @@ app.get('/api/inst/history', async (req, res) => {
   }
 })
 
-// 盤中每小時拍快照（10:00、11:00、12:00、13:00），只更新委買量最大值，不標記漲停收盤
-for (const hour of [10, 11, 12, 13]) {
-  cron.schedule(`0 ${hour} * * 1-5`, async () => {
-    console.log(`[cron] ${hour}:00 盤中漲停委買快照`)
-    try { await saveCloseSnapshot(null, false) }
-    catch(e) { console.error(`[close-snapshot] ${hour}:00 失敗:`, e.message) }
-  }, { timezone: 'Asia/Taipei' })
-}
+// 盤中每 30 分鐘拍快照（9:00～13:30），只更新委買量最大值，不標記漲停收盤
+cron.schedule('0,30 9-13 * * 1-5', async () => {
+  const t = new Date(Date.now() + 8 * 3600000)
+  const label = `${t.getUTCHours()}:${String(t.getUTCMinutes()).padStart(2,'0')}`
+  console.log(`[cron] ${label} 盤中漲停委買快照`)
+  try { await saveCloseSnapshot(null, false) }
+  catch(e) { console.error(`[close-snapshot] ${label} 失敗:`, e.message) }
+}, { timezone: 'Asia/Taipei' })
 
 // 13:35 收盤後儲存漲停委買快照（市場 13:30 收盤），標記漲停收盤
 cron.schedule('35 13 * * 1-5', async () => {
