@@ -3550,21 +3550,30 @@ app.get('/api/inst/history', async (req, res) => {
   }
 })
 
-// 13:35 收盤後儲存漲停委買快照（市場 13:30 收盤）
+// 盤中每小時拍快照（10:00、11:00、12:00、13:00），只更新委買量最大值，不標記漲停收盤
+for (const hour of [10, 11, 12, 13]) {
+  cron.schedule(`0 ${hour} * * 1-5`, async () => {
+    console.log(`[cron] ${hour}:00 盤中漲停委買快照`)
+    try { await saveCloseSnapshot(null, false) }
+    catch(e) { console.error(`[close-snapshot] ${hour}:00 失敗:`, e.message) }
+  }, { timezone: 'Asia/Taipei' })
+}
+
+// 13:35 收盤後儲存漲停委買快照（市場 13:30 收盤），標記漲停收盤
 cron.schedule('35 13 * * 1-5', async () => {
-  console.log('[cron] 13:35 儲存漲停委買快照')
-  try { await saveCloseSnapshot() }
+  console.log('[cron] 13:35 儲存漲停委買收盤快照')
+  try { await saveCloseSnapshot(null, true) }
   catch(e) { console.error('[close-snapshot] 13:35 失敗:', e.message) }
 }, { timezone: 'Asia/Taipei' })
 
-// 13:40 補試
+// 13:40 補試（若今日無資料）
 cron.schedule('40 13 * * 1-5', async () => {
   try {
     const today = new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10)
     const { rows } = await pool.query(`SELECT COUNT(*) FROM daily_limit_bid WHERE trade_date = $1`, [today])
     if (parseInt(rows[0].count) === 0) {
       console.log('[close-snapshot] 13:40 補試')
-      await saveCloseSnapshot()
+      await saveCloseSnapshot(null, true)
     }
   } catch(e) { console.error('[close-snapshot] 13:40 補試失敗:', e.message) }
 }, { timezone: 'Asia/Taipei' })
@@ -3771,7 +3780,7 @@ function runPython(scriptArgs, onData) {
 const _moversCache = { data: null, ts: 0 }
 const MOVERS_CACHE_TTL = 30 * 1000
 
-async function saveCloseSnapshot(dateStr) {
+async function saveCloseSnapshot(dateStr, isClose = true) {
   const today = dateStr || new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10)
   const { rows: stockRows } = await pool.query(
     `SELECT DISTINCT ON (stock_no) stock_no FROM market_daily ORDER BY stock_no, trade_date DESC`
@@ -3808,21 +3817,35 @@ async function saveCloseSnapshot(dateStr) {
     }
   }
   for (const [stockNo, tradeDate, vol] of bidRecords) {
-    await pool.query(`
-      INSERT INTO daily_limit_bid (stock_no, trade_date, limit_bid_vol, closed_limit_up)
-      VALUES ($1, $2, $3, TRUE)
-      ON CONFLICT (stock_no, trade_date) DO UPDATE SET limit_bid_vol = $3, closed_limit_up = TRUE
-    `, [stockNo, tradeDate, vol])
+    if (isClose) {
+      await pool.query(`
+        INSERT INTO daily_limit_bid (stock_no, trade_date, limit_bid_vol, closed_limit_up)
+        VALUES ($1, $2, $3, TRUE)
+        ON CONFLICT (stock_no, trade_date) DO UPDATE SET
+          limit_bid_vol = GREATEST(EXCLUDED.limit_bid_vol, daily_limit_bid.limit_bid_vol),
+          closed_limit_up = TRUE
+      `, [stockNo, tradeDate, vol])
+    } else {
+      await pool.query(`
+        INSERT INTO daily_limit_bid (stock_no, trade_date, limit_bid_vol)
+        VALUES ($1, $2, $3)
+        ON CONFLICT (stock_no, trade_date) DO UPDATE SET
+          limit_bid_vol = GREATEST(EXCLUDED.limit_bid_vol, daily_limit_bid.limit_bid_vol)
+      `, [stockNo, tradeDate, vol])
+    }
   }
-  for (const stockNo of limitUpList) {
-    await pool.query(`
-      INSERT INTO daily_limit_bid (stock_no, trade_date, closed_limit_up)
-      VALUES ($1, $2, TRUE)
-      ON CONFLICT (stock_no, trade_date) DO UPDATE SET closed_limit_up = TRUE
-    `, [stockNo, today])
+  if (isClose) {
+    for (const stockNo of limitUpList) {
+      await pool.query(`
+        INSERT INTO daily_limit_bid (stock_no, trade_date, closed_limit_up)
+        VALUES ($1, $2, TRUE)
+        ON CONFLICT (stock_no, trade_date) DO UPDATE SET closed_limit_up = TRUE
+      `, [stockNo, today])
+    }
   }
-  console.log(`[close-snapshot] ${today} 儲存完成，漲停委買量 ${bidRecords.length} 支，漲停收盤 ${limitUpList.length} 支`)
-  return { saved: records.length, date: today }
+  const label = isClose ? '收盤快照' : '盤中快照'
+  console.log(`[close-snapshot] ${today} ${label} 儲存完成，漲停委買量 ${bidRecords.length} 支${isClose ? `，漲停收盤 ${limitUpList.length} 支` : ''}`)
+  return { saved: bidRecords.length, date: today }
 }
 
 function fetchMisRaw(exChList, timeoutMs = 10000) {

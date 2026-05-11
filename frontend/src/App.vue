@@ -3634,7 +3634,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
       <div class="bg-gray-900 border border-blue-500/40 rounded-xl overflow-hidden">
         <div class="px-4 py-3 border-b border-blue-500/30 flex items-center gap-2 flex-wrap">
           <span class="text-blue-300 font-semibold text-sm">★ 量縮漲停觀察　第一順位</span>
-          <span v-if="moversDate" class="text-xs text-yellow-600">（歷史資料，漲停委買量可能不完整）</span>
+          <span v-if="moversDate" class="text-xs text-gray-600">（歷史資料）</span>
           <span class="ml-auto text-xs text-blue-400">{{ limitSqueezeList1.length }} 支</span>
         </div>
         <table class="w-full text-sm">
@@ -3687,7 +3687,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
       <div class="bg-gray-900 border border-blue-900/50 rounded-xl overflow-hidden">
         <div class="px-4 py-3 border-b border-blue-900/40 flex items-center gap-2 flex-wrap">
           <span class="text-blue-400 font-semibold text-sm">▲ 量縮漲停觀察　第二順位</span>
-          <span v-if="moversDate" class="text-xs text-yellow-600">（歷史資料，漲停委買量可能不完整）</span>
+          <span v-if="moversDate" class="text-xs text-gray-600">（歷史資料）</span>
           <span class="ml-auto text-xs text-blue-600">{{ limitSqueezeList2.length }} 支</span>
         </div>
         <table class="w-full text-sm">
@@ -3786,7 +3786,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
       <div class="bg-gray-900 border border-amber-500/40 rounded-xl overflow-hidden">
         <div class="px-4 py-3 border-b border-amber-500/30 flex items-center gap-2 flex-wrap">
           <span class="text-amber-300 font-semibold text-sm">★ 量增漲停觀察（主力換手）　第一順位</span>
-          <span v-if="moversDate" class="text-xs text-yellow-600">（歷史資料，漲停委買量可能不完整）</span>
+          <span v-if="moversDate" class="text-xs text-gray-600">（歷史資料）</span>
           <span class="ml-auto text-xs text-amber-400">{{ volIncreaseLimitList1.length }} 支</span>
         </div>
         <table class="w-full text-sm">
@@ -3833,7 +3833,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
       <div class="bg-gray-900 border border-amber-900/50 rounded-xl overflow-hidden">
         <div class="px-4 py-3 border-b border-amber-900/40 flex items-center gap-2 flex-wrap">
           <span class="text-amber-400 font-semibold text-sm">▲ 量增漲停觀察（主力換手）　第二順位</span>
-          <span v-if="moversDate" class="text-xs text-yellow-600">（歷史資料，漲停委買量可能不完整）</span>
+          <span v-if="moversDate" class="text-xs text-gray-600">（歷史資料）</span>
           <span class="ml-auto text-xs text-amber-600">{{ volIncreaseLimitList2.length }} 支</span>
         </div>
         <table class="w-full text-sm">
