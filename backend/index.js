@@ -3657,13 +3657,7 @@ function buildSqueezeListsFromGainers(gainers) {
 function formatSqueezeMsg(list1, list2, list3, label = '13:00 定時') {
   const now = new Date(Date.now() + 8 * 3600000)
   const dateStr = `${now.getUTCFullYear()}-${String(now.getUTCMonth()+1).padStart(2,'0')}-${String(now.getUTCDate()).padStart(2,'0')} ${String(now.getUTCHours()).padStart(2,'0')}:${String(now.getUTCMinutes()).padStart(2,'0')}`
-  const fmt = (r) => {
-    const ref = _volRef5d(r)
-    const volRatio = ref ? (r.volume / ref).toFixed(2) + 'x' : '-'
-    const bidRatio = r.limitBidVol && r.volume ? (r.limitBidVol / r.volume).toFixed(2) : '-'
-    const bidVol   = r.limitBidVol ? r.limitBidVol.toLocaleString() + '張' : '無委買'
-    return `  • ${r.stockName}(${r.stockNo})  量比${volRatio}  委買比${bidRatio}  委買${bidVol}`
-  }
+  const fmt = (r) => `  • ${r.stockName}(${r.stockNo})`
   const total = list1.length + list2.length + list3.length
   if (total === 0) return null
   let msg = `📊 <b>量縮漲停觀察名單</b>　[${dateStr}]　<i>${label}</i>\n`
@@ -3683,14 +3677,7 @@ function formatSqueezeMsg(list1, list2, list3, label = '13:00 定時') {
 function formatSurgeMsg(list1, list2, list3, label = '13:00 定時') {
   const now = new Date(Date.now() + 8 * 3600000)
   const dateStr = `${now.getUTCFullYear()}-${String(now.getUTCMonth()+1).padStart(2,'0')}-${String(now.getUTCDate()).padStart(2,'0')} ${String(now.getUTCHours()).padStart(2,'0')}:${String(now.getUTCMinutes()).padStart(2,'0')}`
-  const fmt = (r) => {
-    const ref = _volRef5d(r)
-    const volRatio = ref ? (r.volume / ref).toFixed(2) + 'x' : '-'
-    const bidRatio = r.limitBidVol && r.volume ? (r.limitBidVol / r.volume).toFixed(2) : '-'
-    const bidVol   = r.limitBidVol ? r.limitBidVol.toLocaleString() + '張' : '-'
-    const days     = r.limitDays != null ? `${r.limitDays + 1}板` : '首板'
-    return `  • ${r.stockName}(${r.stockNo})  ${days}  量比${volRatio}  委買比${bidRatio}  委買${bidVol}`
-  }
+  const fmt = (r) => `  • ${r.stockName}(${r.stockNo})`
   const total = list1.length + list2.length + list3.length
   if (total === 0) return null
   let msg = `🔥 <b>量增漲停觀察名單</b>　[${dateStr}]　<i>${label}</i>\n`
