@@ -1,5 +1,5 @@
 <script setup>
-import { ref, reactive, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, reactive, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { createChart, CandlestickSeries, HistogramSeries, createSeriesMarkers } from 'lightweight-charts'
 
 const tab = ref('warrant')
@@ -416,8 +416,10 @@ function wQSort(col) {
 }
 function wQSortIcon(col) { return wQSortCol.value === col ? (wQSortDesc.value ? ' ▼' : ' ▲') : '' }
 
-const warrantAskMap = ref({})
-const askLoading    = ref(false)
+const warrantAskMap   = ref({})
+const askLoading      = ref(false)
+const askLastUpdated  = ref(null)
+let   _askTimer       = null
 
 async function fetchWarrantAsks() {
   const nos = warrantRows.value.map(r => r.warrantNo)
@@ -430,10 +432,18 @@ async function fetchWarrantAsks() {
       body: JSON.stringify({ warrantNos: nos })
     })
     const d = await r.json()
-    if (d.ok) warrantAskMap.value = d.data
+    if (d.ok) {
+      warrantAskMap.value  = d.data
+      askLastUpdated.value = new Date().toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    }
   } catch(e) {}
   finally { askLoading.value = false }
 }
+
+watch(warrantRows, (rows) => {
+  if (_askTimer) { clearInterval(_askTimer); _askTimer = null }
+  if (rows.length) _askTimer = setInterval(fetchWarrantAsks, 30000)
+}, { immediate: false })
 
 function wChangePctColor(v) { return v == null ? 'text-gray-500' : +v > 0 ? 'text-red-400' : +v < 0 ? 'text-green-400' : 'text-gray-400' }
 
@@ -1218,7 +1228,7 @@ function signShares(v) {
 function signColor(v) { return +v > 0 ? 'text-red-400' : +v < 0 ? 'text-green-400' : 'text-gray-400' }
 
 onMounted(() => startAll())
-onUnmounted(() => stopAll())
+onUnmounted(() => { stopAll(); if (_askTimer) clearInterval(_askTimer) })
 
 const fmt   = n => n != null ? (+n).toLocaleString() : '-'
 const fmtZ  = n => n != null ? Math.floor(Math.abs(+n) / 1000).toLocaleString() : '-'
@@ -3318,6 +3328,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
           <span class="text-red-400 font-semibold text-xs">★ 符合條件</span>
           <span class="text-gray-500 text-xs">剩餘天 &gt; {{ wFilterDays }} ｜ {{ wFilterPremiumMin }}% &lt; 溢價率 &lt; {{ wFilterPremiumMax }}% ｜ 成交量 &gt; {{ wFilterVolume }}張 ｜ 流通率 ≤ {{ wFilterCirculation }}%</span>
           <span class="ml-auto text-red-400/70 text-xs">{{ warrantQualified.length }} 檔</span>
+          <span v-if="askLastUpdated" class="text-gray-600 text-xs">更新 {{ askLastUpdated }}</span>
           <button @click="fetchWarrantAsks()" :disabled="askLoading"
                   class="px-2 py-0.5 rounded text-xs bg-blue-900/40 text-blue-400 hover:bg-blue-800/60 border border-blue-800/50 whitespace-nowrap transition disabled:opacity-50">
             {{ askLoading ? '查詢中…' : '刷新委賣' }}
