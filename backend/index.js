@@ -1610,7 +1610,7 @@ app.post('/api/test/telegram', (req, res) => {
 
 app.post('/api/test/squeeze-telegram', async (req, res) => {
   try {
-    const result = await sendSqueezeAlert('手動測試')
+    const result = await sendSqueezeAlert('手動傳送')
     res.json(result)
   } catch(e) {
     res.json({ ok: false, message: e.message })
@@ -3649,6 +3649,32 @@ function formatSqueezeMsg(list1, list2, list3, label = '13:00 定時') {
   return msg
 }
 
+async function getWarrantCoveredSet() {
+  try {
+    const { basicRaw, companyRaw } = await getWarrantBaseData()
+    const nameToCode = {}
+    for (const row of Array.isArray(companyRaw) ? companyRaw : []) {
+      const code = (row['公司代號'] || '').trim()
+      const name = (row['公司簡稱'] || '').trim()
+      if (code && name) nameToCode[name] = code
+    }
+    const today = new Date(Date.now() + 8 * 3600000)
+    const todayRoc = String(today.getFullYear() - 1911).padStart(3, '0')
+      + String(today.getMonth() + 1).padStart(2, '0')
+      + String(today.getDate()).padStart(2, '0')
+    const covered = new Set()
+    for (const r of Array.isArray(basicRaw) ? basicRaw : []) {
+      if ((r['最後交易日'] || '') < todayRoc) continue
+      const code = nameToCode[r['標的證券/指數']]
+      if (code) covered.add(code)
+    }
+    return covered
+  } catch(e) {
+    console.error('[getWarrantCoveredSet]', e.message)
+    return null
+  }
+}
+
 async function sendSqueezeAlert(label = '13:00 定時') {
   try {
     // 優先使用快取，若快取過舊（>10分鐘）則重新抓
@@ -3657,8 +3683,6 @@ async function sendSqueezeAlert(label = '13:00 定時') {
     if (_moversCache.data && now - _moversCache.ts < 10 * 60 * 1000) {
       gainers = _moversCache.data.gainers
     } else {
-      // 觸發一次真實抓取（複用 internal self-request 不划算，直接從 MIS 抓）
-      // 簡化：若快取已過期就等下次 movers request 更新，此處直接用舊快取或跳過
       gainers = _moversCache.data?.gainers || []
     }
     if (!gainers.length) {
@@ -3666,17 +3690,26 @@ async function sendSqueezeAlert(label = '13:00 定時') {
       return { skipped: true, reason: '無漲跌排行資料（可能休市）' }
     }
     const { list1, list2, list3 } = buildSqueezeListsFromGainers(gainers)
-    const msg = formatSqueezeMsg(list1, list2, list3, label)
+
+    // 只保留有效權證的個股
+    const covered = await getWarrantCoveredSet()
+    const filterW = arr => covered && covered.size > 0 ? arr.filter(r => covered.has(r.stockNo)) : arr
+    const wList1 = filterW(list1)
+    const wList2 = filterW(list2)
+    const wList3 = filterW(list3)
+
+    const msg = formatSqueezeMsg(wList1, wList2, wList3, label)
     if (!msg) {
-      console.log('[squeeze-alert] 量縮觀察名單為空，略過')
-      return { skipped: true, reason: '無符合條件的量縮漲停股' }
+      console.log('[squeeze-alert] 過濾後觀察名單為空，略過')
+      return { skipped: true, reason: '無符合條件且有權證的量縮漲停股' }
     }
     sendTelegram(msg)
-    console.log(`[squeeze-alert] 已發送，共 ${list1.length + list2.length + list3.length} 檔`)
-    return { ok: true, count: list1.length + list2.length + list3.length, list1: list1.length, list2: list2.length, list3: list3.length }
+    const total = wList1.length + wList2.length + wList3.length
+    console.log(`[squeeze-alert] 已發送，共 ${total} 檔（含權證過濾）`)
+    return { ok: true, count: total, list1: wList1.length, list2: wList2.length, list3: wList3.length, message: `已傳送，共 ${total} 檔` }
   } catch(e) {
     console.error('[squeeze-alert] 失敗:', e.message)
-    return { ok: false, error: e.message }
+    return { ok: false, error: e.message, message: e.message }
   }
 }
 
