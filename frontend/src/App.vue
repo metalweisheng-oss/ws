@@ -3395,7 +3395,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
     </div>
 
     <!-- 權證 -->
-    <div v-if="tab === 'warrant'" class="max-w-6xl mx-auto px-4 py-6 space-y-4">
+    <div v-if="tab === 'warrant'" class="w-full px-4 py-6 space-y-4">
 
       <!-- 搜尋列 -->
       <div class="bg-gray-900 rounded-xl border border-gray-800 px-5 py-4 flex flex-wrap gap-3 items-end">
