@@ -3657,7 +3657,7 @@ function buildSqueezeListsFromGainers(gainers) {
 function formatSqueezeMsg(list1, list2, list3, label = '13:00 定時') {
   const now = new Date(Date.now() + 8 * 3600000)
   const dateStr = `${now.getUTCFullYear()}-${String(now.getUTCMonth()+1).padStart(2,'0')}-${String(now.getUTCDate()).padStart(2,'0')} ${String(now.getUTCHours()).padStart(2,'0')}:${String(now.getUTCMinutes()).padStart(2,'0')}`
-  const fmt = (r) => `  • ${r.stockName}(${r.stockNo})`
+  const fmt = (r) => `  • ${r.stockName}(${r.stockNo})${r.earlyLimitUp ? ' ⚡' : ''}`
   const total = list1.length + list2.length + list3.length
   if (total === 0) return null
   let msg = `📊 <b>量縮漲停觀察名單</b>　[${dateStr}]　<i>${label}</i>\n`
@@ -3677,7 +3677,7 @@ function formatSqueezeMsg(list1, list2, list3, label = '13:00 定時') {
 function formatSurgeMsg(list1, list2, list3, label = '13:00 定時') {
   const now = new Date(Date.now() + 8 * 3600000)
   const dateStr = `${now.getUTCFullYear()}-${String(now.getUTCMonth()+1).padStart(2,'0')}-${String(now.getUTCDate()).padStart(2,'0')} ${String(now.getUTCHours()).padStart(2,'0')}:${String(now.getUTCMinutes()).padStart(2,'0')}`
-  const fmt = (r) => `  • ${r.stockName}(${r.stockNo})`
+  const fmt = (r) => `  • ${r.stockName}(${r.stockNo})${r.earlyLimitUp ? ' ⚡' : ''}`
   const total = list1.length + list2.length + list3.length
   if (total === 0) return null
   let msg = `🔥 <b>量增漲停觀察名單</b>　[${dateStr}]　<i>${label}</i>\n`
@@ -4595,6 +4595,7 @@ app.get('/api/market/movers', async (req, res) => {
           bidSnapshotCount: dlbMap[item.c]?.bidSnapshotCount ?? null,
           bidVolSum:        dlbMap[item.c]?.bidVolSum        ?? null,
           closeLimitBidVol: dlbMap[item.c]?.closeLimitBidVol ?? null,
+          earlyLimitUp: changePct >= 9.5 && item.t && item.t >= '09:00:00' && item.t < '10:00:00' ? true : undefined,
         })
       }
     }

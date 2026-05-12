@@ -3871,6 +3871,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               <td class="px-3 py-2">
                 <div class="flex items-center gap-1">
                   <span class="text-white font-medium hover:text-purple-400 transition">{{ r.stockName }}</span>
+                  <span v-if="r.earlyLimitUp" class="text-yellow-300 text-xs" title="開盤一小時內漲停">⚡</span>
                   <span v-if="warrantCoveredSet.has(r.stockNo)" class="text-xs bg-purple-900/60 text-purple-300 px-1 py-0.5 rounded">有證</span>
                 </div>
                 <div class="text-xs text-gray-500">{{ r.stockNo }}</div>
@@ -3935,6 +3936,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               <td class="px-3 py-2">
                 <div class="flex items-center gap-1">
                   <span class="text-white font-medium hover:text-purple-400 transition">{{ r.stockName }}</span>
+                  <span v-if="r.earlyLimitUp" class="text-yellow-300 text-xs" title="開盤一小時內漲停">⚡</span>
                   <span v-if="warrantCoveredSet.has(r.stockNo)" class="text-xs bg-purple-900/60 text-purple-300 px-1 py-0.5 rounded">有證</span>
                 </div>
                 <div class="text-xs text-gray-500">{{ r.stockNo }}</div>
@@ -3998,6 +4000,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               <td class="px-3 py-2">
                 <div class="flex items-center gap-1">
                   <span class="text-white font-medium hover:text-purple-400 transition">{{ r.stockName }}</span>
+                  <span v-if="r.earlyLimitUp" class="text-yellow-300 text-xs" title="開盤一小時內漲停">⚡</span>
                   <span v-if="warrantCoveredSet.has(r.stockNo)" class="text-xs bg-purple-900/60 text-purple-300 px-1 py-0.5 rounded">有證</span>
                 </div>
                 <div class="text-xs text-gray-500">{{ r.stockNo }}</div>
@@ -4056,6 +4059,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               <td class="px-3 py-2">
                 <div class="flex items-center gap-1">
                   <span class="text-white font-medium hover:text-purple-400 transition">{{ r.stockName }}</span>
+                  <span v-if="r.earlyLimitUp" class="text-yellow-300 text-xs" title="開盤一小時內漲停">⚡</span>
                   <span v-if="warrantCoveredSet.has(r.stockNo)" class="text-xs bg-purple-900/60 text-purple-300 px-1 py-0.5 rounded">有證</span>
                 </div>
                 <div class="text-xs text-gray-500">{{ r.stockNo }}</div>
@@ -4114,6 +4118,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               <td class="px-3 py-2">
                 <div class="flex items-center gap-1">
                   <span class="text-white font-medium hover:text-purple-400 transition">{{ r.stockName }}</span>
+                  <span v-if="r.earlyLimitUp" class="text-yellow-300 text-xs" title="開盤一小時內漲停">⚡</span>
                   <span v-if="warrantCoveredSet.has(r.stockNo)" class="text-xs bg-purple-900/60 text-purple-300 px-1 py-0.5 rounded">有證</span>
                 </div>
                 <div class="text-xs text-gray-500">{{ r.stockNo }}</div>
@@ -4171,6 +4176,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               <td class="px-3 py-2">
                 <div class="flex items-center gap-1">
                   <span class="text-white font-medium hover:text-purple-400 transition">{{ r.stockName }}</span>
+                  <span v-if="r.earlyLimitUp" class="text-yellow-300 text-xs" title="開盤一小時內漲停">⚡</span>
                   <span v-if="warrantCoveredSet.has(r.stockNo)" class="text-xs bg-purple-900/60 text-purple-300 px-1 py-0.5 rounded">有證</span>
                 </div>
                 <div class="text-xs text-gray-500">{{ r.stockNo }}</div>
@@ -4324,6 +4330,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <td class="px-3 py-2">
                   <div class="flex items-center gap-1">
                     <span class="text-white font-medium hover:text-purple-400 transition cursor-pointer" @click="goToWarrant(r.stockNo)">{{ r.stockName }}</span>
+                    <span v-if="r.earlyLimitUp" class="text-yellow-300 text-xs" title="開盤一小時內漲停">⚡</span>
                     <span v-if="warrantCoveredSet.has(r.stockNo)"
                       class="text-xs bg-purple-900/60 text-purple-300 px-1 py-0.5 rounded cursor-pointer hover:bg-purple-800/80 transition"
                       title="有券商發行權證，點此查詢" @click.stop="goToWarrant(r.stockNo)">有證</span>
