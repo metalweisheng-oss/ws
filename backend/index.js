@@ -3722,14 +3722,21 @@ async function getWarrantCoveredSet() {
 
 async function sendSqueezeAlert(label = '13:00 定時') {
   try {
-    // 優先使用快取，若快取過舊（>10分鐘）則重新抓
-    let gainers
+    // 確保快取是新鮮的（10 分鐘內），否則主動呼叫自身 movers 端點刷新
     const now = Date.now()
-    if (_moversCache.data && now - _moversCache.ts < 10 * 60 * 1000) {
-      gainers = _moversCache.data.gainers
-    } else {
-      gainers = _moversCache.data?.gainers || []
+    if (!_moversCache.data || now - _moversCache.ts >= 10 * 60 * 1000) {
+      console.log('[squeeze-alert] cache 過期，主動刷新 movers...')
+      try {
+        const port = process.env.PORT || 3000
+        const resp = await fetch(`http://localhost:${port}/api/market/movers?limit=2000`)
+        if (!resp.ok) throw new Error(`movers status ${resp.status}`)
+        await resp.json()  // 讀完觸發快取寫入
+        console.log('[squeeze-alert] movers 刷新完成')
+      } catch(fetchErr) {
+        console.warn('[squeeze-alert] movers 刷新失敗:', fetchErr.message)
+      }
     }
+    const gainers = _moversCache.data?.gainers || []
     if (!gainers.length) {
       console.log('[squeeze-alert] gainers 為空，可能為休市日，略過')
       return { skipped: true, reason: '無漲跌排行資料（可能休市）' }
