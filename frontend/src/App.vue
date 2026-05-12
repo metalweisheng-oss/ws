@@ -337,6 +337,7 @@ function selectTab(t) {
   if (t === 'movers') startMoversAutoRefresh()
   else stopMoversAutoRefresh()
   if (t === 'buyback') fetchBuyback()
+  if (t === 'disposal') fetchDisposal()
 }
 
 // ── 權證查詢 ──────────────────────────────────────────
@@ -863,6 +864,34 @@ function closeQuote() {
   quoteTicks.value = []
 }
 
+// ── 處置股 ──────────────────────────────────────────
+const disposalRows    = ref([])
+const disposalLoading = ref(false)
+const disposalError   = ref('')
+const disposalUpdated = ref('')
+const disposalSearch  = ref('')
+async function fetchDisposal() {
+  if (disposalLoading.value) return
+  disposalLoading.value = true
+  disposalError.value   = ''
+  try {
+    const r = await fetch(`${API}/api/market/disposal`)
+    const d = await r.json()
+    if (d.error) throw new Error(d.error)
+    disposalRows.value    = d.rows    || []
+    disposalUpdated.value = d.fetchedAt ? new Date(d.fetchedAt).toLocaleTimeString('zh-TW') : ''
+  } catch(e) {
+    disposalError.value = e.message
+  } finally {
+    disposalLoading.value = false
+  }
+}
+const disposalFiltered = computed(() => {
+  const kw = disposalSearch.value.trim()
+  if (!kw) return disposalRows.value
+  return disposalRows.value.filter(r => r.stockNo.includes(kw) || r.stockName.includes(kw))
+})
+
 // ── 庫藏股買回 ───────────────────────────────────────
 const buybackRows    = ref([])
 const buybackLoading = ref(false)
@@ -1378,7 +1407,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
 
     <!-- 分頁切換 -->
     <div class="border-b border-gray-800 px-6 flex gap-1">
-      <button v-for="t in [{ id:'monitor', label:'即時監控' }, { id:'db', label:'歷史資料' }, { id:'report', label:'日報表' }, { id:'breadth', label:'漲跌家數' }, { id:'chips', label:'台指期籌碼' }, { id:'sector', label:'強勢族群' }, { id:'conc', label:'大股東吃貨' }, { id:'screener', label:'台股選股' }, { id:'inst', label:'三大法人' }, { id:'warrant', label:'權證' }, { id:'movers', label:'漲跌排行' }, { id:'buyback', label:'庫藏股' }]" :key="t.id"
+      <button v-for="t in [{ id:'monitor', label:'即時監控' }, { id:'db', label:'歷史資料' }, { id:'report', label:'日報表' }, { id:'breadth', label:'漲跌家數' }, { id:'chips', label:'台指期籌碼' }, { id:'sector', label:'強勢族群' }, { id:'conc', label:'大股東吃貨' }, { id:'screener', label:'台股選股' }, { id:'inst', label:'三大法人' }, { id:'warrant', label:'權證' }, { id:'movers', label:'漲跌排行' }, { id:'buyback', label:'庫藏股' }, { id:'disposal', label:'處置股' }]" :key="t.id"
               @click="selectTab(t.id)"
               class="px-4 py-3 text-sm font-medium transition border-b-2 -mb-px"
               :class="tab === t.id ? 'border-purple-500 text-purple-400' : 'border-transparent text-gray-500 hover:text-gray-300'">
@@ -4554,6 +4583,83 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
 
       <div class="text-right text-xs text-gray-700">
         資料範圍：近 6 個月董事會決議 · 上市 + 上櫃 · MOPS t35sc09 · 每 2 小時快取
+      </div>
+    </div>
+
+    <!-- ══ 處置股 ══════════════════════════════════════════ -->
+    <div v-if="tab === 'disposal'" class="max-w-5xl mx-auto px-4 py-6 space-y-4">
+      <div class="flex items-center gap-3 flex-wrap">
+        <h2 class="text-lg font-semibold text-white">處置股</h2>
+        <span class="text-xs text-gray-500">TWSE 公布處置有價證券 · 每 30 分鐘快取</span>
+        <span v-if="disposalRows.length" class="text-xs px-2 py-0.5 rounded bg-orange-900/40 text-orange-300 font-semibold">
+          處置中 {{ disposalRows.filter(r => r.isActive).length }} 筆
+        </span>
+        <div class="ml-auto flex items-center gap-2">
+          <input v-model="disposalSearch" placeholder="搜尋代碼/名稱" class="px-2 py-1 text-xs rounded bg-gray-800 border border-gray-700 text-gray-300 placeholder-gray-600 w-32 focus:outline-none focus:border-gray-500" />
+          <button @click="fetchDisposal" :disabled="disposalLoading" class="px-3 py-1.5 rounded-lg text-xs bg-gray-800 border border-gray-700 text-gray-400 hover:bg-gray-700 disabled:opacity-50 transition">
+            {{ disposalLoading ? '載入中...' : '刷新' }}
+          </button>
+        </div>
+      </div>
+
+      <div v-if="disposalUpdated" class="text-xs text-gray-600">資料時間：{{ disposalUpdated }}</div>
+      <div v-if="disposalError" class="bg-red-900/30 border border-red-800 rounded-xl px-4 py-3 text-sm text-red-400">{{ disposalError }}</div>
+      <div v-if="disposalLoading && !disposalRows.length" class="text-center py-20 text-gray-500 text-sm">載入中，請稍候...</div>
+
+      <div v-if="!disposalLoading && !disposalRows.length && !disposalError" class="text-center py-20 text-gray-600 text-sm">尚無資料，請點「刷新」</div>
+
+      <div v-if="disposalFiltered.length" class="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="border-b border-gray-800 bg-gray-950 text-xs text-gray-500 font-normal">
+              <th class="px-3 py-2 text-left">代號／名稱</th>
+              <th class="px-3 py-2 text-center">措施</th>
+              <th class="px-3 py-2 text-center">累計</th>
+              <th class="px-3 py-2 text-left">處置條件</th>
+              <th class="px-3 py-2 text-center">公布日期</th>
+              <th class="px-3 py-2 text-center">處置期間</th>
+              <th class="px-3 py-2 text-center">剩餘天數</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="r in disposalFiltered" :key="r.stockNo + r.periodStr"
+                class="border-b border-gray-800/50 transition hover:bg-gray-800/30"
+                :class="!r.isActive ? 'opacity-40' : ''">
+              <td class="px-3 py-2">
+                <div class="flex items-center gap-1">
+                  <span class="text-white font-medium cursor-pointer hover:text-purple-400 transition" @click="goToWarrant(r.stockNo)">{{ r.stockName }}</span>
+                  <span v-if="warrantCoveredSet.has(r.stockNo)" class="text-xs bg-purple-900/60 text-purple-300 px-1 py-0.5 rounded cursor-pointer hover:bg-purple-800/80 transition" @click.stop="goToWarrant(r.stockNo)" title="有券商發行權證">有證</span>
+                </div>
+                <div class="text-xs text-blue-400 hover:text-blue-300 cursor-pointer underline decoration-dotted" @click.stop="openQuote(r.stockNo)">{{ r.stockNo }}</div>
+              </td>
+              <td class="px-3 py-2 text-center">
+                <span class="text-xs px-1.5 py-0.5 rounded font-semibold"
+                  :class="r.measure === '第一次處置' ? 'bg-yellow-900/50 text-yellow-300' : 'bg-red-900/50 text-red-300'">
+                  {{ r.measure }}
+                </span>
+              </td>
+              <td class="px-3 py-2 text-center">
+                <span class="text-xs font-mono" :class="r.count >= 3 ? 'text-red-400 font-bold' : r.count === 2 ? 'text-orange-400' : 'text-gray-400'">
+                  {{ r.count }}次
+                </span>
+              </td>
+              <td class="px-3 py-2 text-xs text-gray-400">{{ r.condition }}</td>
+              <td class="px-3 py-2 text-center text-xs text-gray-500 font-mono">{{ r.announceDate }}</td>
+              <td class="px-3 py-2 text-center text-xs text-gray-400 font-mono whitespace-nowrap">{{ r.periodStr }}</td>
+              <td class="px-3 py-2 text-center font-mono text-xs font-bold"
+                  :class="!r.isActive ? 'text-gray-600' : r.daysLeft <= 3 ? 'text-red-400' : r.daysLeft <= 7 ? 'text-orange-400' : 'text-green-400'">
+                {{ r.isActive ? r.daysLeft + '天' : '已到期' }}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="text-xs text-gray-700 grid grid-cols-1 sm:grid-cols-2 gap-1">
+        <span><span class="text-yellow-300">黃色</span> 第一次處置　<span class="text-red-300">紅色</span> 再次處置</span>
+        <span><span class="text-green-400">綠色</span> 剩餘 &gt;7天　<span class="text-orange-400">橙色</span> ≤7天　<span class="text-red-400">紅色</span> ≤3天</span>
+        <span>措施：以人工撮合（約每5分鐘一次）＋超過限額需繳保證金</span>
+        <span>資料來源：TWSE 公告處置有價證券（上市股票）</span>
       </div>
     </div>
 

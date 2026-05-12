@@ -5360,6 +5360,75 @@ app.get('/api/market/buyback', async (req, res) => {
   }
 })
 
+// ── 處置股 ────────────────────────────────────────────────────────────────
+const _disposalCache = { data: null, ts: 0 }
+const DISPOSAL_CACHE_TTL = 30 * 60 * 1000  // 30 min
+
+function rocToIso(rocStr) {
+  const [y, m, d] = rocStr.trim().split('/')
+  return `${parseInt(y) + 1911}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`
+}
+
+function parseDisposalPeriod(str) {
+  const parts = str.split(/[～~]/)
+  if (parts.length !== 2) return null
+  try {
+    return { start: rocToIso(parts[0].trim()), end: rocToIso(parts[1].trim()) }
+  } catch { return null }
+}
+
+app.get('/api/market/disposal', async (req, res) => {
+  const now = Date.now()
+  if (_disposalCache.data && now - _disposalCache.ts < DISPOSAL_CACHE_TTL) {
+    return res.json(_disposalCache.data)
+  }
+  try {
+    const resp = await fetch(
+      'https://www.twse.com.tw/rwd/zh/announcement/punish?response=json&b=2001&e=0&f=D',
+      { headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://www.twse.com.tw/zh/announcement/punish.html' } }
+    )
+    const json = await resp.json()
+    const today = new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10)
+
+    const rows = (json.data || []).map(row => {
+      const [, announceDate, stockNo, stockName, count, condition, periodStr, measure] = row
+      const period = parseDisposalPeriod((periodStr || '').replace(/\s/g, ''))
+      const isActive = period ? today >= period.start && today <= period.end : false
+      let daysLeft = null
+      if (period && today <= period.end) {
+        daysLeft = Math.ceil((new Date(period.end) - new Date(today)) / 86400000)
+      }
+      const condShort = (condition || '').replace('連續三個營業日達本中心作業要點第四條第一項第一款', '特殊條件').trim()
+      return {
+        stockNo: (stockNo || '').trim(),
+        stockName: (stockName || '').trim(),
+        announceDate: (announceDate || '').trim(),
+        count: typeof count === 'number' ? count : parseInt(count) || 1,
+        condition: condShort,
+        periodStr: (periodStr || '').replace(/\s/g, ''),
+        start: period?.start,
+        end: period?.end,
+        measure: (measure || '').trim(),
+        isActive,
+        daysLeft,
+      }
+    }).filter(r => r.stockNo)
+
+    rows.sort((a, b) => {
+      if (a.isActive !== b.isActive) return (b.isActive ? 1 : 0) - (a.isActive ? 1 : 0)
+      if (a.end && b.end) return a.end < b.end ? 1 : a.end > b.end ? -1 : 0
+      return 0
+    })
+
+    const result = { rows, total: rows.length, activeCount: rows.filter(r => r.isActive).length, fetchedAt: new Date().toISOString() }
+    _disposalCache.data = result
+    _disposalCache.ts = now
+    res.json(result)
+  } catch(e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
 // ── 批次即時股價 ──────────────────────────────────────────────────────────
 app.get('/api/market/prices', async (req, res) => {
   const nos = (req.query.stocks || '').split(',').map(s => s.trim()).filter(Boolean)
