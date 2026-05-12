@@ -4528,6 +4528,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               <th class="px-3 py-2 text-left">代碼</th>
               <th class="px-3 py-2 text-left">公司名稱</th>
               <th class="px-3 py-2 text-right">即時股價</th>
+              <th class="px-3 py-2 text-right">漲跌幅</th>
               <th class="px-3 py-2 text-right">區間中位數</th>
               <th class="px-3 py-2 text-right">溢價比</th>
               <th class="px-3 py-2 text-center">決議日</th>
@@ -4549,17 +4550,14 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               </td>
               <td class="px-3 py-2 font-mono font-semibold text-yellow-300">{{ r.stockNo }}</td>
               <td class="px-3 py-2 text-white font-medium">{{ r.stockName }}</td>
-              <td class="px-3 py-2 text-right font-mono">
-                <template v-if="r.priceInfo">
-                  <span class="font-semibold"
-                    :class="r.priceInfo.changePct > 0 ? 'text-red-400' : r.priceInfo.changePct < 0 ? 'text-green-400' : 'text-gray-300'">
-                    {{ r.priceInfo.price }}
-                  </span>
-                  <span class="text-xs ml-1"
-                    :class="r.priceInfo.changePct > 0 ? 'text-red-500' : r.priceInfo.changePct < 0 ? 'text-green-500' : 'text-gray-500'">
-                    {{ r.priceInfo.changePct > 0 ? '+' : '' }}{{ r.priceInfo.changePct }}%
-                  </span>
-                </template>
+              <td class="px-3 py-2 text-right font-mono font-semibold"
+                  :class="r.priceInfo ? (r.priceInfo.changePct > 0 ? 'text-red-400' : r.priceInfo.changePct < 0 ? 'text-green-400' : 'text-gray-300') : ''">
+                <template v-if="r.priceInfo">{{ r.priceInfo.price }}</template>
+                <span v-else class="text-gray-700">—</span>
+              </td>
+              <td class="px-3 py-2 text-right font-mono text-xs"
+                  :class="r.priceInfo ? (r.priceInfo.changePct > 0 ? 'text-red-500' : r.priceInfo.changePct < 0 ? 'text-green-500' : 'text-gray-500') : ''">
+                <template v-if="r.priceInfo">{{ r.priceInfo.changePct > 0 ? '+' : '' }}{{ r.priceInfo.changePct }}%</template>
                 <span v-else class="text-gray-700">—</span>
               </td>
               <td class="px-3 py-2 text-right font-mono text-yellow-200">
