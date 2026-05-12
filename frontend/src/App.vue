@@ -2,7 +2,7 @@
 import { ref, reactive, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { createChart, CandlestickSeries, HistogramSeries, createSeriesMarkers } from 'lightweight-charts'
 
-const tab = ref('warrant')
+const tab = ref('changelog')
 const API = import.meta.env.VITE_API_BASE || ''
 
 // ── 即時監控 ──────────────────────────────────────
