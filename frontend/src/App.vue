@@ -1084,6 +1084,34 @@ const screenerTotal    = ref(0)
 const screenerSyncing  = ref(false)
 const screenerBackfilling = ref(false)
 const screenerLogicOpen = ref(false)
+const screenerSortKey  = ref('score')
+const screenerSortDir  = ref(-1)  // -1 = desc, 1 = asc
+
+function screenerSortBy(key) {
+  if (screenerSortKey.value === key) screenerSortDir.value *= -1
+  else { screenerSortKey.value = key; screenerSortDir.value = -1 }
+}
+function screenerSortIcon(key) {
+  if (screenerSortKey.value !== key) return ' ↕'
+  return screenerSortDir.value === -1 ? ' ↓' : ' ↑'
+}
+const screenerSorted = computed(() => {
+  const key = screenerSortKey.value
+  const dir = screenerSortDir.value
+  return [...screenerRows.value].sort((a, b) => {
+    let av, bv
+    if (key === 'score')       { av = a.score ?? -Infinity;          bv = b.score ?? -Infinity }
+    else if (key === 'close')  { av = +(a.close ?? 0);               bv = +(b.close ?? 0) }
+    else if (key === 'change_pct') { av = +(a.change_pct ?? 0);      bv = +(b.change_pct ?? 0) }
+    else if (key === 'chg5d')  { av = +(a.detail?.chg5d ?? 0);       bv = +(b.detail?.chg5d ?? 0) }
+    else if (key === 'trust')  { av = a.trust_streak ?? 0;           bv = b.trust_streak ?? 0 }
+    else if (key === 'major')  { av = +(a.major_net5 ?? 0);          bv = +(b.major_net5 ?? 0) }
+    else if (key === 'margin') { av = +(a.margin_chg5 ?? 0);         bv = +(b.margin_chg5 ?? 0) }
+    else if (key === 'rank')   { av = +(a.close_rank ?? 1);          bv = +(b.close_rank ?? 1) }
+    else { av = 0; bv = 0 }
+    return av < bv ? dir : av > bv ? -dir : 0
+  })
+})
 
 // 個股跑分
 const scoreStockNo   = ref('')
@@ -1354,6 +1382,7 @@ const changelog = [
   {
     date: '2026-05-12', tag: '修正',
     items: [
+      '台股選股：所有欄位標頭可點選排序（評分、收盤價、當日漲跌、5日漲幅、投信連買、主力5日淨、融資5日變、位置），再次點選切換升降序',
       '分頁順序調整：修正公告→台股選股→漲跌排行→三大法人→強勢族群→漲跌家數→處置股→庫藏股→即時監控→日報表→歷史資料→台指期籌碼→權證',
       '處置股：修正尚未開始的處置顯示為「已到期」的問題，現在正確顯示「未開始」（藍色）',
       '移除「大股東吃貨」分頁',
@@ -3134,16 +3163,16 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               <tr>
                 <th class="px-3 py-3 text-center w-10">#</th>
                 <th class="px-4 py-3 text-left">個股</th>
-                <th class="px-4 py-3 text-center">評分</th>
+                <th class="px-4 py-3 text-center cursor-pointer hover:text-gray-300 select-none" @click="screenerSortBy('score')">評分{{ screenerSortIcon('score') }}</th>
                 <th class="px-4 py-3 text-center">階段</th>
-                <th class="px-4 py-3 text-right">收盤價</th>
-                <th class="px-4 py-3 text-right">當日漲跌</th>
-                <th class="px-4 py-3 text-right">5日漲幅</th>
-                <th class="px-4 py-3 text-center">投信連買</th>
-                <th class="px-4 py-3 text-right">主力5日淨</th>
-                <th class="px-4 py-3 text-right">融資5日變</th>
-                <th class="px-4 py-3 text-center">
-                  <div>位置</div>
+                <th class="px-4 py-3 text-right cursor-pointer hover:text-gray-300 select-none" @click="screenerSortBy('close')">收盤價{{ screenerSortIcon('close') }}</th>
+                <th class="px-4 py-3 text-right cursor-pointer hover:text-gray-300 select-none" @click="screenerSortBy('change_pct')">當日漲跌{{ screenerSortIcon('change_pct') }}</th>
+                <th class="px-4 py-3 text-right cursor-pointer hover:text-gray-300 select-none" @click="screenerSortBy('chg5d')">5日漲幅{{ screenerSortIcon('chg5d') }}</th>
+                <th class="px-4 py-3 text-center cursor-pointer hover:text-gray-300 select-none" @click="screenerSortBy('trust')">投信連買{{ screenerSortIcon('trust') }}</th>
+                <th class="px-4 py-3 text-right cursor-pointer hover:text-gray-300 select-none" @click="screenerSortBy('major')">主力5日淨{{ screenerSortIcon('major') }}</th>
+                <th class="px-4 py-3 text-right cursor-pointer hover:text-gray-300 select-none" @click="screenerSortBy('margin')">融資5日變{{ screenerSortIcon('margin') }}</th>
+                <th class="px-4 py-3 text-center cursor-pointer hover:text-gray-300 select-none" @click="screenerSortBy('rank')">
+                  <div>位置{{ screenerSortIcon('rank') }}</div>
                   <div class="text-gray-600 font-normal" style="font-size:10px">20日低↔高　越低越好</div>
                 </th>
                 <th class="px-4 py-3 text-right">
@@ -3153,7 +3182,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               </tr>
             </thead>
             <tbody>
-              <template v-for="(row, idx) in screenerRows" :key="row.stock_no">
+              <template v-for="(row, idx) in screenerSorted" :key="row.stock_no">
               <tr class="hover:bg-gray-800/40 transition border-t border-gray-800"
                   :class="row.is_stealth ? 'bg-cyan-950/30' : ''">
                 <td class="px-3 py-2.5 text-center text-gray-600 text-xs">{{ idx + 1 }}</td>
