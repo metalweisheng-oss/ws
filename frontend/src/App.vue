@@ -4528,6 +4528,8 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               <th class="px-3 py-2 text-left">代碼</th>
               <th class="px-3 py-2 text-left">公司名稱</th>
               <th class="px-3 py-2 text-right">即時股價</th>
+              <th class="px-3 py-2 text-right">區間中位數</th>
+              <th class="px-3 py-2 text-right">溢價比</th>
               <th class="px-3 py-2 text-center">決議日</th>
               <th class="px-3 py-2 text-center">預定買回區間</th>
               <th class="px-3 py-2 text-center">買回價格區間（元）</th>
@@ -4557,6 +4559,21 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                     :class="r.priceInfo.changePct > 0 ? 'text-red-500' : r.priceInfo.changePct < 0 ? 'text-green-500' : 'text-gray-500'">
                     {{ r.priceInfo.changePct > 0 ? '+' : '' }}{{ r.priceInfo.changePct }}%
                   </span>
+                </template>
+                <span v-else class="text-gray-700">—</span>
+              </td>
+              <td class="px-3 py-2 text-right font-mono text-yellow-200">
+                <template v-if="r.minPrice != null && r.maxPrice != null">
+                  {{ ((+r.minPrice + +r.maxPrice) / 2).toFixed(1) }}
+                </template>
+                <span v-else class="text-gray-700">—</span>
+              </td>
+              <td class="px-3 py-2 text-right font-mono font-semibold"
+                  :class="r.priceInfo && r.minPrice != null && r.maxPrice != null
+                    ? ((+r.minPrice + +r.maxPrice) / 2 - r.priceInfo.price) / r.priceInfo.price * 100 > 0 ? 'text-red-400' : 'text-green-400'
+                    : ''">
+                <template v-if="r.priceInfo && r.minPrice != null && r.maxPrice != null">
+                  {{ (pct => (pct > 0 ? '+' : '') + pct.toFixed(1) + '%')(((+r.minPrice + +r.maxPrice) / 2 - r.priceInfo.price) / r.priceInfo.price * 100) }}
                 </template>
                 <span v-else class="text-gray-700">—</span>
               </td>
