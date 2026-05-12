@@ -4225,6 +4225,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
           <div class="flex items-center gap-2"><span class="px-2 py-0.5 rounded bg-red-900/40 text-red-300">紅底（主力換手）</span><span>符合量增漲停觀察第一或第二順位</span></div>
           <div class="flex items-center gap-2"><span class="px-2 py-0.5 rounded bg-blue-900/40 text-blue-300">藍底（量縮漲停）</span><span>符合量縮漲停觀察第一、二或三順位</span></div>
           <div class="font-semibold text-gray-500 col-span-full mt-1">股名旁徽章</div>
+          <div class="flex items-center gap-2"><span class="text-yellow-300 text-xs">⚡</span><span>開盤後一小時內（09:00–10:00）即達漲停，強勢訊號</span></div>
           <div class="flex items-center gap-2"><span class="px-1 py-0.5 rounded bg-purple-900/60 text-purple-300 text-xs">有證</span><span>該股今日仍有券商發行的有效權證（認購或認售），點擊可直接跳至權證查詢頁</span></div>
 
           <div class="font-semibold text-gray-500 col-span-full mt-2">量縮漲停觀察區（籌碼集中、惜售）</div>
