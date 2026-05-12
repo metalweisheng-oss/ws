@@ -1380,6 +1380,45 @@ function signShares(v) {
 }
 function signColor(v) { return +v > 0 ? 'text-red-400' : +v < 0 ? 'text-green-400' : 'text-gray-400' }
 
+const changelog = [
+  {
+    date: '2026-05-12', tag: '新功能',
+    items: [
+      '新增「修正公告」分頁（本頁），記錄每日異動',
+      '新增「處置股」分頁：顯示 TWSE 公告處置有價證券，含剩餘天數、措施類型、累計次數，每 30 分鐘快取',
+      '漲跌排行：新增 <span class="text-yellow-300">⚡</span> 記號，標示開盤一小時內（09:00–10:00）即達漲停的強勢個股，主排行榜與六個觀察區均顯示，說明區已加入圖例',
+      '權證查詢：表格改為自動延伸螢幕全寬，不再需要左右拉動捲軸',
+      'Telegram 傳送觀察名單：量縮 + 量增兩個觀察區一起傳送，每行只顯示代號與名稱，⚡ 記號同步出現在 Telegram 訊息中',
+    ]
+  },
+  {
+    date: '2026-05-12', tag: '修正',
+    items: [
+      '漲跌排行：修正早上空白問題——MIS 請求改為每次 5 個並發（原先 34 個同時送出），避免 TWSE rate-limit 造成全部 timeout 回傳空陣列',
+      'Telegram 13:00 排程：修正若無人瀏覽頁面導致快取過期而誤判休市、跳過傳送的問題，現在排程執行前會主動刷新資料',
+      'Telegram 傳送：過濾為只有今日仍有有效權證的個股才列入名單',
+    ]
+  },
+  {
+    date: '2026-05-07', tag: '新功能',
+    items: [
+      '新增「庫藏股」分頁：顯示近六個月董事會決議庫藏股買回資訊，含股價對照、上市 + 上櫃',
+      '漲跌排行：成交量超過十萬張顯示特殊顏色（主排行榜橙色、觀察區玫瑰色），說明區加入色階圖例',
+      '漲跌排行 Telegram 傳送鈕：量縮觀察區上方新增「傳送觀察名單」按鈕，可手動觸發傳送',
+      '每日 13:00 自動傳送量縮漲停觀察名單至 Telegram（週一至週五）',
+    ]
+  },
+  {
+    date: '2026-05-07', tag: '修正',
+    items: [
+      '權證查詢：南亞科等深度 OTM 權證 IV 計算結果空白問題——改用 Newton-Raphson + bisection 混合法，修正舊版在 vega ≈ 0 時發散的問題',
+      '權證查詢：加入 Merton 連續股息調整（<code class="text-gray-300 bg-gray-800 px-1 rounded">S_adj = S·e^(−qT)</code>），改善高殖利率標的（如台積電）的 IV / Delta 準確度',
+      '權證查詢：到期日已過且今日無成交的權證不再顯示空白列',
+      '權證查詢：標的股價與昨收落差過大導致 IV 無解時，顯示「價格失效」提示而非空白',
+    ]
+  },
+]
+
 onMounted(() => startAll())
 onUnmounted(() => { stopAll(); if (_askTimer) clearInterval(_askTimer) })
 
@@ -1407,12 +1446,32 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
 
     <!-- 分頁切換 -->
     <div class="border-b border-gray-800 px-6 flex gap-1">
-      <button v-for="t in [{ id:'monitor', label:'即時監控' }, { id:'db', label:'歷史資料' }, { id:'report', label:'日報表' }, { id:'breadth', label:'漲跌家數' }, { id:'chips', label:'台指期籌碼' }, { id:'sector', label:'強勢族群' }, { id:'conc', label:'大股東吃貨' }, { id:'screener', label:'台股選股' }, { id:'inst', label:'三大法人' }, { id:'warrant', label:'權證' }, { id:'movers', label:'漲跌排行' }, { id:'buyback', label:'庫藏股' }, { id:'disposal', label:'處置股' }]" :key="t.id"
+      <button v-for="t in [{ id:'changelog', label:'修正公告' }, { id:'monitor', label:'即時監控' }, { id:'db', label:'歷史資料' }, { id:'report', label:'日報表' }, { id:'breadth', label:'漲跌家數' }, { id:'chips', label:'台指期籌碼' }, { id:'sector', label:'強勢族群' }, { id:'conc', label:'大股東吃貨' }, { id:'screener', label:'台股選股' }, { id:'inst', label:'三大法人' }, { id:'warrant', label:'權證' }, { id:'movers', label:'漲跌排行' }, { id:'buyback', label:'庫藏股' }, { id:'disposal', label:'處置股' }]" :key="t.id"
               @click="selectTab(t.id)"
               class="px-4 py-3 text-sm font-medium transition border-b-2 -mb-px"
               :class="tab === t.id ? 'border-purple-500 text-purple-400' : 'border-transparent text-gray-500 hover:text-gray-300'">
         {{ t.label }}
       </button>
+    </div>
+
+    <!-- ── 修正公告 Tab ── -->
+    <div v-if="tab === 'changelog'" class="max-w-3xl mx-auto px-4 py-6 space-y-4">
+      <h2 class="text-lg font-semibold text-white">修正公告</h2>
+      <div v-for="entry in changelog" :key="entry.date" class="bg-gray-900 border border-gray-800 rounded-xl px-5 py-4 space-y-2">
+        <div class="flex items-center gap-2">
+          <span class="text-xs font-mono px-2 py-0.5 rounded bg-gray-800 text-gray-300">{{ entry.date }}</span>
+          <span v-if="entry.tag" class="text-xs px-2 py-0.5 rounded font-semibold"
+            :class="entry.tag === '新功能' ? 'bg-blue-900/50 text-blue-300' : entry.tag === '修正' ? 'bg-orange-900/50 text-orange-300' : 'bg-gray-800 text-gray-400'">
+            {{ entry.tag }}
+          </span>
+        </div>
+        <ul class="space-y-1 text-sm text-gray-400">
+          <li v-for="item in entry.items" :key="item" class="flex gap-2">
+            <span class="text-gray-600 select-none shrink-0">•</span>
+            <span v-html="item"></span>
+          </li>
+        </ul>
+      </div>
     </div>
 
     <!-- ── 即時監控 Tab ── -->
