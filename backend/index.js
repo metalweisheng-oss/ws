@@ -5394,6 +5394,7 @@ app.get('/api/market/disposal', async (req, res) => {
       const [, announceDate, stockNo, stockName, count, condition, periodStr, measure] = row
       const period = parseDisposalPeriod((periodStr || '').replace(/\s/g, ''))
       const isActive = period ? today >= period.start && today <= period.end : false
+      const isFuture = period ? today < period.start : false
       let daysLeft = null
       if (period && today <= period.end) {
         daysLeft = Math.ceil((new Date(period.end) - new Date(today)) / 86400000)
@@ -5410,6 +5411,7 @@ app.get('/api/market/disposal', async (req, res) => {
         end: period?.end,
         measure: (measure || '').trim(),
         isActive,
+        isFuture,
         daysLeft,
       }
     }).filter(r => r.stockNo)

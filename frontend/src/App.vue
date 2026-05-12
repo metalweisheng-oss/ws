@@ -1354,6 +1354,7 @@ const changelog = [
   {
     date: '2026-05-12', tag: '修正',
     items: [
+      '處置股：修正尚未開始的處置顯示為「已到期」的問題，現在正確顯示「未開始」（藍色）',
       '移除「大股東吃貨」分頁',
       '預設畫面改為「修正公告」',
       '漲跌排行：修正早上空白問題——MIS 請求改為每次 5 個並發（原先 34 個同時送出），避免 TWSE rate-limit 造成全部 timeout 回傳空陣列',
@@ -4671,8 +4672,8 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               <td class="px-3 py-2 text-center text-xs text-gray-500 font-mono">{{ r.announceDate }}</td>
               <td class="px-3 py-2 text-center text-xs text-gray-400 font-mono whitespace-nowrap">{{ r.periodStr }}</td>
               <td class="px-3 py-2 text-center font-mono text-xs font-bold"
-                  :class="!r.isActive ? 'text-gray-600' : r.daysLeft <= 3 ? 'text-red-400' : r.daysLeft <= 7 ? 'text-orange-400' : 'text-green-400'">
-                {{ r.isActive ? r.daysLeft + '天' : '已到期' }}
+                  :class="!r.isActive ? (r.isFuture ? 'text-blue-400' : 'text-gray-600') : r.daysLeft <= 3 ? 'text-red-400' : r.daysLeft <= 7 ? 'text-orange-400' : 'text-green-400'">
+                {{ r.isActive ? r.daysLeft + '天' : r.isFuture ? '未開始' : '已到期' }}
               </td>
             </tr>
           </tbody>
