@@ -1501,7 +1501,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
 
     <!-- 分頁切換 -->
     <div class="border-b border-gray-800 px-6 flex gap-1">
-      <button v-for="t in [{ id:'changelog', label:'修正公告' }, { id:'monitor', label:'即時監控' }, { id:'db', label:'歷史資料' }, { id:'report', label:'日報表' }, { id:'breadth', label:'漲跌家數' }, { id:'chips', label:'台指期籌碼' }, { id:'sector', label:'強勢族群' }, { id:'screener', label:'台股選股' }, { id:'inst', label:'三大法人' }, { id:'warrant', label:'權證' }, { id:'movers', label:'漲跌排行' }, { id:'buyback', label:'庫藏股' }, { id:'disposal', label:'處置股' }]" :key="t.id"
+      <button v-for="t in [{ id:'changelog', label:'修正公告' }, { id:'screener', label:'台股選股' }, { id:'movers', label:'漲跌排行' }, { id:'inst', label:'三大法人' }, { id:'sector', label:'強勢族群' }, { id:'breadth', label:'漲跌家數' }, { id:'disposal', label:'處置股' }, { id:'buyback', label:'庫藏股' }, { id:'monitor', label:'即時監控' }, { id:'report', label:'日報表' }, { id:'db', label:'歷史資料' }, { id:'chips', label:'台指期籌碼' }, { id:'warrant', label:'權證' }]" :key="t.id"
               @click="selectTab(t.id)"
               class="px-4 py-3 text-sm font-medium transition border-b-2 -mb-px"
               :class="tab === t.id ? 'border-purple-500 text-purple-400' : 'border-transparent text-gray-500 hover:text-gray-300'">
