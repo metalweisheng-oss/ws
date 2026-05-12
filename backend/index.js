@@ -4533,13 +4533,20 @@ app.get('/api/market/movers', async (req, res) => {
     }
 
     const BATCH_SIZE = 60
+    const CONCURRENCY = 5
     const batches = []
     for (let i = 0; i < stockRows.length; i += BATCH_SIZE) {
       const slice = stockRows.slice(i, i + BATCH_SIZE)
       batches.push(slice.flatMap(r => [`tse_${r.stock_no}.tw`, `otc_${r.stock_no}.tw`]))
     }
 
-    const results = await Promise.all(batches.map(b => fetchMisRaw(b).catch(() => null)))
+    // 限制並發數避免 TWSE rate-limit
+    const results = []
+    for (let i = 0; i < batches.length; i += CONCURRENCY) {
+      const chunk = batches.slice(i, i + CONCURRENCY)
+      const chunkResults = await Promise.all(chunk.map(b => fetchMisRaw(b).catch(() => null)))
+      results.push(...chunkResults)
+    }
 
     const movers = []
     const seen = new Set()
