@@ -331,7 +331,7 @@ function selectTab(t) {
   if (t === 'chart')   nextTick(() => loadChartData())
   if (t === 'breadth') { loadMarketBreadth(); loadMarketDist() }
   if (t === 'sector')   { loadSectorDates(); loadSectorAnalysis() }
-  if (t === 'conc')     loadConcentration()
+
   if (t === 'screener') loadScreener()
   if (t === 'warrant') { warrantRows.value = []; warrantError.value = ''; warrantStockName.value = '' }
   if (t === 'movers') startMoversAutoRefresh()
@@ -1074,48 +1074,6 @@ async function loadSectorAnalysis() {
   }
 }
 
-// ── 大股東吃貨排行榜 ─────────────────────────────────
-const concLoading  = ref(false)
-const concRows     = ref([])
-const concError    = ref('')
-const concTotal    = ref(0)
-const concMinStreak = ref(1)
-const concSyncing  = ref(false)
-const concLatestDate = ref('')
-const concHasMultiWeek = ref(false)
-
-async function loadConcentration() {
-  concLoading.value = true
-  concError.value   = ''
-  try {
-    const r = await fetch(`${API}/api/concentration/ranking?minStreak=${concMinStreak.value}&limit=100`)
-    const d = await r.json()
-    if (d.error) throw new Error(d.error)
-    concRows.value       = d.rows || []
-    concTotal.value      = d.total || 0
-    concLatestDate.value = d.latest_date ? d.latest_date.slice(0,10) : ''
-    concHasMultiWeek.value = !!d.has_multi_week
-  } catch(e) {
-    concError.value = '載入失敗：' + e.message
-  } finally {
-    concLoading.value = false
-  }
-}
-
-async function manualSyncConc() {
-  concSyncing.value = true
-  concError.value   = ''
-  try {
-    await fetch(`${API}/api/sync/concentration`, { method: 'POST' })
-    // 等候後台同步完成（全市場約 10-15 秒）
-    await new Promise(r => setTimeout(r, 15000))
-    await loadConcentration()
-  } catch(e) {
-    concError.value = '同步失敗：' + e.message
-  } finally {
-    concSyncing.value = false
-  }
-}
 
 // ── 台股選股系統 ─────────────────────────────────────
 const screenerLoading  = ref(false)
@@ -1506,7 +1464,7 @@ const changelog = [
   {
     date: '2026-04-28', tag: '新功能',
     items: [
-      '系統初始建置：即時監控（川湖科技、鈊象、大立光、泰金寶）、歷史資料、日報表、漲跌家數、台指期籌碼、強勢族群、大股東吃貨、台股選股、三大法人等分頁',
+      '系統初始建置：即時監控（川湖科技、鈊象、大立光、泰金寶）、歷史資料、日報表、漲跌家數、台指期籌碼、強勢族群、台股選股、三大法人等分頁',
     ]
   },
 ]
@@ -1538,7 +1496,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
 
     <!-- 分頁切換 -->
     <div class="border-b border-gray-800 px-6 flex gap-1">
-      <button v-for="t in [{ id:'changelog', label:'修正公告' }, { id:'monitor', label:'即時監控' }, { id:'db', label:'歷史資料' }, { id:'report', label:'日報表' }, { id:'breadth', label:'漲跌家數' }, { id:'chips', label:'台指期籌碼' }, { id:'sector', label:'強勢族群' }, { id:'conc', label:'大股東吃貨' }, { id:'screener', label:'台股選股' }, { id:'inst', label:'三大法人' }, { id:'warrant', label:'權證' }, { id:'movers', label:'漲跌排行' }, { id:'buyback', label:'庫藏股' }, { id:'disposal', label:'處置股' }]" :key="t.id"
+      <button v-for="t in [{ id:'changelog', label:'修正公告' }, { id:'monitor', label:'即時監控' }, { id:'db', label:'歷史資料' }, { id:'report', label:'日報表' }, { id:'breadth', label:'漲跌家數' }, { id:'chips', label:'台指期籌碼' }, { id:'sector', label:'強勢族群' }, { id:'screener', label:'台股選股' }, { id:'inst', label:'三大法人' }, { id:'warrant', label:'權證' }, { id:'movers', label:'漲跌排行' }, { id:'buyback', label:'庫藏股' }, { id:'disposal', label:'處置股' }]" :key="t.id"
               @click="selectTab(t.id)"
               class="px-4 py-3 text-sm font-medium transition border-b-2 -mb-px"
               :class="tab === t.id ? 'border-purple-500 text-purple-400' : 'border-transparent text-gray-500 hover:text-gray-300'">
@@ -2726,110 +2684,6 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
     </div>
 
     <!-- ── 大股東吃貨 Tab ── -->
-    <div v-if="tab === 'conc'" class="max-w-5xl mx-auto px-4 py-6 space-y-4">
-
-      <!-- 標題列 -->
-      <div class="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h2 class="text-base font-bold text-white">🐋 大股東持續吃貨排行榜</h2>
-          <p class="text-xs text-gray-600 mt-0.5">
-            全市場上市個股・大戶（≥400張）集保持股排行・每週更新（集保每週公布一次）
-            <span v-if="concLatestDate" class="ml-2 text-gray-500">資料日期：{{ concLatestDate }}</span>
-            <span v-if="concTotal" class="ml-2 text-gray-500">共 {{ concTotal }} 檔</span>
-          </p>
-        </div>
-        <div class="flex items-center gap-2">
-          <label class="text-xs text-gray-500">週增加篩選</label>
-          <select v-model="concMinStreak" @change="loadConcentration()"
-                  class="bg-gray-800 border border-gray-700 text-white text-sm rounded-lg px-2 py-1.5">
-            <option :value="1">顯示全部</option>
-            <option :value="2">2 週+ 連增</option>
-            <option :value="3">3 週+ 連增</option>
-            <option :value="5">5 週+ 連增</option>
-          </select>
-          <button @click="loadConcentration()" :disabled="concLoading"
-                  class="px-3 py-1.5 rounded-lg bg-gray-700 hover:bg-gray-600 text-sm transition">
-            {{ concLoading ? '載入中...' : '重新整理' }}
-          </button>
-          <button @click="manualSyncConc()" :disabled="concSyncing"
-                  class="px-3 py-1.5 rounded-lg bg-purple-700 hover:bg-purple-600 text-sm transition">
-            {{ concSyncing ? '同步中...' : '立即同步' }}
-          </button>
-        </div>
-      </div>
-
-      <!-- 只有 1 週資料時的提示 -->
-      <div v-if="concRows.length && !concHasMultiWeek"
-           class="rounded-xl bg-yellow-900/20 border border-yellow-800/50 px-4 py-3 text-xs text-yellow-400">
-        ⚠️ 目前只有一週資料，尚無法計算連續增加天數。集保資料每週更新，下週同步後將顯示週增加趨勢。
-      </div>
-
-      <p v-if="concError" class="text-red-400 text-sm">{{ concError }}</p>
-
-      <div v-if="!concRows.length && !concLoading" class="text-center text-gray-600 text-sm py-12">
-        點擊「立即同步」先抓取集保資料（約需 15 秒），完成後點「重新整理」查看排行榜。
-      </div>
-
-      <!-- 排行榜 -->
-      <div v-if="concRows.length" class="rounded-2xl border border-gray-800 bg-gray-900 overflow-hidden">
-        <div class="overflow-x-auto">
-          <table class="w-full text-sm">
-            <thead class="text-xs text-gray-500 border-b border-gray-800 bg-gray-900/80 sticky top-0">
-              <tr>
-                <th class="px-3 py-3 text-center w-10">#</th>
-                <th class="px-4 py-3 text-left">個股</th>
-                <th class="px-4 py-3 text-center">連續週增</th>
-                <th class="px-4 py-3 text-right">大戶持股%</th>
-                <th class="px-4 py-3 text-right">週增減</th>
-                <th class="px-4 py-3 text-right">累計增加</th>
-                <th class="px-4 py-3 text-right">大戶人數</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-gray-800">
-              <tr v-for="(row, idx) in concRows" :key="row.stock_no"
-                  class="hover:bg-gray-800/40 transition">
-                <td class="px-3 py-2.5 text-center text-gray-600 text-xs">{{ idx + 1 }}</td>
-                <td class="px-4 py-2.5">
-                  <div class="font-semibold text-white">{{ row.stock_name }}</div>
-                  <div class="text-xs text-gray-500 font-mono">{{ row.stock_no }}</div>
-                </td>
-                <td class="px-4 py-2.5 text-center">
-                  <span v-if="row.streak_days > 0"
-                        class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold"
-                        :class="row.streak_days >= 5 ? 'bg-red-500/20 text-red-400' :
-                                row.streak_days >= 3 ? 'bg-orange-500/20 text-orange-400' :
-                                row.streak_days >= 2 ? 'bg-yellow-500/20 text-yellow-400' :
-                                'bg-green-500/20 text-green-400'">
-                    🔥 {{ row.streak_days }} 週
-                  </span>
-                  <span v-else class="text-xs text-gray-600">首週</span>
-                </td>
-                <td class="px-4 py-2.5 text-right font-mono font-bold text-yellow-300">
-                  {{ row.latest_pct != null ? row.latest_pct.toFixed(2) + '%' : '—' }}
-                </td>
-                <td class="px-4 py-2.5 text-right font-mono font-semibold"
-                    :class="row.latest_change > 0 ? 'text-red-400' : row.latest_change < 0 ? 'text-green-400' : 'text-gray-600'">
-                  <span v-if="row.latest_change != null">
-                    {{ row.latest_change > 0 ? '+' : '' }}{{ row.latest_change.toFixed(2) }}%
-                  </span>
-                  <span v-else class="text-gray-700">—</span>
-                </td>
-                <td class="px-4 py-2.5 text-right font-mono text-orange-400">
-                  <span v-if="row.total_change">+{{ row.total_change.toFixed(2) }}%</span>
-                  <span v-else class="text-gray-700">—</span>
-                </td>
-                <td class="px-4 py-2.5 text-right text-gray-400 text-xs">{{ row.large_count?.toLocaleString() ?? '—' }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-        <div class="px-5 py-3 border-t border-gray-800 text-xs text-gray-600">
-          大戶定義：集保持股 ≥ 400,000 股（400 張）。排序依連續週增數 → 累計增幅 → 持股比例。資料來源：集保結算所每週庫存統計（id=1-5）。連續週增需兩週以上資料，首週資料依持股比例高低排序。
-        </div>
-      </div>
-
-    </div>
-
     <!-- ── 台股選股系統 Tab ── -->
     <div v-if="tab === 'screener'" class="max-w-6xl mx-auto px-4 py-6 space-y-4">
 
