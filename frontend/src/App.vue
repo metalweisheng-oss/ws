@@ -1,6 +1,8 @@
 <script setup>
 import { ref, reactive, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { createChart, CandlestickSeries, HistogramSeries, createSeriesMarkers } from 'lightweight-charts'
+import { Chart, CategoryScale, LinearScale, BarElement, LineElement, PointElement, Tooltip, Legend, Title } from 'chart.js'
+Chart.register(CategoryScale, LinearScale, BarElement, LineElement, PointElement, Tooltip, Legend, Title)
 
 const tab = ref('changelog')
 const API = import.meta.env.VITE_API_BASE || ''
@@ -338,6 +340,7 @@ function selectTab(t) {
   else stopMoversAutoRefresh()
   if (t === 'buyback') fetchBuyback()
   if (t === 'disposal') fetchDisposal()
+  if (t !== 'finance') destroyFinCharts()
 }
 
 // ── 權證查詢 ──────────────────────────────────────────
@@ -892,6 +895,159 @@ const disposalFiltered = computed(() => {
   return disposalRows.value.filter(r => r.stockNo.includes(kw) || r.stockName.includes(kw))
 })
 
+// ── 三維財務分析 ─────────────────────────────────────
+const finStockNo  = ref('')
+const finLoading  = ref(false)
+const finError    = ref('')
+const finData     = ref(null)
+const finSubTab   = ref('ops')   // 'ops' | 'profit' | 'health'
+let _finCharts    = {}
+
+async function fetchFinance() {
+  const no = finStockNo.value.trim()
+  if (!no) return
+  finLoading.value = true
+  finError.value   = ''
+  finData.value    = null
+  destroyFinCharts()
+  try {
+    const r = await fetch(`${API}/api/finance/${no}`)
+    const d = await r.json()
+    if (d.error) throw new Error(d.error)
+    finData.value  = d
+    finSubTab.value = 'ops'
+    await nextTick()
+    renderFinCharts()
+  } catch(e) { finError.value = e.message }
+  finally { finLoading.value = false }
+}
+
+function destroyFinCharts() {
+  Object.values(_finCharts).forEach(c => { try { c.destroy() } catch {} })
+  _finCharts = {}
+}
+
+function finChart(id, cfg) {
+  const el = document.getElementById(id)
+  if (!el) return
+  if (_finCharts[id]) { try { _finCharts[id].destroy() } catch {} }
+  _finCharts[id] = new Chart(el, cfg)
+}
+
+function renderFinCharts() {
+  if (!finData.value) return
+  const d = finData.value
+  const yrs = d.years
+  const m   = d.metrics
+
+  const gridColor  = 'rgba(255,255,255,0.07)'
+  const tickColor  = '#9ca3af'
+  const baseFont   = { color: tickColor, size: 11 }
+  const axisBase   = { grid: { color: gridColor }, ticks: { color: tickColor, font: { size: 11 } } }
+  const tooltipBase = { backgroundColor: '#1f2937', titleColor: '#e5e7eb', bodyColor: '#d1d5db', borderColor: '#374151', borderWidth: 1 }
+
+  if (finSubTab.value === 'ops') {
+    // 營收 + 毛利率
+    finChart('fc-revenue', {
+      type: 'bar',
+      data: { labels: yrs, datasets: [
+        { type: 'bar', label: '營業收入（億）', data: yrs.map(y => m[y]?.revenue), backgroundColor: 'rgba(99,179,237,0.6)', yAxisID: 'y' },
+        { type: 'line', label: '毛利率%', data: yrs.map(y => m[y]?.grossMargin), borderColor: '#68d391', backgroundColor: 'transparent', yAxisID: 'y2', tension: 0.3, pointRadius: 4 }
+      ]},
+      options: { responsive: true, maintainAspectRatio: false, plugins: { tooltip: tooltipBase, legend: { labels: baseFont } },
+        scales: { y: { ...axisBase, title: { display: true, text: '億元', color: tickColor } },
+                  y2: { ...axisBase, position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: '%', color: tickColor } } } }
+    })
+    // 費用結構
+    finChart('fc-opex', {
+      type: 'bar',
+      data: { labels: yrs, datasets: [
+        { label: '推銷費用', data: yrs.map(y => m[y]?.sellExp), backgroundColor: 'rgba(252,176,69,0.7)', stack: 'opex' },
+        { label: '管理費用', data: yrs.map(y => m[y]?.adminExp), backgroundColor: 'rgba(239,116,116,0.7)', stack: 'opex' },
+        { label: '研發費用', data: yrs.map(y => m[y]?.rdExp),   backgroundColor: 'rgba(144,205,244,0.7)', stack: 'opex' }
+      ]},
+      options: { responsive: true, maintainAspectRatio: false, plugins: { tooltip: tooltipBase, legend: { labels: baseFont } },
+        scales: { x: axisBase, y: { ...axisBase, stacked: true, title: { display: true, text: '億元', color: tickColor } } } }
+    })
+    // 營業利益率
+    finChart('fc-opmargin', {
+      type: 'line',
+      data: { labels: yrs, datasets: [
+        { label: '毛利率%', data: yrs.map(y => m[y]?.grossMargin), borderColor: '#68d391', tension: 0.3, pointRadius: 5 },
+        { label: '營業利益率%', data: yrs.map(y => m[y]?.opMargin), borderColor: '#f6ad55', tension: 0.3, pointRadius: 5 },
+        { label: '淨利率%', data: yrs.map(y => m[y]?.netMargin), borderColor: '#fc8181', tension: 0.3, pointRadius: 5 }
+      ]},
+      options: { responsive: true, maintainAspectRatio: false, plugins: { tooltip: tooltipBase, legend: { labels: baseFont } },
+        scales: { x: axisBase, y: { ...axisBase, title: { display: true, text: '%', color: tickColor } } } }
+    })
+  } else if (finSubTab.value === 'profit') {
+    // 淨利 + 淨利率
+    finChart('fc-netincome', {
+      type: 'bar',
+      data: { labels: yrs, datasets: [
+        { type: 'bar', label: '稅後淨利（億）', data: yrs.map(y => m[y]?.netIncome), backgroundColor: 'rgba(154,117,234,0.6)', yAxisID: 'y' },
+        { type: 'line', label: '淨利率%', data: yrs.map(y => m[y]?.netMargin), borderColor: '#f687b3', backgroundColor: 'transparent', yAxisID: 'y2', tension: 0.3, pointRadius: 4 }
+      ]},
+      options: { responsive: true, maintainAspectRatio: false, plugins: { tooltip: tooltipBase, legend: { labels: baseFont } },
+        scales: { y: { ...axisBase, title: { display: true, text: '億元', color: tickColor } },
+                  y2: { ...axisBase, position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: '%', color: tickColor } } } }
+    })
+    // EPS
+    finChart('fc-eps', {
+      type: 'bar',
+      data: { labels: yrs, datasets: [
+        { label: 'EPS（元）', data: yrs.map(y => m[y]?.eps), backgroundColor: 'rgba(246,173,85,0.7)' }
+      ]},
+      options: { responsive: true, maintainAspectRatio: false, plugins: { tooltip: tooltipBase, legend: { labels: baseFont } },
+        scales: { x: axisBase, y: { ...axisBase, title: { display: true, text: '元', color: tickColor } } } }
+    })
+    // ROE / ROA
+    finChart('fc-roe', {
+      type: 'line',
+      data: { labels: yrs, datasets: [
+        { label: 'ROE%', data: yrs.map(y => m[y]?.roe), borderColor: '#f6ad55', tension: 0.3, pointRadius: 5 },
+        { label: 'ROA%', data: yrs.map(y => m[y]?.roa), borderColor: '#68d391', tension: 0.3, pointRadius: 5 }
+      ]},
+      options: { responsive: true, maintainAspectRatio: false, plugins: { tooltip: tooltipBase, legend: { labels: baseFont } },
+        scales: { x: axisBase, y: { ...axisBase, title: { display: true, text: '%', color: tickColor } } } }
+    })
+  } else if (finSubTab.value === 'health') {
+    // 現金流
+    finChart('fc-cf', {
+      type: 'bar',
+      data: { labels: yrs, datasets: [
+        { label: '營業CF', data: yrs.map(y => m[y]?.operatingCF), backgroundColor: 'rgba(99,179,237,0.7)' },
+        { label: '投資CF', data: yrs.map(y => m[y]?.investingCF), backgroundColor: 'rgba(252,129,129,0.7)' },
+        { label: '融資CF', data: yrs.map(y => m[y]?.financingCF), backgroundColor: 'rgba(246,173,85,0.7)' }
+      ]},
+      options: { responsive: true, maintainAspectRatio: false, plugins: { tooltip: tooltipBase, legend: { labels: baseFont } },
+        scales: { x: axisBase, y: { ...axisBase, title: { display: true, text: '億元', color: tickColor } } } }
+    })
+    // 流動比率 / 負債比率
+    finChart('fc-ratios', {
+      type: 'line',
+      data: { labels: yrs, datasets: [
+        { label: '流動比率%', data: yrs.map(y => m[y]?.currentRatio), borderColor: '#68d391', tension: 0.3, pointRadius: 5, yAxisID: 'y' },
+        { label: '負債比率%', data: yrs.map(y => m[y]?.debtRatio),   borderColor: '#fc8181', tension: 0.3, pointRadius: 5, yAxisID: 'y2' }
+      ]},
+      options: { responsive: true, maintainAspectRatio: false, plugins: { tooltip: tooltipBase, legend: { labels: baseFont } },
+        scales: { y:  { ...axisBase, title: { display: true, text: '流動比率%', color: tickColor } },
+                  y2: { ...axisBase, position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: '負債比率%', color: tickColor } } } }
+    })
+    // 現金部位
+    finChart('fc-cash', {
+      type: 'bar',
+      data: { labels: yrs, datasets: [
+        { label: '現金及約當現金（億）', data: yrs.map(y => m[y]?.cash), backgroundColor: 'rgba(154,230,180,0.7)' }
+      ]},
+      options: { responsive: true, maintainAspectRatio: false, plugins: { tooltip: tooltipBase, legend: { labels: baseFont } },
+        scales: { x: axisBase, y: { ...axisBase, title: { display: true, text: '億元', color: tickColor } } } }
+    })
+  }
+}
+
+watch(finSubTab, async () => { await nextTick(); renderFinCharts() })
+
 // ── 庫藏股買回 ───────────────────────────────────────
 const buybackRows    = ref([])
 const buybackLoading = ref(false)
@@ -1382,6 +1538,7 @@ const changelog = [
   {
     date: '2026-05-12', tag: '修正',
     items: [
+      '新增「財務分析」分頁：輸入任意台灣股票代號，自動抓取 Goodinfo.tw 損益表、資產負債表、現金流量表，計算三大維度指標（經營 / 獲利 / 財務健全度），以 Chart.js 互動圖表呈現，資料快取 4 小時',
       '台股選股：所有欄位標頭可點選排序（評分、收盤價、當日漲跌、5日漲幅、投信連買、主力5日淨、融資5日變、位置），再次點選切換升降序',
       '分頁順序調整：修正公告→台股選股→漲跌排行→三大法人→強勢族群→漲跌家數→處置股→庫藏股→即時監控→日報表→歷史資料→台指期籌碼→權證',
       '處置股：修正尚未開始的處置顯示為「已到期」的問題，現在正確顯示「未開始」（藍色）',
@@ -1531,7 +1688,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
 
     <!-- 分頁切換 -->
     <div class="border-b border-gray-800 px-6 flex gap-1">
-      <button v-for="t in [{ id:'changelog', label:'修正公告' }, { id:'screener', label:'台股選股' }, { id:'movers', label:'漲跌排行' }, { id:'inst', label:'三大法人' }, { id:'sector', label:'強勢族群' }, { id:'breadth', label:'漲跌家數' }, { id:'disposal', label:'處置股' }, { id:'buyback', label:'庫藏股' }, { id:'monitor', label:'即時監控' }, { id:'report', label:'日報表' }, { id:'db', label:'歷史資料' }, { id:'chips', label:'台指期籌碼' }, { id:'warrant', label:'權證' }]" :key="t.id"
+      <button v-for="t in [{ id:'changelog', label:'修正公告' }, { id:'screener', label:'台股選股' }, { id:'finance', label:'財務分析' }, { id:'movers', label:'漲跌排行' }, { id:'inst', label:'三大法人' }, { id:'sector', label:'強勢族群' }, { id:'breadth', label:'漲跌家數' }, { id:'disposal', label:'處置股' }, { id:'buyback', label:'庫藏股' }, { id:'monitor', label:'即時監控' }, { id:'report', label:'日報表' }, { id:'db', label:'歷史資料' }, { id:'chips', label:'台指期籌碼' }, { id:'warrant', label:'權證' }]" :key="t.id"
               @click="selectTab(t.id)"
               class="px-4 py-3 text-sm font-medium transition border-b-2 -mb-px"
               :class="tab === t.id ? 'border-purple-500 text-purple-400' : 'border-transparent text-gray-500 hover:text-gray-300'">
@@ -4638,6 +4795,223 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
 
       <div class="text-right text-xs text-gray-700">
         資料範圍：近 6 個月董事會決議 · 上市 + 上櫃 · MOPS t35sc09 · 每 2 小時快取
+      </div>
+    </div>
+
+    <!-- ══ 三維財務分析 ══════════════════════════════════════ -->
+    <div v-if="tab === 'finance'" class="max-w-5xl mx-auto px-4 py-6 space-y-5">
+
+      <!-- 搜尋列 -->
+      <div class="flex items-center gap-3 flex-wrap">
+        <h2 class="text-lg font-semibold text-white">三維財務分析</h2>
+        <span class="text-xs text-gray-500">Goodinfo.tw 財報數據 · 最近三年 · 損益表 / 資產負債表 / 現金流量表</span>
+      </div>
+      <div class="flex gap-2 items-center">
+        <input v-model="finStockNo" @keyup.enter="fetchFinance" type="text" placeholder="輸入股票代號，例：2330"
+               class="bg-gray-800 border border-gray-700 text-gray-200 text-sm rounded-lg px-3 py-2 w-48 focus:outline-none focus:border-blue-500" />
+        <button @click="fetchFinance" :disabled="finLoading"
+                class="px-4 py-2 rounded-lg bg-blue-700 hover:bg-blue-600 text-sm font-medium transition disabled:opacity-50">
+          {{ finLoading ? '分析中（約10秒）...' : '開始分析' }}
+        </button>
+        <span v-if="finData" class="text-xs text-gray-500">快取 4 小時 · {{ new Date(finData.fetchedAt).toLocaleString('zh-TW') }}</span>
+      </div>
+
+      <p v-if="finError" class="text-red-400 text-sm bg-red-900/20 border border-red-800/50 rounded-lg px-4 py-3">{{ finError }}</p>
+
+      <!-- 主畫面 -->
+      <div v-if="finData">
+        <!-- 公司標題 -->
+        <div class="bg-gradient-to-r from-blue-900/40 to-purple-900/30 border border-blue-800/40 rounded-xl px-5 py-4 mb-4">
+          <div class="flex items-center gap-3 flex-wrap">
+            <span class="text-xl font-bold text-white">{{ finData.stockName }}</span>
+            <span class="text-gray-400 font-mono text-sm">{{ finData.stockNo }}</span>
+            <span class="text-xs px-2 py-0.5 rounded bg-blue-900/50 text-blue-300">年報分析</span>
+            <span class="text-xs text-gray-500 ml-auto">資料年度：{{ finData.years.join(' / ') }}</span>
+          </div>
+        </div>
+
+        <!-- 三個子分頁 -->
+        <div class="flex gap-1 border-b border-gray-800 mb-5">
+          <button v-for="t in [{ id:'ops', label:'📊 經營分析' }, { id:'profit', label:'💰 獲利分析' }, { id:'health', label:'🏦 財務健全度' }]"
+                  :key="t.id" @click="finSubTab = t.id"
+                  class="px-4 py-2.5 text-sm font-medium transition border-b-2 -mb-px"
+                  :class="finSubTab === t.id ? 'border-blue-500 text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-300'">
+            {{ t.label }}
+          </button>
+        </div>
+
+        <!-- ── 經營分析 ── -->
+        <div v-if="finSubTab === 'ops'" class="space-y-5">
+          <!-- KPI -->
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div v-for="yr in finData.years" :key="yr" class="bg-gray-900 border border-gray-800 rounded-xl px-4 py-3">
+              <div class="text-xs text-gray-500 mb-1">{{ yr }} 營收</div>
+              <div class="text-lg font-bold text-blue-300">{{ finData.metrics[yr]?.revenue != null ? finData.metrics[yr].revenue.toLocaleString() : '—' }} <span class="text-xs font-normal text-gray-500">億</span></div>
+              <div class="text-xs mt-1" :class="(finData.metrics[yr]?.grossMargin ?? 0) >= 30 ? 'text-green-400' : 'text-gray-400'">毛利率 {{ finData.metrics[yr]?.grossMargin != null ? finData.metrics[yr].grossMargin + '%' : '—' }}</div>
+            </div>
+            <div class="bg-gray-900 border border-gray-800 rounded-xl px-4 py-3">
+              <div class="text-xs text-gray-500 mb-1">營業利益率（最新）</div>
+              <div class="text-lg font-bold text-orange-300">{{ finData.metrics[finData.years[0]]?.opMargin != null ? finData.metrics[finData.years[0]].opMargin + '%' : '—' }}</div>
+              <div class="text-xs text-gray-500 mt-1">稅後淨利率 {{ finData.metrics[finData.years[0]]?.netMargin != null ? finData.metrics[finData.years[0]].netMargin + '%' : '—' }}</div>
+            </div>
+          </div>
+          <!-- 圖表 -->
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
+              <div class="text-xs text-gray-400 mb-2 font-medium">營收趨勢與毛利率</div>
+              <div style="height:220px"><canvas id="fc-revenue"></canvas></div>
+            </div>
+            <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
+              <div class="text-xs text-gray-400 mb-2 font-medium">費用結構（推銷 / 管理 / 研發）</div>
+              <div style="height:220px"><canvas id="fc-opex"></canvas></div>
+            </div>
+            <div class="bg-gray-900 border border-gray-800 rounded-xl p-4 md:col-span-2">
+              <div class="text-xs text-gray-400 mb-2 font-medium">三層利潤率趨勢</div>
+              <div style="height:220px"><canvas id="fc-opmargin"></canvas></div>
+            </div>
+          </div>
+          <!-- 數據表 -->
+          <div class="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+            <table class="w-full text-xs">
+              <thead class="bg-gray-800 text-gray-400">
+                <tr><th class="px-4 py-2 text-left">指標</th><th v-for="yr in finData.years" :key="yr" class="px-4 py-2 text-right">{{ yr }}</th></tr>
+              </thead>
+              <tbody class="divide-y divide-gray-800">
+                <tr v-for="row in [
+                  { label:'營業收入（億）', key:'revenue' },
+                  { label:'毛利（億）', key:'grossProfit' },
+                  { label:'毛利率', key:'grossMargin', pct:true },
+                  { label:'營業利益（億）', key:'opIncome' },
+                  { label:'營業利益率', key:'opMargin', pct:true },
+                  { label:'推銷費用（億）', key:'sellExp' },
+                  { label:'管理費用（億）', key:'adminExp' },
+                  { label:'研發費用（億）', key:'rdExp' },
+                ]" :key="row.key" class="hover:bg-gray-800/40">
+                  <td class="px-4 py-2 text-gray-400">{{ row.label }}</td>
+                  <td v-for="yr in finData.years" :key="yr" class="px-4 py-2 text-right font-mono text-gray-200">
+                    {{ finData.metrics[yr]?.[row.key] != null ? (row.pct ? finData.metrics[yr][row.key] + '%' : finData.metrics[yr][row.key].toLocaleString()) : '—' }}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- ── 獲利分析 ── -->
+        <div v-if="finSubTab === 'profit'" class="space-y-5">
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div v-for="yr in finData.years" :key="yr" class="bg-gray-900 border border-gray-800 rounded-xl px-4 py-3">
+              <div class="text-xs text-gray-500 mb-1">{{ yr }} EPS</div>
+              <div class="text-lg font-bold text-yellow-300">{{ finData.metrics[yr]?.eps != null ? finData.metrics[yr].eps : '—' }} <span class="text-xs font-normal text-gray-500">元</span></div>
+              <div class="text-xs mt-1 text-gray-400">淨利率 {{ finData.metrics[yr]?.netMargin != null ? finData.metrics[yr].netMargin + '%' : '—' }}</div>
+            </div>
+            <div class="bg-gray-900 border border-gray-800 rounded-xl px-4 py-3">
+              <div class="text-xs text-gray-500 mb-1">ROE / ROA（最新）</div>
+              <div class="text-base font-bold text-orange-300">{{ finData.metrics[finData.years[0]]?.roe != null ? finData.metrics[finData.years[0]].roe + '%' : '—' }}</div>
+              <div class="text-xs text-gray-400 mt-0.5">ROA {{ finData.metrics[finData.years[0]]?.roa != null ? finData.metrics[finData.years[0]].roa + '%' : '—' }}</div>
+            </div>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
+              <div class="text-xs text-gray-400 mb-2 font-medium">稅後淨利與淨利率</div>
+              <div style="height:220px"><canvas id="fc-netincome"></canvas></div>
+            </div>
+            <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
+              <div class="text-xs text-gray-400 mb-2 font-medium">每股盈餘（EPS）</div>
+              <div style="height:220px"><canvas id="fc-eps"></canvas></div>
+            </div>
+            <div class="bg-gray-900 border border-gray-800 rounded-xl p-4 md:col-span-2">
+              <div class="text-xs text-gray-400 mb-2 font-medium">ROE / ROA 趨勢</div>
+              <div style="height:220px"><canvas id="fc-roe"></canvas></div>
+            </div>
+          </div>
+          <div class="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+            <table class="w-full text-xs">
+              <thead class="bg-gray-800 text-gray-400">
+                <tr><th class="px-4 py-2 text-left">指標</th><th v-for="yr in finData.years" :key="yr" class="px-4 py-2 text-right">{{ yr }}</th></tr>
+              </thead>
+              <tbody class="divide-y divide-gray-800">
+                <tr v-for="row in [
+                  { label:'稅後淨利（億）', key:'netIncome' },
+                  { label:'淨利率', key:'netMargin', pct:true },
+                  { label:'EPS（元）', key:'eps' },
+                  { label:'ROE', key:'roe', pct:true },
+                  { label:'ROA', key:'roa', pct:true },
+                ]" :key="row.key" class="hover:bg-gray-800/40">
+                  <td class="px-4 py-2 text-gray-400">{{ row.label }}</td>
+                  <td v-for="yr in finData.years" :key="yr" class="px-4 py-2 text-right font-mono text-gray-200">
+                    {{ finData.metrics[yr]?.[row.key] != null ? (row.pct ? finData.metrics[yr][row.key] + '%' : finData.metrics[yr][row.key].toLocaleString()) : '—' }}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- ── 財務健全度 ── -->
+        <div v-if="finSubTab === 'health'" class="space-y-5">
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div v-for="yr in finData.years" :key="yr" class="bg-gray-900 border border-gray-800 rounded-xl px-4 py-3">
+              <div class="text-xs text-gray-500 mb-1">{{ yr }} 流動比率</div>
+              <div class="text-lg font-bold" :class="(finData.metrics[yr]?.currentRatio ?? 0) >= 200 ? 'text-green-400' : (finData.metrics[yr]?.currentRatio ?? 0) >= 150 ? 'text-yellow-400' : 'text-red-400'">
+                {{ finData.metrics[yr]?.currentRatio != null ? finData.metrics[yr].currentRatio + '%' : '—' }}
+              </div>
+              <div class="text-xs mt-1 text-gray-400">負債比率 {{ finData.metrics[yr]?.debtRatio != null ? finData.metrics[yr].debtRatio + '%' : '—' }}</div>
+            </div>
+            <div class="bg-gray-900 border border-gray-800 rounded-xl px-4 py-3">
+              <div class="text-xs text-gray-500 mb-1">自由現金流（最新）</div>
+              <div class="text-base font-bold" :class="(finData.metrics[finData.years[0]]?.fcf ?? 0) >= 0 ? 'text-green-400' : 'text-red-400'">
+                {{ finData.metrics[finData.years[0]]?.fcf != null ? finData.metrics[finData.years[0]].fcf.toLocaleString() : '—' }} <span class="text-xs font-normal text-gray-500">億</span>
+              </div>
+              <div class="text-xs text-gray-500 mt-0.5">FCF = 營業CF + 資本支出</div>
+            </div>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div class="bg-gray-900 border border-gray-800 rounded-xl p-4 md:col-span-2">
+              <div class="text-xs text-gray-400 mb-2 font-medium">三大現金流量</div>
+              <div style="height:220px"><canvas id="fc-cf"></canvas></div>
+            </div>
+            <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
+              <div class="text-xs text-gray-400 mb-2 font-medium">流動比率 / 負債比率</div>
+              <div style="height:220px"><canvas id="fc-ratios"></canvas></div>
+            </div>
+            <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
+              <div class="text-xs text-gray-400 mb-2 font-medium">現金及約當現金（億）</div>
+              <div style="height:220px"><canvas id="fc-cash"></canvas></div>
+            </div>
+          </div>
+          <div class="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+            <table class="w-full text-xs">
+              <thead class="bg-gray-800 text-gray-400">
+                <tr><th class="px-4 py-2 text-left">指標</th><th v-for="yr in finData.years" :key="yr" class="px-4 py-2 text-right">{{ yr }}</th></tr>
+              </thead>
+              <tbody class="divide-y divide-gray-800">
+                <tr v-for="row in [
+                  { label:'現金及約當現金（億）', key:'cash' },
+                  { label:'流動資產（億）', key:'currentAssets' },
+                  { label:'流動負債（億）', key:'currentLiabilities' },
+                  { label:'流動比率', key:'currentRatio', pct:true },
+                  { label:'總資產（億）', key:'totalAssets' },
+                  { label:'負債總額（億）', key:'totalLiabilities' },
+                  { label:'負債比率', key:'debtRatio', pct:true },
+                  { label:'股東權益（億）', key:'equity' },
+                  { label:'營業現金流（億）', key:'operatingCF' },
+                  { label:'投資現金流（億）', key:'investingCF' },
+                  { label:'融資現金流（億）', key:'financingCF' },
+                  { label:'自由現金流（億）', key:'fcf' },
+                ]" :key="row.key" class="hover:bg-gray-800/40">
+                  <td class="px-4 py-2 text-gray-400">{{ row.label }}</td>
+                  <td v-for="yr in finData.years" :key="yr" class="px-4 py-2 text-right font-mono"
+                      :class="['operatingCF','fcf'].includes(row.key) ? ((finData.metrics[yr]?.[row.key] ?? 0) >= 0 ? 'text-green-400' : 'text-red-400') : 'text-gray-200'">
+                    {{ finData.metrics[yr]?.[row.key] != null ? (row.pct ? finData.metrics[yr][row.key] + '%' : finData.metrics[yr][row.key].toLocaleString()) : '—' }}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="text-xs text-gray-600 text-right">資料來源：Goodinfo.tw ／ 僅供參考，不構成投資建議</div>
       </div>
     </div>
 

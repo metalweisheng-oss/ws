@@ -8,6 +8,7 @@ process.on('unhandledRejection', (reason) => {
 
 const express = require('express')
 const cors = require('cors')
+const cheerio = require('cheerio')
 const https = require('https')
 const http  = require('http')
 const zlib  = require('zlib')
@@ -5768,6 +5769,122 @@ cron.schedule('40 18 * * 1-5', async () => {
   try { await generateAllPostMarket() }
   catch(e) { console.error('[cron] 18:40 盤後分析失敗:', e.message) }
 }, { timezone: 'Asia/Taipei' })
+
+// ── 三維財務分析 ─────────────────────────────────────────
+const _financeCache = new Map()
+const FINANCE_TTL   = 4 * 3600 * 1000
+
+function goodinfoAuth() {
+  const tz   = -480
+  const days = Date.now() / 86400000 - tz / 1440
+  return { key: `2.8|38057.1435627105|46946.0324515993|${tz}|${days}|${days}`, days }
+}
+
+async function fetchGoodinfoHtml(stockNo, rptCat, auth) {
+  const url = `https://goodinfo.tw/tw/StockFinDetail.asp?RPT_CAT=${rptCat}&STOCK_ID=${stockNo}&REINIT=${auth.days}`
+  const r = await fetch(url, {
+    headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://goodinfo.tw/', 'Cookie': `CLIENT_KEY=${auth.key}` },
+    signal: AbortSignal.timeout(15000)
+  })
+  return r.text()
+}
+
+function parseGoodinfoTable(html) {
+  const $ = cheerio.load(html)
+  const tables = $('table').toArray()
+  if (tables.length < 7) return { rows: {}, years: [] }
+  const trs = $(tables[6]).find('tr').toArray()
+  const years = [], rows = {}
+  trs.forEach((tr, i) => {
+    const tds = $(tr).find('td,th').map((_, c) => $(c).text().trim()).get()
+    if (!tds.length) return
+    if (i === 0) { tds.slice(1).forEach(v => { if (/^\d{4}$/.test(v)) years.push(v) }); return }
+    if (!tds[0]) return
+    const vals = {}
+    years.forEach((yr, j) => {
+      const n = parseFloat((tds[j * 2 + 1] || '').replace(/,/g, ''))
+      vals[yr] = isNaN(n) ? null : n
+    })
+    rows[tds[0]] = vals
+  })
+  return { rows, years }
+}
+
+function getStockNameFromHtml(html) {
+  const $ = cheerio.load(html)
+  const title = $('title').text()
+  const m = title.match(/(.+?)[（(](\d{4,6})[）)]/)
+  return m ? m[1].trim() : ''
+}
+
+function finGet(table, pattern, yr) {
+  const key = Object.keys(table).find(k => k.includes(pattern))
+  return key ? (table[key][yr] ?? null) : null
+}
+
+function calcFinMetrics(is, bs, cf, years) {
+  const pct = (a, b) => (a != null && b) ? +(a / b * 100).toFixed(2) : null
+  const metrics = {}
+  years.forEach(yr => {
+    const rev    = finGet(is, '營業收入', yr)
+    const gp     = finGet(is, '毛利', yr)
+    const opInc  = finGet(is, '營業利益', yr)
+    const ni     = finGet(is, '稅後淨利', yr) ?? finGet(is, '本期淨利', yr)
+    const epsKey = Object.keys(is).find(k => k.includes('每股') && k.includes('盈餘'))
+    const eps    = epsKey ? (is[epsKey][yr] ?? null) : null
+    const sell   = finGet(is, '推銷費用', yr)
+    const admin  = finGet(is, '管理費用', yr)
+    const rd     = finGet(is, '研究發展費用', yr) ?? finGet(is, '研發費用', yr)
+    const ca     = finGet(bs, '流動資產合計', yr)
+    const cl     = finGet(bs, '流動負債合計', yr)
+    const tl     = finGet(bs, '負債總額', yr) ?? finGet(bs, '負債合計', yr)
+    const ta     = finGet(bs, '資產總額', yr) ?? finGet(bs, '資產合計', yr)
+    const eq     = finGet(bs, '股東權益總額', yr) ?? finGet(bs, '權益總額', yr)
+    const cash   = finGet(bs, '現金及約當現金', yr)
+    const opCf   = finGet(cf, '營業活動之淨現金', yr)
+    const invCf  = finGet(cf, '投資活動之淨現金', yr)
+    const finCf  = finGet(cf, '融資活動之淨現金', yr)
+    const capex  = finGet(cf, '固定資產', yr)
+    metrics[yr] = {
+      revenue: rev, grossProfit: gp, opIncome: opInc, netIncome: ni, eps,
+      sellExp: sell, adminExp: admin, rdExp: rd,
+      currentAssets: ca, currentLiabilities: cl,
+      totalLiabilities: tl, totalAssets: ta, equity: eq, cash,
+      operatingCF: opCf, investingCF: invCf, financingCF: finCf, capex,
+      grossMargin: pct(gp, rev), opMargin: pct(opInc, rev), netMargin: pct(ni, rev),
+      currentRatio: pct(ca, cl), debtRatio: pct(tl, ta),
+      roe: pct(ni, eq), roa: pct(ni, ta),
+      fcf: (opCf != null && capex != null) ? +(opCf + capex).toFixed(2) : null
+    }
+  })
+  return metrics
+}
+
+app.get('/api/finance/:stockNo', async (req, res) => {
+  const { stockNo } = req.params
+  if (!/^\d{4,6}$/.test(stockNo)) return res.status(400).json({ error: '股票代號格式錯誤' })
+  const now = Date.now()
+  const cached = _financeCache.get(stockNo)
+  if (cached && now - cached.ts < FINANCE_TTL) return res.json(cached.data)
+  try {
+    const auth = goodinfoAuth()
+    const isHtml = await fetchGoodinfoHtml(stockNo, 'IS_YEAR', auth)
+    await new Promise(r => setTimeout(r, 900))
+    const bsHtml = await fetchGoodinfoHtml(stockNo, 'BS_YEAR', auth)
+    await new Promise(r => setTimeout(r, 900))
+    const cfHtml = await fetchGoodinfoHtml(stockNo, 'CF_YEAR', auth)
+    const { rows: is, years } = parseGoodinfoTable(isHtml)
+    const { rows: bs } = parseGoodinfoTable(bsHtml)
+    const { rows: cf } = parseGoodinfoTable(cfHtml)
+    if (!years.length) return res.status(502).json({ error: '無法取得財報資料，請稍後再試' })
+    const stockName = getStockNameFromHtml(isHtml)
+    const top3 = years.slice(0, 3)
+    const metrics = calcFinMetrics(is, bs, cf, top3)
+    const data = { stockNo, stockName, years: top3, metrics, fetchedAt: new Date().toISOString() }
+    _financeCache.set(stockNo, { ts: now, data })
+    res.json(data)
+  } catch(e) { res.status(500).json({ error: e.message }) }
+})
 
 const PORT = process.env.PORT || 3000
 app.listen(PORT, () => {
