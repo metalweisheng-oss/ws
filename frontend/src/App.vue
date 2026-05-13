@@ -1,8 +1,8 @@
 <script setup>
 import { ref, reactive, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { createChart, CandlestickSeries, HistogramSeries, createSeriesMarkers } from 'lightweight-charts'
-import { Chart, CategoryScale, LinearScale, BarElement, LineElement, PointElement, Tooltip, Legend, Title } from 'chart.js'
-Chart.register(CategoryScale, LinearScale, BarElement, LineElement, PointElement, Tooltip, Legend, Title)
+import { Chart, BarController, LineController, CategoryScale, LinearScale, BarElement, LineElement, PointElement, Tooltip, Legend, Title } from 'chart.js'
+Chart.register(BarController, LineController, CategoryScale, LinearScale, BarElement, LineElement, PointElement, Tooltip, Legend, Title)
 
 const tab = ref('changelog')
 const API = import.meta.env.VITE_API_BASE || ''
