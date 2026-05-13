@@ -3995,7 +3995,7 @@ function runPython(scriptArgs, onData) {
 
 // ── 即時漲跌幅排行 ────────────────────────────────────────────
 const _moversCache = { data: null, ts: 0, lastGoodData: null, fetchInProgress: false }
-const MOVERS_CACHE_TTL = 30 * 1000
+const MOVERS_CACHE_TTL = 2 * 60 * 1000  // 2 分鐘，減少 MIS 打頻率
 
 async function saveCloseSnapshot(dateStr, isClose = true) {
   const today = dateStr || new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10)
@@ -4485,13 +4485,30 @@ app.get('/api/market/movers', async (req, res) => {
     return res.json({ gainers: gainers.slice(0, limit), losers: losers.slice(0, limit), total, updatedAt, realtime: true, cached: true })
   }
 
-  // 防止並發：若已有請求在抓取中，直接回傳上次有效資料
+  // 防止並發：若已有請求在抓取中，無論有無快取都不再開新請求
   if (_moversCache.fetchInProgress) {
     const good = _moversCache.lastGoodData || _moversCache.data
     if (good) {
       const { gainers, losers, total, updatedAt } = good
       return res.json({ gainers: gainers.slice(0, limit), losers: losers.slice(0, limit), total, updatedAt, realtime: true, cached: true, fetching: true })
     }
+    // 尚無任何資料（伺服器剛啟動的第一次請求）：等待進行中的 fetch 完成
+    return new Promise((resolve) => {
+      const check = setInterval(() => {
+        if (!_moversCache.fetchInProgress) {
+          clearInterval(check)
+          const d = _moversCache.lastGoodData || _moversCache.data
+          if (d) {
+            const { gainers, losers, total, updatedAt } = d
+            resolve(res.json({ gainers: gainers.slice(0, limit), losers: losers.slice(0, limit), total, updatedAt, realtime: true }))
+          } else {
+            resolve(res.json({ gainers: [], losers: [], total: 0, realtime: true, misEmpty: true }))
+          }
+        }
+      }, 500)
+      // 最多等 90 秒，避免連線永久卡住
+      setTimeout(() => { clearInterval(check); if (!res.headersSent) resolve(res.status(504).json({ error: 'timeout waiting for movers fetch' })) }, 90000)
+    })
   }
 
   _moversCache.fetchInProgress = true
@@ -5929,4 +5946,21 @@ app.get('/api/finance/:stockNo', async (req, res) => {
 const PORT = process.env.PORT || 3000
 app.listen(PORT, () => {
   console.log(`Backend running on http://localhost:${PORT}`)
+
+  // 啟動後 5 秒預熱 movers 快取（等 DB pool 穩定），僅在交易時段或開盤前後執行
+  setTimeout(async () => {
+    const twHour = new Date(Date.now() + 8 * 3600000).getUTCHours()
+    const twMin  = new Date(Date.now() + 8 * 3600000).getUTCMinutes()
+    const twMins = twHour * 60 + twMin
+    if (twMins >= 8 * 60 + 30 && twMins < 14 * 60) {
+      console.log('[startup] 盤中啟動，預熱 movers 快取...')
+      try {
+        const resp = await fetch(`http://localhost:${PORT}/api/market/movers?limit=200`)
+        const d = await resp.json()
+        console.log(`[startup] movers 預熱完成，共 ${d.total ?? 0} 支`)
+      } catch(e) {
+        console.warn('[startup] movers 預熱失敗:', e.message)
+      }
+    }
+  }, 5000)
 })
