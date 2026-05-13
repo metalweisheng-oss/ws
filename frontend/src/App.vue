@@ -1430,27 +1430,52 @@ function screenerAdvice(row) {
 }
 
 // ── 三大法人查詢 ─────────────────────────────────────────
-const instStockNo    = ref('')
-const instDays       = ref(20)
-const instCustomDays = ref(30)
-const instLoading    = ref(false)
-const instError      = ref('')
-const instRows       = ref([])
-const instSummary    = ref(null)
-const instStockName  = ref('')
+const instStockNo         = ref('')
+const instDays            = ref(20)
+const instCustomDays      = ref(30)
+const instLoading         = ref(false)
+const instError           = ref('')
+const instRows            = ref([])
+const instSummary         = ref(null)
+const instStockName       = ref('')
+const instSuggestions     = ref([])
+const instShowSuggestions = ref(false)
+let _instSearchTimer      = null
 
 const instEffectiveDays = computed(() =>
   instDays.value === 'custom' ? (parseInt(instCustomDays.value) || 20) : instDays.value
 )
 
+async function onInstInput() {
+  const q = instStockNo.value.trim()
+  clearTimeout(_instSearchTimer)
+  if (!q) { instSuggestions.value = []; return }
+  _instSearchTimer = setTimeout(async () => {
+    try {
+      const r = await fetch(`${API}/api/stock/search?q=${encodeURIComponent(q)}`)
+      instSuggestions.value = await r.json()
+      instShowSuggestions.value = instSuggestions.value.length > 0
+    } catch {}
+  }, 200)
+}
+
+function selectInstSuggestion(item) {
+  instStockNo.value = item.no
+  instSuggestions.value = []
+  instShowSuggestions.value = false
+  queryInst()
+}
+
 async function queryInst() {
   if (!instStockNo.value.trim()) return
+  instSuggestions.value = []
+  instShowSuggestions.value = false
   instLoading.value = true
   instError.value   = ''
   instRows.value    = []
   instSummary.value = null
   try {
-    const r = await fetch(`${API}/api/inst/history?stockNo=${instStockNo.value.trim()}&days=${instEffectiveDays.value}`)
+    const r = await fetch(`${API}/api/inst/history?stockNo=${encodeURIComponent(instStockNo.value.trim())}&days=${instEffectiveDays.value}`)
     const d = await r.json()
     if (d.error) throw new Error(d.error)
     if (!d.rows.length) throw new Error(`查無 ${instStockNo.value} 的資料，請確認代號或先執行回填`)
@@ -1562,6 +1587,7 @@ const changelog = [
       '漲跌排行：修正盤中（09:00–13:30）點「刷新」無資料的問題——TWSE MIS 在交易尖峰時段偶發回傳空陣列，系統現改為保留上次有效快取並顯示「⚠ 交易所即時資料暫無回應，顯示上次快取」提示，且同時發起刷新的多個請求改為等待同一次回應，避免雙重壓力',
       '漲跌排行：預防性強化——(1) 伺服器快取 TTL 從 30 秒延長至 2 分鐘，減少打 TWSE MIS 的頻率；(2) 修正伺服器剛啟動時第一次請求未設 lastGoodData，並發保護會穿透的漏洞，改為讓後續請求等待同一次抓取完成；(3) 伺服器啟動後 5 秒若在交易時段自動暖快取，使用者開啟頁面即有資料',
       '財務分析：查詢框支援輸入股票名稱，輸入中文名稱（如「台積電」）或代號均可查詢，輸入時即時顯示符合的股票建議清單供點選',
+      '三大法人：查詢框支援輸入股票名稱，輸入中文名稱或代號均可查詢，輸入時即時顯示建議清單',
     ]
   },
   {
@@ -3510,10 +3536,22 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
         <h2 class="text-base font-semibold text-gray-200 mb-3">🏦 三大法人買賣超查詢</h2>
         <div class="flex flex-wrap gap-3 items-end">
           <div>
-            <label class="block text-xs text-gray-500 mb-1">股票代號</label>
-            <input v-model="instStockNo" @keyup.enter="queryInst"
-              class="bg-gray-800 border border-gray-700 text-gray-200 text-sm rounded-lg px-3 py-2 w-28 focus:outline-none focus:border-blue-500"
-              placeholder="例：2330" maxlength="6" />
+            <label class="block text-xs text-gray-500 mb-1">股票代號或名稱</label>
+            <div class="relative">
+              <input v-model="instStockNo" @input="onInstInput" @keyup.enter="queryInst"
+                @blur="() => setTimeout(() => { instShowSuggestions.value = false }, 150)"
+                class="bg-gray-800 border border-gray-700 text-gray-200 text-sm rounded-lg px-3 py-2 w-40 focus:outline-none focus:border-blue-500"
+                placeholder="代號或名稱" />
+              <div v-if="instShowSuggestions && instSuggestions.length"
+                   class="absolute z-50 top-full left-0 mt-1 w-48 bg-gray-900 border border-gray-700 rounded-lg shadow-xl overflow-hidden">
+                <div v-for="item in instSuggestions" :key="item.no"
+                     @mousedown.prevent="selectInstSuggestion(item)"
+                     class="flex items-center gap-2 px-3 py-2 hover:bg-gray-700 cursor-pointer text-sm">
+                  <span class="text-blue-400 font-mono w-12 shrink-0">{{ item.no }}</span>
+                  <span class="text-gray-200 truncate">{{ item.name }}</span>
+                </div>
+              </div>
+            </div>
           </div>
           <div>
             <label class="block text-xs text-gray-500 mb-1">天數</label>

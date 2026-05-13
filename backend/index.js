@@ -3444,9 +3444,19 @@ app.post('/api/sync/full-backfill', async (req, res) => {
 // ── 三大法人歷史查詢 ─────────────────────────────────────
 app.get('/api/inst/history', async (req, res) => {
   try {
-    const stockNo = (req.query.stockNo || '').trim()
-    if (!stockNo) return res.status(400).json({ error: '請輸入股票代號' })
+    let stockNo = (req.query.stockNo || '').trim()
+    if (!stockNo) return res.status(400).json({ error: '請輸入股票代號或名稱' })
     const days = Math.min(parseInt(req.query.days) || 30, 200)
+
+    // 若非純數字代號，嘗試以名稱查代號
+    if (!/^\d{4,6}$/.test(stockNo)) {
+      const { rows: nameRows } = await pool.query(
+        `SELECT DISTINCT ON (stock_no) stock_no FROM market_daily WHERE stock_name = $1 LIMIT 1`,
+        [stockNo]
+      )
+      if (!nameRows.length) return res.status(400).json({ error: `找不到股票「${stockNo}」，請確認名稱是否正確` })
+      stockNo = nameRows[0].stock_no
+    }
 
     // 從 DB 取法人資料（不加日期下限，讓 LIMIT 決定筆數）
     // 多取一筆以計算最舊那筆的漲跌%
