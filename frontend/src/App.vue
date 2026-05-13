@@ -899,22 +899,47 @@ const disposalFiltered = computed(() => {
 })
 
 // ── 三維財務分析 ─────────────────────────────────────
-const finStockNo  = ref('')
-const finLoading  = ref(false)
-const finError    = ref('')
-const finData     = ref(null)
-const finSubTab   = ref('ops')   // 'ops' | 'profit' | 'health'
-let _finCharts    = {}
+const finStockNo        = ref('')
+const finLoading        = ref(false)
+const finError          = ref('')
+const finData           = ref(null)
+const finSubTab         = ref('ops')   // 'ops' | 'profit' | 'health'
+const finSuggestions    = ref([])
+const finShowSuggestions = ref(false)
+let _finCharts          = {}
+let _finSearchTimer     = null
+
+async function onFinInput() {
+  const q = finStockNo.value.trim()
+  clearTimeout(_finSearchTimer)
+  if (!q) { finSuggestions.value = []; return }
+  _finSearchTimer = setTimeout(async () => {
+    try {
+      const r = await fetch(`${API}/api/stock/search?q=${encodeURIComponent(q)}`)
+      finSuggestions.value = await r.json()
+      finShowSuggestions.value = finSuggestions.value.length > 0
+    } catch {}
+  }, 200)
+}
+
+function selectFinSuggestion(item) {
+  finStockNo.value = item.no
+  finSuggestions.value = []
+  finShowSuggestions.value = false
+  fetchFinance()
+}
 
 async function fetchFinance() {
   const no = finStockNo.value.trim()
   if (!no) return
+  finSuggestions.value = []
+  finShowSuggestions.value = false
   finLoading.value = true
   finError.value   = ''
   finData.value    = null
   destroyFinCharts()
   try {
-    const r = await fetch(`${API}/api/finance/${no}`)
+    const r = await fetch(`${API}/api/finance/${encodeURIComponent(no)}`)
     const d = await r.json()
     if (d.error) throw new Error(d.error)
     finData.value  = d
@@ -1536,6 +1561,7 @@ const changelog = [
       '財務分析：「財務健全度」頁籤調整為顯示流動比率、ROE/ROA、自由現金流、營業現金流當期指標卡片，新增資料來源說明',
       '漲跌排行：修正盤中（09:00–13:30）點「刷新」無資料的問題——TWSE MIS 在交易尖峰時段偶發回傳空陣列，系統現改為保留上次有效快取並顯示「⚠ 交易所即時資料暫無回應，顯示上次快取」提示，且同時發起刷新的多個請求改為等待同一次回應，避免雙重壓力',
       '漲跌排行：預防性強化——(1) 伺服器快取 TTL 從 30 秒延長至 2 分鐘，減少打 TWSE MIS 的頻率；(2) 修正伺服器剛啟動時第一次請求未設 lastGoodData，並發保護會穿透的漏洞，改為讓後續請求等待同一次抓取完成；(3) 伺服器啟動後 5 秒若在交易時段自動暖快取，使用者開啟頁面即有資料',
+      '財務分析：查詢框支援輸入股票名稱，輸入中文名稱（如「台積電」）或代號均可查詢，輸入時即時顯示符合的股票建議清單供點選',
     ]
   },
   {
@@ -4820,14 +4846,26 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
       <!-- 搜尋列 -->
       <div class="flex items-center gap-3 flex-wrap">
         <h2 class="text-lg font-semibold text-white">三維財務分析</h2>
-        <span class="text-xs text-gray-500">Goodinfo.tw 財報數據 · 最近三年 · 損益表 / 資產負債表 / 現金流量表</span>
+        <span class="text-xs text-gray-500">Yahoo Finance · 最近 4 年損益表 · 可輸入代號或名稱</span>
       </div>
       <div class="flex gap-2 items-center">
-        <input v-model="finStockNo" @keyup.enter="fetchFinance" type="text" placeholder="輸入股票代號，例：2330"
-               class="bg-gray-800 border border-gray-700 text-gray-200 text-sm rounded-lg px-3 py-2 w-48 focus:outline-none focus:border-blue-500" />
+        <div class="relative">
+          <input v-model="finStockNo" @input="onFinInput" @keyup.enter="fetchFinance" @blur="() => setTimeout(() => { finShowSuggestions.value = false }, 150)"
+                 type="text" placeholder="代號或名稱，例：2330 或 台積電"
+                 class="bg-gray-800 border border-gray-700 text-gray-200 text-sm rounded-lg px-3 py-2 w-56 focus:outline-none focus:border-blue-500" />
+          <div v-if="finShowSuggestions && finSuggestions.length"
+               class="absolute z-50 top-full left-0 mt-1 w-56 bg-gray-900 border border-gray-700 rounded-lg shadow-xl overflow-hidden">
+            <div v-for="item in finSuggestions" :key="item.no"
+                 @mousedown.prevent="selectFinSuggestion(item)"
+                 class="flex items-center gap-2 px-3 py-2 hover:bg-gray-700 cursor-pointer text-sm">
+              <span class="text-blue-400 font-mono w-12 shrink-0">{{ item.no }}</span>
+              <span class="text-gray-200 truncate">{{ item.name }}</span>
+            </div>
+          </div>
+        </div>
         <button @click="fetchFinance" :disabled="finLoading"
                 class="px-4 py-2 rounded-lg bg-blue-700 hover:bg-blue-600 text-sm font-medium transition disabled:opacity-50">
-          {{ finLoading ? '分析中（約10秒）...' : '開始分析' }}
+          {{ finLoading ? '分析中...' : '開始分析' }}
         </button>
         <span v-if="finData" class="text-xs text-gray-500">快取 4 小時 · {{ finData.source ?? 'Yahoo Finance' }} · {{ new Date(finData.fetchedAt).toLocaleString('zh-TW') }}</span>
       </div>

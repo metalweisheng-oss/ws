@@ -5922,9 +5922,40 @@ function calcYahooMetrics(yf) {
   return { stockName, years, metrics }
 }
 
+// 股票代號 / 名稱搜尋（供財務分析輸入框下拉建議）
+app.get('/api/stock/search', async (req, res) => {
+  const q = (req.query.q || '').trim()
+  if (!q) return res.json([])
+  try {
+    const { rows } = await pool.query(`
+      SELECT DISTINCT ON (stock_no) stock_no, stock_name
+      FROM market_daily
+      WHERE stock_no LIKE $1 OR stock_name LIKE $2
+      ORDER BY stock_no, trade_date DESC
+      LIMIT 10
+    `, [`${q}%`, `%${q}%`])
+    res.json(rows.map(r => ({ no: r.stock_no, name: r.stock_name })))
+  } catch(e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
 app.get('/api/finance/:stockNo', async (req, res) => {
-  const { stockNo } = req.params
-  if (!/^\d{4,6}$/.test(stockNo)) return res.status(400).json({ error: '股票代號格式錯誤' })
+  let { stockNo } = req.params
+  stockNo = stockNo.trim()
+  // 若輸入的不是純數字代號，先嘗試以名稱從 DB 查對應代號
+  if (!/^\d{4,6}$/.test(stockNo)) {
+    try {
+      const { rows } = await pool.query(
+        `SELECT DISTINCT ON (stock_no) stock_no FROM market_daily WHERE stock_name = $1 LIMIT 1`,
+        [stockNo]
+      )
+      if (!rows.length) return res.status(400).json({ error: `找不到股票「${stockNo}」，請確認名稱是否正確` })
+      stockNo = rows[0].stock_no
+    } catch(e) {
+      return res.status(500).json({ error: e.message })
+    }
+  }
   const now = Date.now()
   const cached = _financeCache.get(stockNo)
   if (cached && now - cached.ts < FINANCE_TTL) return res.json(cached.data)
