@@ -335,6 +335,7 @@ function selectTab(t) {
   if (t === 'sector')   { loadSectorDates(); loadSectorAnalysis() }
 
   if (t === 'screener') loadScreener()
+  if (t === 'dualmode' && !regimeData.value) fetchRegime()
   if (t === 'warrant') { warrantRows.value = []; warrantError.value = ''; warrantStockName.value = '' }
   if (t === 'movers') startMoversAutoRefresh()
   else stopMoversAutoRefresh()
@@ -539,6 +540,57 @@ const scenarioTable = computed(() => {
   return { ivCols, rows, S0, currentIVIdx }
 })
 function wSortIcon(col) { return warrantSortCol.value === col ? (warrantSortDesc.value ? ' ▼' : ' ▲') : '' }
+
+// ── Market Regime ─────────────────────────────────────
+const regimeData    = ref(null)
+const regimeLoading = ref(false)
+const regimeError   = ref('')
+
+async function fetchRegime() {
+  regimeLoading.value = true
+  regimeError.value   = ''
+  try {
+    const r = await fetch(`${API}/api/market-regime`)
+    const d = await r.json()
+    if (d.error) throw new Error(d.error)
+    regimeData.value = d
+  } catch(e) { regimeError.value = e.message }
+  finally { regimeLoading.value = false }
+}
+
+function regimeStateLabel(s) {
+  return { bull: '牛市', sideways: '震盪', bear: '熊市' }[s] ?? '—'
+}
+function regimeStateColor(s) {
+  return {
+    bull:     'text-emerald-400 bg-emerald-950 border-emerald-700',
+    sideways: 'text-yellow-400  bg-yellow-950  border-yellow-700',
+    bear:     'text-red-400     bg-red-950     border-red-700',
+  }[s] ?? 'text-gray-400 bg-gray-900 border-gray-700'
+}
+function regimeTrendLabel(v) {
+  if (v >= 60)  return '強勢多頭'
+  if (v >= 25)  return '偏多'
+  if (v >= -15) return '中性'
+  if (v >= -50) return '偏空'
+  return '強勢空頭'
+}
+function regimeHeatLabel(v) {
+  if (v >= 75) return '過熱'
+  if (v >= 55) return '活躍'
+  if (v >= 40) return '平穩'
+  return '冷清'
+}
+function regimeRiskLabel(v) {
+  if (v >= 70) return '高風險'
+  if (v >= 45) return '中等'
+  return '低風險'
+}
+function signalBar(v) {
+  const pct = Math.round((v + 100) / 2)  // -100~+100 → 0~100%
+  const color = v >= 20 ? '#10b981' : v <= -20 ? '#ef4444' : '#eab308'
+  return { pct, color }
+}
 
 // ── 漲跌排行 ─────────────────────────────────────────
 const moversGainers   = ref([])
@@ -1605,6 +1657,7 @@ const changelog = [
   {
     date: '2026-05-13', tag: '修正',
     items: [
+      '新增「雙模選股」分頁：Market Regime 模組上線——依據台積電趨勢、大盤趨勢、漲跌停家數、融資增減、ETF資金流向、AI族群強弱六項訊號，自動判斷牛市/震盪/熊市，並輸出趨勢強度、資金熱度、市場風險分數',
       '財務分析：資料來源改為 Yahoo Finance，修正在 Railway 伺服器上因 Goodinfo.tw 封鎖 IP 導致逾時錯誤的問題，現可正常查詢',
       '財務分析：支援最近 4 年完整年度損益表資料（營收、淨利、EPS、淨利率），適用所有上市/上櫃台灣股票',
       '財務分析：「經營分析」第二圖改為「營收 vs 淨利對比」，原費用結構圖因資料來源限制移除',
@@ -1782,7 +1835,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
 
     <!-- 分頁切換 -->
     <div class="border-b border-gray-800 px-6 flex gap-1">
-      <button v-for="t in [{ id:'changelog', label:'修正公告' }, { id:'screener', label:'台股選股' }, { id:'finance', label:'財務分析' }, { id:'movers', label:'漲跌排行' }, { id:'inst', label:'三大法人' }, { id:'sector', label:'強勢族群' }, { id:'breadth', label:'漲跌家數' }, { id:'disposal', label:'處置股' }, { id:'buyback', label:'庫藏股' }, { id:'monitor', label:'即時監控' }, { id:'report', label:'日報表' }, { id:'db', label:'歷史資料' }, { id:'chips', label:'台指期籌碼' }, { id:'warrant', label:'權證' }]" :key="t.id"
+      <button v-for="t in [{ id:'changelog', label:'修正公告' }, { id:'screener', label:'台股選股' }, { id:'dualmode', label:'雙模選股' }, { id:'finance', label:'財務分析' }, { id:'movers', label:'漲跌排行' }, { id:'inst', label:'三大法人' }, { id:'sector', label:'強勢族群' }, { id:'breadth', label:'漲跌家數' }, { id:'disposal', label:'處置股' }, { id:'buyback', label:'庫藏股' }, { id:'monitor', label:'即時監控' }, { id:'report', label:'日報表' }, { id:'db', label:'歷史資料' }, { id:'chips', label:'台指期籌碼' }, { id:'warrant', label:'權證' }]" :key="t.id"
               @click="selectTab(t.id)"
               class="px-4 py-3 text-sm font-medium transition border-b-2 -mb-px"
               :class="tab === t.id ? 'border-purple-500 text-purple-400' : 'border-transparent text-gray-500 hover:text-gray-300'">
@@ -5524,5 +5577,155 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
       </div>
     </div>
   </Teleport>
+
+  <!-- ══ 雙模選股 ══════════════════════════════════════════ -->
+  <div v-if="tab === 'dualmode'" class="max-w-5xl mx-auto px-4 py-6 space-y-6">
+
+    <!-- 標題列 -->
+    <div class="flex items-center justify-between flex-wrap gap-3">
+      <div>
+        <h2 class="text-lg font-semibold text-white">雙模選股系統</h2>
+        <p class="text-xs text-gray-500 mt-0.5">漲時看勢・跌時看質 — 自動判斷市場狀態，動態切換評分權重</p>
+      </div>
+      <button @click="fetchRegime" :disabled="regimeLoading"
+              class="px-4 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 border border-gray-700 text-sm text-gray-300 transition disabled:opacity-50">
+        {{ regimeLoading ? '更新中...' : '刷新' }}
+      </button>
+    </div>
+
+    <p v-if="regimeError" class="text-red-400 text-sm bg-red-900/20 border border-red-800/50 rounded-lg px-4 py-3">{{ regimeError }}</p>
+
+    <!-- ── Market Regime 面板 ── -->
+    <div v-if="regimeData" class="space-y-4">
+
+      <!-- 狀態 Banner -->
+      <div class="rounded-xl border px-6 py-5 flex flex-wrap items-center gap-6"
+           :class="regimeData.state === 'bull' ? 'bg-emerald-950/50 border-emerald-800/60'
+                 : regimeData.state === 'bear' ? 'bg-red-950/50 border-red-800/60'
+                 : 'bg-yellow-950/40 border-yellow-800/60'">
+        <div class="flex items-center gap-3">
+          <span class="text-3xl">{{ regimeData.state === 'bull' ? '🐂' : regimeData.state === 'bear' ? '🐻' : '↔' }}</span>
+          <div>
+            <div class="text-xs text-gray-400 mb-0.5">市場狀態</div>
+            <span class="text-2xl font-bold"
+                  :class="regimeData.state === 'bull' ? 'text-emerald-400'
+                        : regimeData.state === 'bear' ? 'text-red-400'
+                        : 'text-yellow-400'">
+              {{ regimeStateLabel(regimeData.state) }}
+            </span>
+          </div>
+        </div>
+
+        <!-- 三大指標 -->
+        <div class="flex gap-5 flex-wrap ml-auto">
+          <!-- 趨勢強度 -->
+          <div class="text-center min-w-[80px]">
+            <div class="text-xs text-gray-500 mb-1">趨勢強度</div>
+            <div class="text-2xl font-mono font-bold"
+                 :class="regimeData.trendStrength >= 20 ? 'text-emerald-400' : regimeData.trendStrength <= -20 ? 'text-red-400' : 'text-yellow-400'">
+              {{ regimeData.trendStrength > 0 ? '+' : '' }}{{ regimeData.trendStrength }}
+            </div>
+            <div class="text-xs mt-0.5"
+                 :class="regimeData.trendStrength >= 20 ? 'text-emerald-500' : regimeData.trendStrength <= -20 ? 'text-red-500' : 'text-yellow-500'">
+              {{ regimeTrendLabel(regimeData.trendStrength) }}
+            </div>
+          </div>
+          <!-- 資金熱度 -->
+          <div class="text-center min-w-[80px]">
+            <div class="text-xs text-gray-500 mb-1">資金熱度</div>
+            <div class="text-2xl font-mono font-bold"
+                 :class="regimeData.capitalHeat >= 60 ? 'text-orange-400' : regimeData.capitalHeat >= 45 ? 'text-emerald-400' : 'text-blue-400'">
+              {{ regimeData.capitalHeat }}
+            </div>
+            <div class="text-xs mt-0.5"
+                 :class="regimeData.capitalHeat >= 60 ? 'text-orange-500' : regimeData.capitalHeat >= 45 ? 'text-emerald-500' : 'text-blue-500'">
+              {{ regimeHeatLabel(regimeData.capitalHeat) }}
+            </div>
+          </div>
+          <!-- 市場風險 -->
+          <div class="text-center min-w-[80px]">
+            <div class="text-xs text-gray-500 mb-1">市場風險</div>
+            <div class="text-2xl font-mono font-bold"
+                 :class="regimeData.riskScore >= 65 ? 'text-red-400' : regimeData.riskScore >= 45 ? 'text-yellow-400' : 'text-emerald-400'">
+              {{ regimeData.riskScore }}
+            </div>
+            <div class="text-xs mt-0.5"
+                 :class="regimeData.riskScore >= 65 ? 'text-red-500' : regimeData.riskScore >= 45 ? 'text-yellow-500' : 'text-emerald-500'">
+              {{ regimeRiskLabel(regimeData.riskScore) }}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 六訊號明細 -->
+      <div class="bg-gray-900 border border-gray-800 rounded-xl px-5 py-4 space-y-3">
+        <div class="text-xs font-semibold text-gray-400 tracking-wide uppercase mb-1">訊號明細</div>
+        <template v-for="(sig, key) in [
+          { key: 'tsmc',       label: '台積電趨勢',  weight: '30%' },
+          { key: 'market',     label: '大盤趨勢',    weight: '40%' },
+          { key: 'limitUpDown',label: '漲跌停家數',  weight: '35%' },
+          { key: 'margin',     label: '融資增減',    weight: '25%' },
+          { key: 'etfFlow',    label: 'ETF 資金流向',weight: '40%' },
+          { key: 'aiSector',   label: 'AI 族群強弱', weight: '30%' },
+        ]" :key="sig.key">
+          <div class="flex items-center gap-3">
+            <span class="text-xs text-gray-400 w-28 shrink-0">{{ sig.label }}</span>
+            <!-- 進度條 -->
+            <div class="flex-1 h-2 bg-gray-800 rounded-full overflow-hidden relative">
+              <!-- 中線 -->
+              <div class="absolute left-1/2 top-0 bottom-0 w-px bg-gray-600"></div>
+              <!-- 填色 -->
+              <div class="absolute top-0 bottom-0 rounded-full transition-all"
+                   :style="{
+                     left:  regimeData.signals[sig.key] >= 0 ? '50%' : (50 + regimeData.signals[sig.key] / 2) + '%',
+                     width: Math.abs(regimeData.signals[sig.key]) / 2 + '%',
+                     background: signalBar(regimeData.signals[sig.key]).color
+                   }"></div>
+            </div>
+            <span class="text-xs font-mono w-12 text-right shrink-0"
+                  :class="regimeData.signals[sig.key] >= 20 ? 'text-emerald-400' : regimeData.signals[sig.key] <= -20 ? 'text-red-400' : 'text-yellow-400'">
+              {{ regimeData.signals[sig.key] > 0 ? '+' : '' }}{{ regimeData.signals[sig.key] }}
+            </span>
+            <span class="text-xs text-gray-600 w-8 text-right shrink-0">{{ sig.weight }}</span>
+          </div>
+        </template>
+        <div class="text-xs text-gray-600 pt-1 border-t border-gray-800">
+          更新時間：{{ regimeData.updatedAt ? new Date(regimeData.updatedAt).toLocaleString('zh-TW') : '—' }}
+          <span v-if="regimeData.stale" class="ml-2 text-yellow-600">（快取）</span>
+        </div>
+      </div>
+
+      <!-- 模式說明 -->
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+        <div class="rounded-lg border px-4 py-3 space-y-1"
+             :class="regimeData.state === 'bull' ? 'border-emerald-700 bg-emerald-950/30' : 'border-gray-800 bg-gray-900/40'">
+          <div class="font-semibold text-emerald-400">🐂 牛市 — Momentum Mode</div>
+          <div class="text-gray-400">趨勢 30% ・ 資金 30% ・ 族群熱度 20%</div>
+          <div class="text-gray-500">優先選：法人連買 + 量增突破 + 熱門族群</div>
+        </div>
+        <div class="rounded-lg border px-4 py-3 space-y-1"
+             :class="regimeData.state === 'sideways' ? 'border-yellow-700 bg-yellow-950/30' : 'border-gray-800 bg-gray-900/40'">
+          <div class="font-semibold text-yellow-400">↔ 震盪 — Balanced Mode</div>
+          <div class="text-gray-400">勢質各半，動態混合兩套權重</div>
+          <div class="text-gray-500">優先選：財務穩健 + 仍有資金支撐</div>
+        </div>
+        <div class="rounded-lg border px-4 py-3 space-y-1"
+             :class="regimeData.state === 'bear' ? 'border-red-700 bg-red-950/30' : 'border-gray-800 bg-gray-900/40'">
+          <div class="font-semibold text-red-400">🐻 熊市 — Value Mode</div>
+          <div class="text-gray-400">ROE 30% ・ 現金流 35% ・ 估值 25%</div>
+          <div class="text-gray-500">優先選：高 ROE + 正 FCF + 低負債</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 空狀態 -->
+    <div v-else-if="!regimeLoading" class="text-center py-16 text-gray-500 space-y-3">
+      <div class="text-4xl">📊</div>
+      <p class="text-sm">點擊「刷新」載入市場狀態分析</p>
+      <button @click="fetchRegime" class="px-4 py-2 rounded-lg bg-gray-800 text-gray-300 text-sm hover:bg-gray-700 transition">載入</button>
+    </div>
+    <div v-else class="text-center py-16 text-gray-500 text-sm">分析中，請稍候...</div>
+
+  </div>
 
 </template>
