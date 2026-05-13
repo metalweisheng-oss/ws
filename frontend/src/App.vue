@@ -336,6 +336,7 @@ function selectTab(t) {
 
   if (t === 'screener') loadScreener()
   if (t === 'dualmode' && !regimeData.value) fetchRegime()
+  if (t === 'strongweak' && !swData.value) fetchStrongWeak()
   if (t === 'warrant') { warrantRows.value = []; warrantError.value = ''; warrantStockName.value = '' }
   if (t === 'movers') startMoversAutoRefresh()
   else stopMoversAutoRefresh()
@@ -540,6 +541,40 @@ const scenarioTable = computed(() => {
   return { ivCols, rows, S0, currentIVIdx }
 })
 function wSortIcon(col) { return warrantSortCol.value === col ? (warrantSortDesc.value ? ' ▼' : ' ▲') : '' }
+
+// ── 強勢弱質選股 ───────────────────────────────────────
+const swData    = ref(null)
+const swLoading = ref(false)
+const swError   = ref('')
+
+async function fetchStrongWeak() {
+  swLoading.value = true
+  swError.value   = ''
+  try {
+    const r = await fetch(`${API}/api/strong-weak-stocks`)
+    const d = await r.json()
+    if (d.error) throw new Error(d.code === 'NOT_CONFIGURED' ? 'StockAI 模組尚未上線' : d.error)
+    swData.value = d
+  } catch(e) { swError.value = e.message }
+  finally { swLoading.value = false }
+}
+
+function swStateLabel(s) {
+  return { bull: '牛市 · 動能模式', sideways: '震盪 · 均衡模式', bear: '熊市 · 價值模式' }[s] ?? '—'
+}
+function swStateBg(s) {
+  return { bull: 'bg-green-900/40 text-green-400 border-green-700', sideways: 'bg-yellow-900/40 text-yellow-400 border-yellow-700', bear: 'bg-red-900/40 text-red-400 border-red-700' }[s] ?? ''
+}
+function swScoreColor(v) {
+  if (v >= 70) return 'text-green-400'
+  if (v >= 45) return 'text-yellow-400'
+  return 'text-red-400'
+}
+function swScoreBg(v) {
+  if (v >= 70) return 'bg-green-500'
+  if (v >= 45) return 'bg-yellow-500'
+  return 'bg-red-500'
+}
 
 // ── Market Regime ─────────────────────────────────────
 const regimeData    = ref(null)
@@ -1655,6 +1690,11 @@ function signColor(v) { return +v > 0 ? 'text-red-400' : +v < 0 ? 'text-green-40
 
 const changelog = [
   {
+    date: '2026-05-14', tag: '新增',
+    items: [
+      '新增「強勢弱質選股」分頁：由 StockAI 雙模引擎驅動，顯示市場狀態（趨勢強度/資金熱度/風險分數）及動能 Top 50 排行，含 MA多頭/20日新高/投信連買標籤',
+    ]
+  }, {
     date: '2026-05-13', tag: '修正',
     items: [
       '新增「雙模選股」分頁：Market Regime 模組上線——依據台積電趨勢、大盤趨勢、漲跌停家數、融資增減、ETF資金流向、AI族群強弱六項訊號，自動判斷牛市/震盪/熊市，並輸出趨勢強度、資金熱度、市場風險分數',
@@ -1835,7 +1875,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
 
     <!-- 分頁切換 -->
     <div class="border-b border-gray-800 px-6 flex gap-1">
-      <button v-for="t in [{ id:'changelog', label:'修正公告' }, { id:'screener', label:'台股選股' }, { id:'dualmode', label:'雙模選股' }, { id:'finance', label:'財務分析' }, { id:'movers', label:'漲跌排行' }, { id:'inst', label:'三大法人' }, { id:'sector', label:'強勢族群' }, { id:'breadth', label:'漲跌家數' }, { id:'disposal', label:'處置股' }, { id:'buyback', label:'庫藏股' }, { id:'monitor', label:'即時監控' }, { id:'report', label:'日報表' }, { id:'db', label:'歷史資料' }, { id:'chips', label:'台指期籌碼' }, { id:'warrant', label:'權證' }]" :key="t.id"
+      <button v-for="t in [{ id:'changelog', label:'修正公告' }, { id:'screener', label:'台股選股' }, { id:'dualmode', label:'雙模選股' }, { id:'strongweak', label:'強勢弱質' }, { id:'finance', label:'財務分析' }, { id:'movers', label:'漲跌排行' }, { id:'inst', label:'三大法人' }, { id:'sector', label:'強勢族群' }, { id:'breadth', label:'漲跌家數' }, { id:'disposal', label:'處置股' }, { id:'buyback', label:'庫藏股' }, { id:'monitor', label:'即時監控' }, { id:'report', label:'日報表' }, { id:'db', label:'歷史資料' }, { id:'chips', label:'台指期籌碼' }, { id:'warrant', label:'權證' }]" :key="t.id"
               @click="selectTab(t.id)"
               class="px-4 py-3 text-sm font-medium transition border-b-2 -mb-px"
               :class="tab === t.id ? 'border-purple-500 text-purple-400' : 'border-transparent text-gray-500 hover:text-gray-300'">
@@ -5577,6 +5617,105 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
       </div>
     </div>
   </Teleport>
+
+  <!-- ══ 強勢弱質選股 ══════════════════════════════════════ -->
+  <div v-if="tab === 'strongweak'" class="max-w-5xl mx-auto px-4 py-6 space-y-5">
+
+    <!-- 標題 -->
+    <div>
+      <h2 class="text-lg font-semibold text-white">強勢弱質選股</h2>
+      <p class="text-xs text-gray-500 mt-0.5">由 StockAI 雙模引擎驅動 — 牛市選強勢，熊市選優質</p>
+    </div>
+
+    <!-- 載入中 -->
+    <div v-if="swLoading" class="flex items-center gap-2 text-gray-400 text-sm py-10 justify-center">
+      <svg class="animate-spin w-5 h-5" fill="none" viewBox="0 0 24 24">
+        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+      </svg>
+      載入中…
+    </div>
+
+    <!-- 錯誤 -->
+    <div v-else-if="swError" class="rounded-xl bg-gray-800/60 border border-gray-700 p-8 text-center space-y-3">
+      <p class="text-gray-400 text-sm">{{ swError }}</p>
+      <button @click="fetchStrongWeak()" class="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm">重試</button>
+    </div>
+
+    <template v-else-if="swData">
+      <!-- 市場狀態橫幅 -->
+      <div class="rounded-xl border p-4 flex items-center justify-between flex-wrap gap-3"
+           :class="swStateBg(swData.regime?.state)">
+        <div class="flex items-center gap-3">
+          <span class="text-lg font-bold">{{ swStateLabel(swData.regime?.state) }}</span>
+          <span class="text-sm opacity-70">{{ swData.regime?.tradeDate }}</span>
+        </div>
+        <div class="flex gap-5 text-sm">
+          <span>趨勢強度 <span class="font-bold tabular-nums">{{ swData.regime?.trendStrength > 0 ? '+' : '' }}{{ swData.regime?.trendStrength }}</span></span>
+          <span>資金熱度 <span class="font-bold tabular-nums">{{ swData.regime?.capitalHeat }}</span></span>
+          <span>風險分數 <span class="font-bold tabular-nums">{{ swData.regime?.riskScore }}</span></span>
+        </div>
+      </div>
+
+      <!-- 動能排行表 -->
+      <div class="rounded-xl border border-gray-700 bg-gray-900/60 overflow-hidden">
+        <div class="px-4 py-3 border-b border-gray-700 flex items-center justify-between">
+          <span class="text-sm font-semibold text-white">動能排行 Top 50</span>
+          <span class="text-xs text-gray-500">{{ swData.momentum?.scoreDate }} · {{ swData.momentum?.total }} 支</span>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead class="bg-gray-800/50">
+              <tr class="text-xs text-gray-500">
+                <th class="px-3 py-2 text-left w-8">#</th>
+                <th class="px-3 py-2 text-left">股票</th>
+                <th class="px-3 py-2 text-left">綜合分</th>
+                <th class="px-3 py-2 text-left">趨勢</th>
+                <th class="px-3 py-2 text-left">籌碼</th>
+                <th class="px-3 py-2 text-left hidden md:table-cell">標籤</th>
+                <th class="px-3 py-2 text-right">收盤</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-800">
+              <tr v-for="(s, i) in (swData.momentum?.items ?? [])" :key="s.stockNo"
+                  class="hover:bg-white/[0.02]">
+                <td class="px-3 py-2 text-gray-600 tabular-nums text-xs">{{ i + 1 }}</td>
+                <td class="px-3 py-2">
+                  <div class="font-bold text-gray-100 text-sm">{{ s.stockNo }}</div>
+                  <div class="text-xs text-gray-500">{{ s.stockName }}</div>
+                </td>
+                <td class="px-3 py-2">
+                  <div class="flex items-center gap-1.5">
+                    <div class="w-12 h-1.5 bg-gray-700 rounded-full overflow-hidden">
+                      <div class="h-full rounded-full" :class="swScoreBg(s.totalScore)" :style="`width:${Math.min(100,s.totalScore)}%`"/>
+                    </div>
+                    <span class="text-xs font-bold tabular-nums" :class="swScoreColor(s.totalScore)">{{ s.totalScore.toFixed(1) }}</span>
+                  </div>
+                </td>
+                <td class="px-3 py-2 text-xs tabular-nums" :class="swScoreColor(s.trendScore)">{{ s.trendScore.toFixed(1) }}</td>
+                <td class="px-3 py-2 text-xs tabular-nums" :class="swScoreColor(s.chipsScore)">{{ s.chipsScore.toFixed(1) }}</td>
+                <td class="px-3 py-2 hidden md:table-cell">
+                  <div class="flex gap-1 flex-wrap">
+                    <span v-if="s.isAboveMa2060" class="px-1 py-0.5 rounded text-[10px] bg-green-900/40 text-green-400 border border-green-700/40">MA多頭</span>
+                    <span v-if="s.isNewHigh20d" class="px-1 py-0.5 rounded text-[10px] bg-blue-900/40 text-blue-400 border border-blue-700/40">20高</span>
+                    <span v-if="s.trustConsecDays >= 3" class="px-1 py-0.5 rounded text-[10px] bg-purple-900/40 text-purple-400 border border-purple-700/40">投信+{{ s.trustConsecDays }}</span>
+                  </div>
+                </td>
+                <td class="px-3 py-2 text-right text-xs tabular-nums text-gray-300">
+                  {{ s.close != null ? s.close.toFixed(1) : '—' }}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </template>
+
+    <!-- 未載入（首次進入但還沒點選） -->
+    <div v-else class="text-center py-10">
+      <button @click="fetchStrongWeak()" class="px-5 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm">載入資料</button>
+    </div>
+  </div>
 
   <!-- ══ 雙模選股 ══════════════════════════════════════════ -->
   <div v-if="tab === 'dualmode'" class="max-w-5xl mx-auto px-4 py-6 space-y-6">

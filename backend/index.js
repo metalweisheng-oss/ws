@@ -6154,6 +6154,27 @@ async function computeMarketRegime() {
   }
 }
 
+// ── StockAI 強勢弱質選股 proxy ────────────────────────────────────
+const STOCKAI_API = process.env.STOCKAI_API || ''
+
+app.get('/api/strong-weak-stocks', async (req, res) => {
+  if (!STOCKAI_API) {
+    return res.status(503).json({ error: 'StockAI service not configured', code: 'NOT_CONFIGURED' })
+  }
+  try {
+    const [regimeRes, momentumRes] = await Promise.all([
+      fetch(`${STOCKAI_API}/api/regime/latest`),
+      fetch(`${STOCKAI_API}/api/momentum/top?limit=50`),
+    ])
+    if (!regimeRes.ok || !momentumRes.ok) throw new Error('StockAI upstream error')
+    const [regime, momentum] = await Promise.all([regimeRes.json(), momentumRes.json()])
+    res.json({ regime, momentum })
+  } catch (e) {
+    console.error('[strong-weak-stocks]', e.message)
+    res.status(503).json({ error: e.message, code: 'UPSTREAM_ERROR' })
+  }
+})
+
 app.get('/api/market-regime', async (req, res) => {
   const now = Date.now()
   if (_regimeCache.data && now - _regimeCache.ts < REGIME_TTL)
