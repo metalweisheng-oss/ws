@@ -764,15 +764,6 @@ app.get('/api/stock/monitor/stream', (req, res) => {
       const notifyKey = `${new Date().getUTCHours()}-${signal}`
       if (notifyKey !== lastNotifyKey) {
         lastNotifyKey = notifyKey
-        const emoji = { entry: '🚨', warning: '⚠️', exit_warning: '🟠' }[signal] || '📢'
-        sendTelegram(
-          `${emoji} <b>${stockName} ${stockNo} 訊號</b>\n` +
-          `${message}\n\n` +
-          `現價：<b>${currentPrice}</b>\n` +
-          `量比：<b>${volRatio}x</b>\n` +
-          `日低：${dayLow}　日高：${dayHigh}\n` +
-          `資料時間：${dataTime}`
-        )
         saveSignal({
           stockNo, stockName,
           signalTime: new Date(last.ts * 1000),
