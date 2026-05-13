@@ -8,7 +8,6 @@ process.on('unhandledRejection', (reason) => {
 
 const express = require('express')
 const cors = require('cors')
-const cheerio = require('cheerio')
 const https = require('https')
 const http  = require('http')
 const zlib  = require('zlib')
@@ -5770,94 +5769,113 @@ cron.schedule('40 18 * * 1-5', async () => {
   catch(e) { console.error('[cron] 18:40 盤後分析失敗:', e.message) }
 }, { timezone: 'Asia/Taipei' })
 
-// ── 三維財務分析 ─────────────────────────────────────────
+// ── 三維財務分析 (Yahoo Finance) ──────────────────────────
 const _financeCache = new Map()
 const FINANCE_TTL   = 4 * 3600 * 1000
 
-function goodinfoAuth() {
-  const tz   = -480
-  const days = Date.now() / 86400000 - tz / 1440
-  return { key: `2.8|38057.1435627105|46946.0324515993|${tz}|${days}|${days}`, days }
+let _yfSession = null
+let _yfSessionTs = 0
+const YF_SESSION_TTL = 25 * 60 * 1000 // 25 min
+
+async function getYFSession() {
+  const now = Date.now()
+  if (_yfSession && now - _yfSessionTs < YF_SESSION_TTL) return _yfSession
+
+  const r1 = await fetch('https://fc.yahoo.com', {
+    headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
+    signal: AbortSignal.timeout(10000)
+  })
+  let cookies = ''
+  try {
+    if (typeof r1.headers.getSetCookie === 'function') {
+      cookies = r1.headers.getSetCookie().map(c => c.split(';')[0]).join('; ')
+    } else {
+      const raw = r1.headers.get('set-cookie') || ''
+      cookies = raw.split(',').map(c => c.split(';')[0].trim()).join('; ')
+    }
+  } catch {}
+
+  const r2 = await fetch('https://query1.finance.yahoo.com/v1/test/getcrumb', {
+    headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', 'Cookie': cookies },
+    signal: AbortSignal.timeout(10000)
+  })
+  const crumb = (await r2.text()).trim()
+  if (!crumb || crumb.length < 3) throw new Error('無法取得 Yahoo Finance 認證')
+
+  _yfSession = { crumb, cookies }
+  _yfSessionTs = now
+  return _yfSession
 }
 
-async function fetchGoodinfoHtml(stockNo, rptCat, auth) {
-  const url = `https://goodinfo.tw/tw/StockFinDetail.asp?RPT_CAT=${rptCat}&STOCK_ID=${stockNo}&REINIT=${auth.days}`
+async function fetchYahooFinancials(stockNo) {
+  const symbol = getSymbol(stockNo)
+  const sess = await getYFSession()
+  const modules = 'incomeStatementHistory,defaultKeyStatistics,financialData,quoteType'
+  const url = `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${symbol}?modules=${encodeURIComponent(modules)}&crumb=${encodeURIComponent(sess.crumb)}`
   const r = await fetch(url, {
-    headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://goodinfo.tw/', 'Cookie': `CLIENT_KEY=${auth.key}` },
+    headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', 'Cookie': sess.cookies },
     signal: AbortSignal.timeout(15000)
   })
-  return r.text()
+  if (r.status === 401) { _yfSession = null; _yfSessionTs = 0 }
+  if (!r.ok) {
+    const body = await r.text().catch(() => '')
+    throw new Error(`Yahoo Finance ${r.status}: ${body.slice(0, 150)}`)
+  }
+  const json = await r.json()
+  const result = json?.quoteSummary?.result?.[0]
+  if (!result) throw new Error('查無財報資料（可能股票代號不存在或未上市）')
+  return result
 }
 
-function parseGoodinfoTable(html) {
-  const $ = cheerio.load(html)
-  const tables = $('table').toArray()
-  if (tables.length < 7) return { rows: {}, years: [] }
-  const trs = $(tables[6]).find('tr').toArray()
-  const years = [], rows = {}
-  trs.forEach((tr, i) => {
-    const tds = $(tr).find('td,th').map((_, c) => $(c).text().trim()).get()
-    if (!tds.length) return
-    if (i === 0) { tds.slice(1).forEach(v => { if (/^\d{4}$/.test(v)) years.push(v) }); return }
-    if (!tds[0]) return
-    const vals = {}
-    years.forEach((yr, j) => {
-      const n = parseFloat((tds[j * 2 + 1] || '').replace(/,/g, ''))
-      vals[yr] = isNaN(n) ? null : n
-    })
-    rows[tds[0]] = vals
-  })
-  return { rows, years }
-}
+function calcYahooMetrics(yf) {
+  const OKU  = 1e8
+  const pct  = (a, b) => (a != null && b) ? +(a / b * 100).toFixed(2) : null
+  const toOku = v => v != null ? +(v / OKU).toFixed(2) : null
+  const raw  = (obj, key) => obj?.[key]?.raw ?? null
 
-function getStockNameFromHtml(html) {
-  const $ = cheerio.load(html)
-  const title = $('title').text()
-  const m = title.match(/(.+?)[（(](\d{4,6})[）)]/)
-  return m ? m[1].trim() : ''
-}
+  const is     = yf.incomeStatementHistory?.incomeStatementHistory || []
+  const ks     = yf.defaultKeyStatistics || {}
+  const fd     = yf.financialData || {}
+  const qt     = yf.quoteType || {}
+  const shares = raw(ks, 'sharesOutstanding')
 
-function finGet(table, pattern, yr) {
-  const key = Object.keys(table).find(k => k.includes(pattern))
-  return key ? (table[key][yr] ?? null) : null
-}
-
-function calcFinMetrics(is, bs, cf, years) {
-  const pct = (a, b) => (a != null && b) ? +(a / b * 100).toFixed(2) : null
+  const stockName = qt.longName || qt.shortName || ''
+  const years = is.map(s => (s.endDate?.fmt || '').substring(0, 4)).filter(Boolean).slice(0, 4)
   const metrics = {}
-  years.forEach(yr => {
-    const rev    = finGet(is, '營業收入', yr)
-    const gp     = finGet(is, '毛利', yr)
-    const opInc  = finGet(is, '營業利益', yr)
-    const ni     = finGet(is, '稅後淨利', yr) ?? finGet(is, '本期淨利', yr)
-    const epsKey = Object.keys(is).find(k => k.includes('每股') && k.includes('盈餘'))
-    const eps    = epsKey ? (is[epsKey][yr] ?? null) : null
-    const sell   = finGet(is, '推銷費用', yr)
-    const admin  = finGet(is, '管理費用', yr)
-    const rd     = finGet(is, '研究發展費用', yr) ?? finGet(is, '研發費用', yr)
-    const ca     = finGet(bs, '流動資產合計', yr)
-    const cl     = finGet(bs, '流動負債合計', yr)
-    const tl     = finGet(bs, '負債總額', yr) ?? finGet(bs, '負債合計', yr)
-    const ta     = finGet(bs, '資產總額', yr) ?? finGet(bs, '資產合計', yr)
-    const eq     = finGet(bs, '股東權益總額', yr) ?? finGet(bs, '權益總額', yr)
-    const cash   = finGet(bs, '現金及約當現金', yr)
-    const opCf   = finGet(cf, '營業活動之淨現金', yr)
-    const invCf  = finGet(cf, '投資活動之淨現金', yr)
-    const finCf  = finGet(cf, '融資活動之淨現金', yr)
-    const capex  = finGet(cf, '固定資產', yr)
+
+  // Yahoo Finance uses raw:0 as placeholder for missing numeric fields
+  const nonzero = v => (v != null && v !== 0) ? v : null
+
+  is.slice(0, 4).forEach((s, i) => {
+    const yr  = years[i]
+    if (!yr) return
+    const rev = raw(s, 'totalRevenue')
+    const gp  = nonzero(raw(s, 'grossProfit'))
+    const oi  = nonzero(raw(s, 'operatingIncome') ?? raw(s, 'ebit'))
+    const ni  = raw(s, 'netIncome')
+    const eps = (ni != null && shares) ? +(ni / shares).toFixed(2) : null
+
+    // Financial health ratios: Yahoo Finance only provides current-period values
+    const isMostRecent = i === 0
+    const curRatio = isMostRecent ? (raw(fd, 'currentRatio') != null ? +(raw(fd, 'currentRatio') * 100).toFixed(2) : null) : null
+    const roe      = isMostRecent ? (raw(fd, 'returnOnEquity') != null ? +(raw(fd, 'returnOnEquity') * 100).toFixed(2) : null) : null
+    const roa      = isMostRecent ? (raw(fd, 'returnOnAssets') != null ? +(raw(fd, 'returnOnAssets') * 100).toFixed(2) : null) : null
+    const opCf     = isMostRecent ? toOku(raw(fd, 'operatingCashflow')) : null
+    const fcf      = isMostRecent ? toOku(raw(fd, 'freeCashflow'))      : null
+
     metrics[yr] = {
-      revenue: rev, grossProfit: gp, opIncome: opInc, netIncome: ni, eps,
-      sellExp: sell, adminExp: admin, rdExp: rd,
-      currentAssets: ca, currentLiabilities: cl,
-      totalLiabilities: tl, totalAssets: ta, equity: eq, cash,
-      operatingCF: opCf, investingCF: invCf, financingCF: finCf, capex,
-      grossMargin: pct(gp, rev), opMargin: pct(opInc, rev), netMargin: pct(ni, rev),
-      currentRatio: pct(ca, cl), debtRatio: pct(tl, ta),
-      roe: pct(ni, eq), roa: pct(ni, ta),
-      fcf: (opCf != null && capex != null) ? +(opCf + capex).toFixed(2) : null
+      revenue: toOku(rev), grossProfit: toOku(gp), opIncome: toOku(oi), netIncome: toOku(ni), eps,
+      sellExp: null, adminExp: null, rdExp: null,
+      currentAssets: null, currentLiabilities: null, totalLiabilities: null,
+      totalAssets: null, equity: null, cash: null,
+      operatingCF: opCf, investingCF: null, financingCF: null, capex: null, fcf,
+      grossMargin: pct(gp, rev), opMargin: pct(oi, rev), netMargin: pct(ni, rev),
+      currentRatio: curRatio, debtRatio: null,
+      roe, roa
     }
   })
-  return metrics
+
+  return { stockName, years, metrics }
 }
 
 app.get('/api/finance/:stockNo', async (req, res) => {
@@ -5867,23 +5885,18 @@ app.get('/api/finance/:stockNo', async (req, res) => {
   const cached = _financeCache.get(stockNo)
   if (cached && now - cached.ts < FINANCE_TTL) return res.json(cached.data)
   try {
-    const auth = goodinfoAuth()
-    const isHtml = await fetchGoodinfoHtml(stockNo, 'IS_YEAR', auth)
-    await new Promise(r => setTimeout(r, 900))
-    const bsHtml = await fetchGoodinfoHtml(stockNo, 'BS_YEAR', auth)
-    await new Promise(r => setTimeout(r, 900))
-    const cfHtml = await fetchGoodinfoHtml(stockNo, 'CF_YEAR', auth)
-    const { rows: is, years } = parseGoodinfoTable(isHtml)
-    const { rows: bs } = parseGoodinfoTable(bsHtml)
-    const { rows: cf } = parseGoodinfoTable(cfHtml)
+    const yf = await fetchYahooFinancials(stockNo)
+    const { stockName, years, metrics } = calcYahooMetrics(yf)
     if (!years.length) return res.status(502).json({ error: '無法取得財報資料，請稍後再試' })
-    const stockName = getStockNameFromHtml(isHtml)
-    const top3 = years.slice(0, 3)
-    const metrics = calcFinMetrics(is, bs, cf, top3)
-    const data = { stockNo, stockName, years: top3, metrics, fetchedAt: new Date().toISOString() }
+    const data = { stockNo, stockName, years, metrics, source: 'Yahoo Finance', fetchedAt: new Date().toISOString() }
     _financeCache.set(stockNo, { ts: now, data })
     res.json(data)
-  } catch(e) { res.status(500).json({ error: e.message }) }
+  } catch(e) {
+    if (e.message.includes('401') || e.message.includes('認證')) {
+      _yfSession = null; _yfSessionTs = 0
+    }
+    res.status(500).json({ error: e.message })
+  }
 })
 
 const PORT = process.env.PORT || 3000
