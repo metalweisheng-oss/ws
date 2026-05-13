@@ -3994,7 +3994,7 @@ function runPython(scriptArgs, onData) {
 }
 
 // ── 即時漲跌幅排行 ────────────────────────────────────────────
-const _moversCache = { data: null, ts: 0 }
+const _moversCache = { data: null, ts: 0, lastGoodData: null, fetchInProgress: false }
 const MOVERS_CACHE_TTL = 30 * 1000
 
 async function saveCloseSnapshot(dateStr, isClose = true) {
@@ -4485,6 +4485,16 @@ app.get('/api/market/movers', async (req, res) => {
     return res.json({ gainers: gainers.slice(0, limit), losers: losers.slice(0, limit), total, updatedAt, realtime: true, cached: true })
   }
 
+  // 防止並發：若已有請求在抓取中，直接回傳上次有效資料
+  if (_moversCache.fetchInProgress) {
+    const good = _moversCache.lastGoodData || _moversCache.data
+    if (good) {
+      const { gainers, losers, total, updatedAt } = good
+      return res.json({ gainers: gainers.slice(0, limit), losers: losers.slice(0, limit), total, updatedAt, realtime: true, cached: true, fetching: true })
+    }
+  }
+
+  _moversCache.fetchInProgress = true
   try {
     const [{ rows: stockRows }, { rows: dlbRows }, { rows: maRows }] = await Promise.all([
       pool.query(`SELECT DISTINCT ON (stock_no) stock_no, stock_name FROM market_daily ORDER BY stock_no, trade_date DESC`),
@@ -4648,11 +4658,28 @@ app.get('/api/market/movers', async (req, res) => {
     const allLosers  = [...movers].reverse()
     const updatedAt = new Date().toISOString()
 
-    _moversCache.data = { gainers: allGainers, losers: allLosers, total: movers.length, updatedAt }
-    _moversCache.ts = now
-
-    res.json({ gainers: allGainers.slice(0, limit), losers: allLosers.slice(0, limit), total: movers.length, updatedAt, realtime: true })
+    if (movers.length > 0) {
+      // 有資料：正常更新快取，同時備份為 lastGoodData
+      _moversCache.data = { gainers: allGainers, losers: allLosers, total: movers.length, updatedAt }
+      _moversCache.lastGoodData = _moversCache.data
+      _moversCache.ts = now
+      _moversCache.fetchInProgress = false
+      res.json({ gainers: allGainers.slice(0, limit), losers: allLosers.slice(0, limit), total: movers.length, updatedAt, realtime: true })
+    } else {
+      // MIS 回傳 0 筆（可能盤中 rate-limit 或網路問題）：保留上次有效快取
+      _moversCache.ts = now  // 重設 TTL，30 秒後再試
+      _moversCache.fetchInProgress = false
+      const good = _moversCache.lastGoodData || _moversCache.data
+      if (good) {
+        console.warn(`[movers] MIS 回傳 0 筆，保留上次有效快取 (${good.total} 支)`)
+        const { gainers, losers, total, updatedAt: gUpdatedAt } = good
+        res.json({ gainers: gainers.slice(0, limit), losers: losers.slice(0, limit), total, updatedAt: gUpdatedAt, realtime: true, cached: true, misEmpty: true })
+      } else {
+        res.json({ gainers: [], losers: [], total: 0, updatedAt, realtime: true, misEmpty: true })
+      }
+    }
   } catch(e) {
+    _moversCache.fetchInProgress = false
     res.status(500).json({ error: e.message })
   }
 })

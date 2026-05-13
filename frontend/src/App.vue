@@ -578,6 +578,8 @@ async function fetchMoversDates() {
   } catch(e) {}
 }
 
+const moversMisEmpty = ref(false)
+
 async function fetchMovers() {
   moversLoading.value = true
   moversError.value   = ''
@@ -590,6 +592,7 @@ async function fetchMovers() {
     moversLosers.value    = d.losers  || []
     moversTotal.value     = d.total   || 0
     moversRealtime.value  = d.realtime ?? true
+    moversMisEmpty.value  = !!d.misEmpty
     moversUpdatedAt.value = d.updatedAt
       ? new Date(d.updatedAt).toLocaleTimeString('zh-TW')
       : (d.date || '')
@@ -1531,6 +1534,7 @@ const changelog = [
       '財務分析：支援最近 4 年完整年度損益表資料（營收、淨利、EPS、淨利率），適用所有上市/上櫃台灣股票',
       '財務分析：「經營分析」第二圖改為「營收 vs 淨利對比」，原費用結構圖因資料來源限制移除',
       '財務分析：「財務健全度」頁籤調整為顯示流動比率、ROE/ROA、自由現金流、營業現金流當期指標卡片，新增資料來源說明',
+      '漲跌排行：修正盤中（09:00–13:30）點「刷新」無資料的問題——TWSE MIS 在交易尖峰時段偶發回傳空陣列，系統現改為保留上次有效快取並顯示「⚠ 交易所即時資料暫無回應，顯示上次快取」提示，且同時發起刷新的多個請求改為等待同一次回應，避免雙重壓力',
     ]
   },
   {
@@ -3997,6 +4001,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
           {{ moversRealtime ? '更新：' : '交易日：' }}{{ moversUpdatedAt }}
         </span>
         <span v-if="moversRealtime && !moversDate" class="text-xs text-green-600 animate-pulse">● 即時</span>
+        <span v-if="moversMisEmpty" class="text-xs text-yellow-500">⚠ 交易所即時資料暫無回應，顯示上次快取</span>
 
         <button @click="fetchMovers" :disabled="moversLoading"
                 class="ml-auto px-4 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 border border-gray-700 text-sm text-gray-300 transition disabled:opacity-50">
