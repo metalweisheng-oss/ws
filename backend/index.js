@@ -3189,9 +3189,19 @@ async function runScreener() {
 
 // 個股跑分：對單一股票執行選股評分，並回傳各關卡通過/失敗明細
 app.get('/api/screener/score', async (req, res) => {
-  const { stockNo } = req.query
-  if (!stockNo) return res.status(400).json({ error: '請輸入股票代號' })
+  let stockNo = (req.query.stockNo || '').trim()
+  if (!stockNo) return res.status(400).json({ error: '請輸入股票代號或名稱' })
   try {
+    // 若非純數字代號，嘗試以名稱查代號
+    if (!/^\d{4,6}$/.test(stockNo)) {
+      const { rows: nameRows } = await pool.query(
+        `SELECT DISTINCT ON (stock_no) stock_no FROM market_daily WHERE stock_name = $1 LIMIT 1`,
+        [stockNo]
+      )
+      if (!nameRows.length) return res.status(400).json({ error: `找不到股票「${stockNo}」，請確認名稱是否正確` })
+      stockNo = nameRows[0].stock_no
+    }
+
     const { rows: days } = await pool.query(`
       SELECT stock_no, stock_name, trade_date, close, open_p, high, low, volume,
              inst_foreign, inst_trust, inst_dealer, margin_bal

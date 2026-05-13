@@ -1299,18 +1299,43 @@ const screenerSorted = computed(() => {
 })
 
 // 個股跑分
-const scoreStockNo   = ref('')
-const scoreLoading   = ref(false)
-const scoreResult    = ref(null)
-const scoreError     = ref('')
+const scoreStockNo          = ref('')
+const scoreLoading          = ref(false)
+const scoreResult           = ref(null)
+const scoreError            = ref('')
+const scoreSuggestions      = ref([])
+const scoreShowSuggestions  = ref(false)
+let _scoreSearchTimer       = null
+
+async function onScoreInput() {
+  const q = scoreStockNo.value.trim()
+  clearTimeout(_scoreSearchTimer)
+  if (!q) { scoreSuggestions.value = []; return }
+  _scoreSearchTimer = setTimeout(async () => {
+    try {
+      const r = await fetch(`${API}/api/stock/search?q=${encodeURIComponent(q)}`)
+      scoreSuggestions.value = await r.json()
+      scoreShowSuggestions.value = scoreSuggestions.value.length > 0
+    } catch {}
+  }, 200)
+}
+
+function selectScoreSuggestion(item) {
+  scoreStockNo.value = item.no
+  scoreSuggestions.value = []
+  scoreShowSuggestions.value = false
+  queryScore()
+}
 
 async function queryScore() {
   if (!scoreStockNo.value.trim()) return
+  scoreSuggestions.value = []
+  scoreShowSuggestions.value = false
   scoreLoading.value = true
   scoreResult.value  = null
   scoreError.value   = ''
   try {
-    const r = await fetch(`${API}/api/screener/score?stockNo=${scoreStockNo.value.trim()}`)
+    const r = await fetch(`${API}/api/screener/score?stockNo=${encodeURIComponent(scoreStockNo.value.trim())}`)
     const d = await r.json()
     if (d.error) throw new Error(d.error)
     scoreResult.value = d
@@ -1588,6 +1613,7 @@ const changelog = [
       '漲跌排行：預防性強化——(1) 伺服器快取 TTL 從 30 秒延長至 2 分鐘，減少打 TWSE MIS 的頻率；(2) 修正伺服器剛啟動時第一次請求未設 lastGoodData，並發保護會穿透的漏洞，改為讓後續請求等待同一次抓取完成；(3) 伺服器啟動後 5 秒若在交易時段自動暖快取，使用者開啟頁面即有資料',
       '財務分析：查詢框支援輸入股票名稱，輸入中文名稱（如「台積電」）或代號均可查詢，輸入時即時顯示符合的股票建議清單供點選',
       '三大法人：查詢框支援輸入股票名稱，輸入中文名稱或代號均可查詢，輸入時即時顯示建議清單',
+      '個股跑分：查詢框支援輸入股票名稱，輸入中文名稱或代號均可查詢，輸入時即時顯示建議清單',
     ]
   },
   {
@@ -2977,8 +3003,21 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
       <div class="bg-gray-900 rounded-xl border border-gray-800 px-5 py-4 space-y-3">
         <h3 class="text-sm font-semibold text-gray-300">🎯 個股跑分</h3>
         <div class="flex gap-2 items-center">
-          <input v-model="scoreStockNo" @keyup.enter="queryScore" type="text" placeholder="輸入股票代號，例：2330"
-                 class="bg-gray-800 border border-gray-700 text-gray-200 text-sm rounded-lg px-3 py-2 w-44 focus:outline-none focus:border-blue-500" />
+          <div class="relative">
+            <input v-model="scoreStockNo" @input="onScoreInput" @keyup.enter="queryScore"
+                   @blur="() => setTimeout(() => { scoreShowSuggestions.value = false }, 150)"
+                   type="text" placeholder="代號或名稱"
+                   class="bg-gray-800 border border-gray-700 text-gray-200 text-sm rounded-lg px-3 py-2 w-44 focus:outline-none focus:border-blue-500" />
+            <div v-if="scoreShowSuggestions && scoreSuggestions.length"
+                 class="absolute z-50 top-full left-0 mt-1 w-48 bg-gray-900 border border-gray-700 rounded-lg shadow-xl overflow-hidden">
+              <div v-for="item in scoreSuggestions" :key="item.no"
+                   @mousedown.prevent="selectScoreSuggestion(item)"
+                   class="flex items-center gap-2 px-3 py-2 hover:bg-gray-700 cursor-pointer text-sm">
+                <span class="text-blue-400 font-mono w-12 shrink-0">{{ item.no }}</span>
+                <span class="text-gray-200 truncate">{{ item.name }}</span>
+              </div>
+            </div>
+          </div>
           <button @click="queryScore" :disabled="scoreLoading"
                   class="px-4 py-2 rounded-lg bg-blue-700 hover:bg-blue-600 text-sm transition disabled:opacity-50">
             {{ scoreLoading ? '計算中...' : '跑分' }}
