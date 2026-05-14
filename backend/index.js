@@ -4799,8 +4799,8 @@ function rocToGregorian(rocStr) {
   return new Date(y, m, d)
 }
 
-const fetchMisBatch = (codes, timeoutMs = 6000) => new Promise((resolve, reject) => {
-  const exCh = codes.map(c => `tse_${c}.tw`).join('|')
+const fetchMisBatch = (codes, timeoutMs = 6000, exchange = 'tse') => new Promise((resolve, reject) => {
+  const exCh = codes.map(c => `${exchange}_${c}.tw`).join('|')
   const url = `https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=${encodeURIComponent(exCh)}&json=1&delay=0`
   const req = https.get(url, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36' } }, (r) => {
     const chunks = []
@@ -4870,7 +4870,7 @@ function calcDelta(S, K, T, r, sigma, isCall, q = 0) {
 }
 
 // In-memory cache for large TWSE warrant/company OpenAPI datasets (1-hour TTL, stale-while-revalidate)
-const _warrantApiCache = { basic: null, company: null, divYield: null, ts: 0, refreshing: false }
+const _warrantApiCache = { basic: null, otcBasic: null, company: null, divYield: null, ts: 0, refreshing: false }
 const WARRANT_CACHE_TTL = 60 * 60 * 1000
 
 function _refreshWarrantCache() {
@@ -4880,10 +4880,11 @@ function _refreshWarrantCache() {
     fetchUrl('https://openapi.twse.com.tw/v1/opendata/t187ap37_L'),
     fetchUrl('https://openapi.twse.com.tw/v1/opendata/t187ap03_L'),
     fetchUrl('https://openapi.twse.com.tw/v1/exchangeReport/BWIBBU_d'),
-  ]).then(([basicRaw, companyRaw, divRaw]) => {
+    fetchUrl('https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap37_O').catch(() => []),
+  ]).then(([basicRaw, companyRaw, divRaw, otcBasicRaw]) => {
     _warrantApiCache.basic = basicRaw
+    _warrantApiCache.otcBasic = otcBasicRaw
     _warrantApiCache.company = companyRaw
-    // Build code → dividend yield decimal map
     const divYield = {}
     for (const row of Array.isArray(divRaw) ? divRaw : []) {
       const code = row.Code || row['代號']
@@ -4905,23 +4906,24 @@ async function getWarrantBaseData() {
   const stale = !_warrantApiCache.basic || (now - _warrantApiCache.ts) >= WARRANT_CACHE_TTL
 
   if (!stale) {
-    return { basicRaw: _warrantApiCache.basic, companyRaw: _warrantApiCache.company, divYield: _warrantApiCache.divYield || {} }
+    return { basicRaw: _warrantApiCache.basic, otcBasicRaw: _warrantApiCache.otcBasic, companyRaw: _warrantApiCache.company, divYield: _warrantApiCache.divYield || {} }
   }
 
-  // Have stale data: return immediately and refresh in background
   if (_warrantApiCache.basic) {
     _refreshWarrantCache()
-    return { basicRaw: _warrantApiCache.basic, companyRaw: _warrantApiCache.company, divYield: _warrantApiCache.divYield || {} }
+    return { basicRaw: _warrantApiCache.basic, otcBasicRaw: _warrantApiCache.otcBasic, companyRaw: _warrantApiCache.company, divYield: _warrantApiCache.divYield || {} }
   }
 
   // Cold start: must wait for first fetch
   _warrantApiCache.refreshing = true
-  const [basicRaw, companyRaw, divRaw] = await Promise.all([
+  const [basicRaw, companyRaw, divRaw, otcBasicRaw] = await Promise.all([
     fetchUrl('https://openapi.twse.com.tw/v1/opendata/t187ap37_L'),
     fetchUrl('https://openapi.twse.com.tw/v1/opendata/t187ap03_L'),
     fetchUrl('https://openapi.twse.com.tw/v1/exchangeReport/BWIBBU_d'),
+    fetchUrl('https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap37_O').catch(() => []),
   ])
   _warrantApiCache.basic = basicRaw
+  _warrantApiCache.otcBasic = otcBasicRaw
   _warrantApiCache.company = companyRaw
   const divYield = {}
   for (const row of Array.isArray(divRaw) ? divRaw : []) {
@@ -4933,7 +4935,7 @@ async function getWarrantBaseData() {
   _warrantApiCache.ts = Date.now()
   _warrantApiCache.refreshing = false
   console.log('[warrant cache] cold-start loaded', new Date().toISOString())
-  return { basicRaw, companyRaw, divYield }
+  return { basicRaw, otcBasicRaw, companyRaw, divYield }
 }
 
 // Pre-warm cache on startup so first user request is instant
@@ -5099,34 +5101,42 @@ app.get('/api/warrant/search', async (req, res) => {
   if (!stockNo) return res.status(400).json({ error: '請輸入標的代號或名稱' })
 
   try {
-    const { basicRaw, companyRaw, divYield } = await getWarrantBaseData()
+    const { basicRaw, otcBasicRaw, companyRaw, divYield } = await getWarrantBaseData()
 
     // Build code <-> name maps from TWSE listed company list
     const codeToName = {}
-    const nameToCode = {}  // normalized lowercase name -> code
+    const nameToCode = {}
     for (const row of Array.isArray(companyRaw) ? companyRaw : []) {
       const code = (row['公司代號'] || '').trim()
       const name = (row['公司簡稱'] || '').trim()
-      if (code && name) {
-        codeToName[code] = name
-        nameToCode[name] = code
-      }
+      if (code && name) { codeToName[code] = name; nameToCode[name] = code }
     }
 
-    // Resolve input to a stock code: try direct code match, then exact name, then partial name
+    // Resolve input to a stock code: try TWSE list first, then MIS for OTC stocks
     let resolvedCode = ''
     let resolvedName = ''
+    let exchange = 'tse'  // 'tse' | 'otc'
     const input = stockNo.trim()
     if (codeToName[input]) {
-      resolvedCode = input
-      resolvedName = codeToName[input]
+      resolvedCode = input; resolvedName = codeToName[input]
     } else if (nameToCode[input]) {
-      resolvedCode = nameToCode[input]
-      resolvedName = input
+      resolvedCode = nameToCode[input]; resolvedName = input
     } else {
-      // Partial name match (e.g. "台積" → "台積電")
       const hit = Object.keys(nameToCode).find(n => n.includes(input))
       if (hit) { resolvedCode = nameToCode[hit]; resolvedName = hit }
+    }
+
+    // Not found in TWSE list → query MIS to handle OTC stocks (e.g. 8299 群聯)
+    if (!resolvedCode) {
+      const misTse = await fetchMisBatch([input], 5000, 'tse').catch(() => null)
+      const misOtc = await fetchMisBatch([input], 5000, 'otc').catch(() => null)
+      const item = misTse?.msgArray?.[0]?.c ? misTse.msgArray[0]
+                 : misOtc?.msgArray?.[0]?.c ? misOtc.msgArray[0] : null
+      if (item?.c && item?.n) {
+        resolvedCode = item.c
+        resolvedName = item.n
+        exchange = item.ex === 'otc' ? 'otc' : 'tse'
+      }
     }
 
     if (!resolvedCode) return res.json({ rows: [], stockName: '', stockCode: '', total: 0 })
@@ -5138,10 +5148,15 @@ app.get('/api/warrant/search', async (req, res) => {
       + String(today.getMonth() + 1).padStart(2, '0')
       + String(today.getDate()).padStart(2, '0')
 
-    // Filter active warrants for this underlying stock
-    const warrants = (Array.isArray(basicRaw) ? basicRaw : []).filter(r =>
+    // Filter active warrants — combine TWSE + TPEX datasets
+    const allWarrantData = [
+      ...((Array.isArray(basicRaw) ? basicRaw : []).map(r => ({ ...r, _exchange: 'tse' }))),
+      ...((Array.isArray(otcBasicRaw) ? otcBasicRaw : []).map(r => ({ ...r, _exchange: 'otc' }))),
+    ]
+    const warrants = allWarrantData.filter(r =>
       r['標的證券/指數'] === stockName && r['最後交易日'] >= todayRoc
     )
+    if (warrants.length > 0) exchange = warrants[0]._exchange
 
     // 先按 type 過濾，再查 MIS，減少不必要的網路請求
     const filteredWarrants = type === 'all' ? warrants : warrants.filter(r => {
@@ -5155,8 +5170,8 @@ app.get('/api/warrant/search', async (req, res) => {
     const batches = []
     for (let i = 0; i < allCodes.length; i += 100) batches.push(allCodes.slice(i, i + 100))
     const [batchResults, stockMis] = await Promise.all([
-      Promise.all(batches.map(batch => fetchMisBatch(batch).catch(() => null))),
-      fetchMisBatch([resolvedStockNo]).catch(() => null),
+      Promise.all(batches.map(batch => fetchMisBatch(batch, 6000, exchange).catch(() => null))),
+      fetchMisBatch([resolvedStockNo], 6000, exchange).catch(() => null),
     ])
     const priceMap = {}
     for (const mis of batchResults) {
