@@ -541,10 +541,11 @@ const scenarioTable = computed(() => {
 })
 function wSortIcon(col) { return warrantSortCol.value === col ? (warrantSortDesc.value ? ' ▼' : ' ▲') : '' }
 
-// ── 強勢弱質選股 ───────────────────────────────────────
+// ── 雙模選股 ───────────────────────────────────────────
 const swData    = ref(null)
 const swLoading = ref(false)
 const swError   = ref('')
+const swMode    = ref('momentum')   // 'momentum' | 'value'
 
 async function fetchStrongWeak() {
   swLoading.value = true
@@ -554,6 +555,9 @@ async function fetchStrongWeak() {
     const d = await r.json()
     if (d.error) throw new Error(d.code === 'NOT_CONFIGURED' ? 'StockAI 模組尚未上線' : d.error)
     swData.value = d
+    // 根據市場狀態預設分頁
+    const state = d.regime?.state
+    swMode.value = state === 'bear' ? 'value' : 'momentum'
   } catch(e) { swError.value = e.message }
   finally { swLoading.value = false }
 }
@@ -573,6 +577,16 @@ function swScoreBg(v) {
   if (v >= 70) return 'bg-green-500'
   if (v >= 45) return 'bg-yellow-500'
   return 'bg-red-500'
+}
+function valScoreColor(v) {
+  if (v >= 70) return 'text-blue-400'
+  if (v >= 45) return 'text-sky-400'
+  return 'text-gray-500'
+}
+function valScoreBg(v) {
+  if (v >= 70) return 'bg-blue-500'
+  if (v >= 45) return 'bg-sky-600'
+  return 'bg-gray-600'
 }
 
 // ── 漲跌排行 ─────────────────────────────────────────
@@ -5605,8 +5619,30 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
         </div>
       </div>
 
-      <!-- 動能排行表 -->
-      <div class="rounded-xl border border-gray-700 bg-gray-900/60 overflow-hidden">
+      <!-- 雙模分頁 -->
+      <div class="flex gap-1 border-b border-gray-700">
+        <button @click="swMode='momentum'"
+          :class="swMode==='momentum'
+            ? 'text-green-400 border-b-2 border-green-500'
+            : 'text-gray-500 border-b-2 border-transparent hover:text-gray-300'"
+          class="px-4 py-2 text-sm font-medium -mb-px transition-colors">
+          動能模式
+          <span v-if="swData.regime?.state === 'bull'"
+            class="ml-1.5 px-1.5 py-0.5 rounded-full text-[10px] bg-green-900/50 text-green-400 border border-green-700/40">啟用</span>
+        </button>
+        <button @click="swMode='value'"
+          :class="swMode==='value'
+            ? 'text-blue-400 border-b-2 border-blue-500'
+            : 'text-gray-500 border-b-2 border-transparent hover:text-gray-300'"
+          class="px-4 py-2 text-sm font-medium -mb-px transition-colors">
+          價值模式
+          <span v-if="swData.regime?.state === 'bear'"
+            class="ml-1.5 px-1.5 py-0.5 rounded-full text-[10px] bg-blue-900/50 text-blue-400 border border-blue-700/40">啟用</span>
+        </button>
+      </div>
+
+      <!-- ── 動能排行表 ── -->
+      <div v-if="swMode === 'momentum'" class="rounded-xl border border-gray-700 bg-gray-900/60 overflow-hidden">
         <div class="px-4 py-3 border-b border-gray-700 flex items-center justify-between">
           <span class="text-sm font-semibold text-white">動能排行 Top 50</span>
           <span class="text-xs text-gray-500">{{ swData.momentum?.scoreDate }} · {{ swData.momentum?.total }} 支</span>
@@ -5657,6 +5693,96 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
           </table>
         </div>
       </div>
+
+      <!-- ── 價值排行表 ── -->
+      <div v-else-if="swMode === 'value'">
+        <div v-if="!swData.value" class="rounded-xl border border-gray-700 bg-gray-900/60 p-8 text-center text-gray-500 text-sm">
+          價值評分資料尚未生成，請先執行 sync_bwibbu 後再計算
+        </div>
+        <div v-else class="rounded-xl border border-gray-700 bg-gray-900/60 overflow-hidden">
+          <div class="px-4 py-3 border-b border-gray-700 flex items-center justify-between">
+            <div>
+              <span class="text-sm font-semibold text-white">價值排行 Top 50</span>
+              <span class="ml-2 px-2 py-0.5 rounded text-[10px] bg-blue-900/40 text-blue-400 border border-blue-700/40">品質 × 估值 × 防禦</span>
+            </div>
+            <span class="text-xs text-gray-500">{{ swData.value?.scoreDate }} · {{ swData.value?.total }} 支</span>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead class="bg-gray-800/50">
+                <tr class="text-xs text-gray-500">
+                  <th class="px-3 py-2 text-left w-8">#</th>
+                  <th class="px-3 py-2 text-left">股票</th>
+                  <th class="px-3 py-2 text-left">綜合分</th>
+                  <th class="px-3 py-2 text-left hidden sm:table-cell">品質</th>
+                  <th class="px-3 py-2 text-left hidden sm:table-cell">估值</th>
+                  <th class="px-3 py-2 text-right hidden md:table-cell">PE</th>
+                  <th class="px-3 py-2 text-right hidden md:table-cell">PBR</th>
+                  <th class="px-3 py-2 text-right hidden md:table-cell">ROE%</th>
+                  <th class="px-3 py-2 text-right hidden lg:table-cell">殖利率</th>
+                  <th class="px-3 py-2 text-right hidden lg:table-cell">營收YoY</th>
+                  <th class="px-3 py-2 text-right">收盤</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-gray-800">
+                <tr v-for="(s, i) in (swData.value?.items ?? [])" :key="s.stockNo"
+                    class="hover:bg-white/[0.02]">
+                  <td class="px-3 py-2 text-gray-600 tabular-nums text-xs">{{ i + 1 }}</td>
+                  <td class="px-3 py-2">
+                    <div class="font-bold text-gray-100 text-sm">{{ s.stockNo }}</div>
+                    <div class="text-xs text-gray-500">{{ s.stockName }}</div>
+                  </td>
+                  <td class="px-3 py-2">
+                    <div class="flex items-center gap-1.5">
+                      <div class="w-12 h-1.5 bg-gray-700 rounded-full overflow-hidden">
+                        <div class="h-full rounded-full" :class="valScoreBg(s.totalScore)" :style="`width:${Math.min(100,s.totalScore)}%`"/>
+                      </div>
+                      <span class="text-xs font-bold tabular-nums" :class="valScoreColor(s.totalScore)">{{ s.totalScore.toFixed(1) }}</span>
+                    </div>
+                  </td>
+                  <td class="px-3 py-2 hidden sm:table-cell">
+                    <div class="flex items-center gap-1.5">
+                      <div class="w-8 h-1.5 bg-gray-700 rounded-full overflow-hidden">
+                        <div class="h-full rounded-full bg-indigo-500" :style="`width:${Math.min(100,(s.qualityScore/50)*100)}%`"/>
+                      </div>
+                      <span class="text-xs tabular-nums text-indigo-400">{{ s.qualityScore?.toFixed(0) }}</span>
+                    </div>
+                  </td>
+                  <td class="px-3 py-2 hidden sm:table-cell">
+                    <div class="flex items-center gap-1.5">
+                      <div class="w-8 h-1.5 bg-gray-700 rounded-full overflow-hidden">
+                        <div class="h-full rounded-full bg-sky-500" :style="`width:${Math.min(100,(s.valuationScore/30)*100)}%`"/>
+                      </div>
+                      <span class="text-xs tabular-nums text-sky-400">{{ s.valuationScore?.toFixed(0) }}</span>
+                    </div>
+                  </td>
+                  <td class="px-3 py-2 text-right hidden md:table-cell text-xs tabular-nums text-gray-300">
+                    {{ s.pe != null ? s.pe.toFixed(1) : '—' }}
+                  </td>
+                  <td class="px-3 py-2 text-right hidden md:table-cell text-xs tabular-nums text-gray-300">
+                    {{ s.pbr != null ? s.pbr.toFixed(2) : '—' }}
+                  </td>
+                  <td class="px-3 py-2 text-right hidden md:table-cell text-xs tabular-nums"
+                      :class="s.roe > 0 ? 'text-green-400' : 'text-gray-500'">
+                    {{ s.roe != null ? s.roe.toFixed(1) + '%' : '—' }}
+                  </td>
+                  <td class="px-3 py-2 text-right hidden lg:table-cell text-xs tabular-nums text-amber-400">
+                    {{ s.dividendYield != null ? s.dividendYield.toFixed(2) + '%' : '—' }}
+                  </td>
+                  <td class="px-3 py-2 text-right hidden lg:table-cell text-xs tabular-nums"
+                      :class="s.revYoyPct > 0 ? 'text-green-400' : s.revYoyPct < 0 ? 'text-red-400' : 'text-gray-500'">
+                    {{ s.revYoyPct != null ? (s.revYoyPct > 0 ? '+' : '') + s.revYoyPct.toFixed(1) + '%' : '—' }}
+                  </td>
+                  <td class="px-3 py-2 text-right text-xs tabular-nums text-gray-300">
+                    {{ s.close != null ? s.close.toFixed(1) : '—' }}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
     </template>
 
     <!-- 未載入（首次進入但還沒點選） -->

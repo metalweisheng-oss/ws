@@ -5993,13 +5993,16 @@ app.get('/api/strong-weak-stocks', async (req, res) => {
     return res.status(503).json({ error: 'StockAI service not configured', code: 'NOT_CONFIGURED' })
   }
   try {
-    const [regimeRes, momentumRes] = await Promise.all([
+    const [regimeRes, momentumRes, valueRes] = await Promise.all([
       fetch(`${STOCKAI_API}/api/regime/latest`),
       fetch(`${STOCKAI_API}/api/momentum/top?limit=50`),
+      fetch(`${STOCKAI_API}/api/value/top?limit=50`),
     ])
     if (!regimeRes.ok || !momentumRes.ok) throw new Error('StockAI upstream error')
     const [regime, momentum] = await Promise.all([regimeRes.json(), momentumRes.json()])
-    res.json({ regime, momentum })
+    // value 評分可能尚未生成，視為選填
+    const value = valueRes.ok ? await valueRes.json() : null
+    res.json({ regime, momentum, value })
   } catch (e) {
     console.error('[strong-weak-stocks]', e.message)
     res.status(503).json({ error: e.message, code: 'UPSTREAM_ERROR' })
