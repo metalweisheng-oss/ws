@@ -5,6 +5,8 @@ import { Chart, BarController, LineController, CategoryScale, LinearScale, BarEl
 Chart.register(BarController, LineController, CategoryScale, LinearScale, BarElement, LineElement, PointElement, Tooltip, Legend, Title)
 
 const tab = ref('changelog')
+const navbarRef   = ref(null)   // 整個頂部區（header + tab bar）的底部 y 值
+const navbarBottom = ref(104)   // 預設值，onMounted 後更新
 const API = import.meta.env.VITE_API_BASE || ''
 
 // ── 即時監控 ──────────────────────────────────────
@@ -1837,7 +1839,12 @@ const changelog = [
   },
 ]
 
-onMounted(() => startAll())
+onMounted(() => {
+  startAll()
+  if (navbarRef.value) {
+    navbarBottom.value = navbarRef.value.getBoundingClientRect().bottom
+  }
+})
 onUnmounted(() => { stopAll(); if (_askTimer) clearInterval(_askTimer) })
 
 const fmt   = n => n != null ? (+n).toLocaleString() : '-'
@@ -1846,7 +1853,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
 </script>
 
 <template>
-  <div class="h-screen flex flex-col bg-gray-950 text-white overflow-hidden">
+  <div class="min-h-screen bg-gray-950 text-white">
 
     <!-- 頂部導覽 -->
     <header class="border-b border-gray-800 px-6 py-4 flex items-center justify-between">
@@ -1863,7 +1870,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
     </header>
 
     <!-- 分頁切換 -->
-    <div class="border-b border-gray-800 px-6 flex gap-1">
+    <div ref="navbarRef" class="border-b border-gray-800 px-6 flex gap-1">
       <button v-for="t in [{ id:'changelog', label:'修正公告' }, { id:'screener', label:'台股選股' }, { id:'strongweak', label:'漲時看勢跌時看質' }, { id:'finance', label:'財務分析' }, { id:'movers', label:'漲跌排行' }, { id:'inst', label:'三大法人' }, { id:'sector', label:'強勢族群' }, { id:'breadth', label:'漲跌家數' }, { id:'disposal', label:'處置股' }, { id:'buyback', label:'庫藏股' }, { id:'monitor', label:'即時監控' }, { id:'report', label:'日報表' }, { id:'db', label:'歷史資料' }, { id:'chips', label:'台指期籌碼' }, { id:'warrant', label:'權證' }]" :key="t.id"
               @click="selectTab(t.id)"
               class="px-4 py-3 text-sm font-medium transition border-b-2 -mb-px"
@@ -1873,7 +1880,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
     </div>
 
     <!-- ── 分頁內容區 ── -->
-    <div :class="tab === 'strongweak' ? 'flex-1 min-h-0 flex flex-col overflow-hidden' : 'flex-1 min-h-0 overflow-y-auto'">
+    <div>
 
     <!-- ── 修正公告 Tab ── -->
     <div v-if="tab === 'changelog'" class="max-w-3xl mx-auto px-4 py-6 space-y-4">
@@ -5611,10 +5618,12 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
   </Teleport>
 
   <!-- ══ 雙模選股 ══════════════════════════════════════════ -->
-  <div v-if="tab === 'strongweak'" class="flex-1 min-h-0 flex flex-col overflow-hidden">
+  <div v-if="tab === 'strongweak'"
+       class="fixed left-0 right-0 bottom-0"
+       :style="{ top: navbarBottom + 'px' }">
     <iframe
       src="https://stockai-frontend-ten.vercel.app"
-      class="flex-1 min-h-0 w-full border-0"
+      class="w-full h-full border-0"
       allow="fullscreen"
     />
 
