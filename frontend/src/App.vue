@@ -1846,7 +1846,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
 </script>
 
 <template>
-  <div class="min-h-screen bg-gray-950 text-white">
+  <div class="h-screen flex flex-col bg-gray-950 text-white overflow-hidden">
 
     <!-- 頂部導覽 -->
     <header class="border-b border-gray-800 px-6 py-4 flex items-center justify-between">
@@ -1871,6 +1871,9 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
         {{ t.label }}
       </button>
     </div>
+
+    <!-- ── 分頁內容區 ── -->
+    <div :class="tab === 'strongweak' ? 'flex-1 overflow-hidden' : 'flex-1 overflow-y-auto'">
 
     <!-- ── 修正公告 Tab ── -->
     <div v-if="tab === 'changelog'" class="max-w-3xl mx-auto px-4 py-6 space-y-4">
@@ -5608,7 +5611,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
   </Teleport>
 
   <!-- ══ 雙模選股 ══════════════════════════════════════════ -->
-  <div v-if="tab === 'strongweak'" class="w-full overflow-hidden" style="height: calc(100vh - 102px)">
+  <div v-if="tab === 'strongweak'" class="w-full h-full overflow-hidden">
     <iframe
       src="https://stockai-frontend-ten.vercel.app"
       class="w-full h-full border-0"
@@ -5795,6 +5798,8 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
       </div>
 
     </template>
+
+    </div><!-- end 分頁內容區 -->
   </div>
 
 </template>
