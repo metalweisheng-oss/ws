@@ -335,7 +335,7 @@ function selectTab(t) {
   if (t === 'sector')   { loadSectorDates(); loadSectorAnalysis() }
 
   if (t === 'screener') loadScreener()
-  if (t === 'strongweak' && !swData.value) fetchStrongWeak()
+  if (t === 'strongweak') window.scrollTo(0, 0)
   if (t === 'warrant') { warrantRows.value = []; warrantError.value = ''; warrantStockName.value = '' }
   if (t === 'movers') startMoversAutoRefresh()
   else stopMoversAutoRefresh()
@@ -5608,7 +5608,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
   </Teleport>
 
   <!-- ══ 雙模選股 ══════════════════════════════════════════ -->
-  <div v-if="tab === 'strongweak'" class="w-full" style="height: calc(100vh - 56px)">
+  <div v-if="tab === 'strongweak'" class="w-full overflow-hidden" style="height: calc(100vh - 102px)">
     <iframe
       src="https://stockai-frontend-ten.vercel.app"
       class="w-full h-full border-0"
@@ -5616,7 +5616,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
     />
 
     <template v-if="false">
-      <!-- 市場狀態橫幅 -->
+      <!-- 市場狀態橫幅（舊版保留，不渲染）-->
       <div class="rounded-xl border p-4 flex items-center justify-between flex-wrap gap-3"
            :class="swStateBg(swData.regime?.state)">
         <div class="flex items-center gap-3">
@@ -5795,11 +5795,6 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
       </div>
 
     </template>
-
-    <!-- 未載入（首次進入但還沒點選） -->
-    <div v-else class="text-center py-10">
-      <button @click="fetchStrongWeak()" class="px-5 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm">載入資料</button>
-    </div>
   </div>
 
 </template>
