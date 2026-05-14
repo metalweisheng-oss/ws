@@ -1864,7 +1864,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
 
     <!-- 分頁切換 -->
     <div class="border-b border-gray-800 px-6 flex gap-1">
-      <button v-for="t in [{ id:'changelog', label:'修正公告' }, { id:'screener', label:'台股選股' }, { id:'strongweak', label:'雙模選股' }, { id:'finance', label:'財務分析' }, { id:'movers', label:'漲跌排行' }, { id:'inst', label:'三大法人' }, { id:'sector', label:'強勢族群' }, { id:'breadth', label:'漲跌家數' }, { id:'disposal', label:'處置股' }, { id:'buyback', label:'庫藏股' }, { id:'monitor', label:'即時監控' }, { id:'report', label:'日報表' }, { id:'db', label:'歷史資料' }, { id:'chips', label:'台指期籌碼' }, { id:'warrant', label:'權證' }]" :key="t.id"
+      <button v-for="t in [{ id:'changelog', label:'修正公告' }, { id:'screener', label:'台股選股' }, { id:'strongweak', label:'漲時看勢跌時看質' }, { id:'finance', label:'財務分析' }, { id:'movers', label:'漲跌排行' }, { id:'inst', label:'三大法人' }, { id:'sector', label:'強勢族群' }, { id:'breadth', label:'漲跌家數' }, { id:'disposal', label:'處置股' }, { id:'buyback', label:'庫藏股' }, { id:'monitor', label:'即時監控' }, { id:'report', label:'日報表' }, { id:'db', label:'歷史資料' }, { id:'chips', label:'台指期籌碼' }, { id:'warrant', label:'權證' }]" :key="t.id"
               @click="selectTab(t.id)"
               class="px-4 py-3 text-sm font-medium transition border-b-2 -mb-px"
               :class="tab === t.id ? 'border-purple-500 text-purple-400' : 'border-transparent text-gray-500 hover:text-gray-300'">
@@ -5608,30 +5608,14 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
   </Teleport>
 
   <!-- ══ 雙模選股 ══════════════════════════════════════════ -->
-  <div v-if="tab === 'strongweak'" class="max-w-5xl mx-auto px-4 py-6 space-y-5">
+  <div v-if="tab === 'strongweak'" class="w-full" style="height: calc(100vh - 56px)">
+    <iframe
+      src="https://stockai-frontend-ten.vercel.app"
+      class="w-full h-full border-0"
+      allow="fullscreen"
+    />
 
-    <!-- 標題 -->
-    <div>
-      <h2 class="text-lg font-semibold text-white">雙模選股</h2>
-      <p class="text-xs text-gray-500 mt-0.5">由 StockAI 雙模引擎驅動 — 牛市選強勢，熊市選優質</p>
-    </div>
-
-    <!-- 載入中 -->
-    <div v-if="swLoading" class="flex items-center gap-2 text-gray-400 text-sm py-10 justify-center">
-      <svg class="animate-spin w-5 h-5" fill="none" viewBox="0 0 24 24">
-        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
-        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
-      </svg>
-      載入中…
-    </div>
-
-    <!-- 錯誤 -->
-    <div v-else-if="swError" class="rounded-xl bg-gray-800/60 border border-gray-700 p-8 text-center space-y-3">
-      <p class="text-gray-400 text-sm">{{ swError }}</p>
-      <button @click="fetchStrongWeak()" class="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm">重試</button>
-    </div>
-
-    <template v-else-if="swData">
+    <template v-if="false">
       <!-- 市場狀態橫幅 -->
       <div class="rounded-xl border p-4 flex items-center justify-between flex-wrap gap-3"
            :class="swStateBg(swData.regime?.state)">
