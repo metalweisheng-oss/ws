@@ -661,7 +661,7 @@ function onMoversDateChange() {
   moversTimer = null
   fetchMovers()
   if (!moversDate.value) {
-    moversTimer = setInterval(fetchMovers, 30000)
+    moversTimer = setInterval(fetchMovers, 60000)
   }
 }
 
@@ -689,7 +689,7 @@ function startMoversAutoRefresh() {
     // 開盤後轉回 30 秒
     if (!isNearOpen() && moversTimer) {
       clearInterval(moversTimer)
-      moversTimer = setInterval(fetchMovers, 30000)
+      moversTimer = setInterval(fetchMovers, 60000)
     }
   }, interval)
 }

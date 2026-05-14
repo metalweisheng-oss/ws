@@ -4006,7 +4006,7 @@ function runPython(scriptArgs, onData) {
 
 // ── 即時漲跌幅排行 ────────────────────────────────────────────
 const _moversCache = { data: null, ts: 0, lastGoodData: null, fetchInProgress: false }
-const MOVERS_CACHE_TTL = 2 * 60 * 1000  // 2 分鐘，減少 MIS 打頻率
+const MOVERS_CACHE_TTL = 60 * 1000  // 1 分鐘
 
 async function saveCloseSnapshot(dateStr, isClose = true) {
   const today = dateStr || new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10)
