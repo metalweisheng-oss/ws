@@ -4942,6 +4942,22 @@ async function getWarrantBaseData() {
 setTimeout(() => _refreshWarrantCache(), 5000)
 
 // 回傳今日仍有效權證的標的股票代號清單（供漲跌排行榜顯示提示用）
+// 診斷：直接測 TPEX API 是否可達，並強制更新快取
+app.get('/api/warrant/cache-debug', async (req, res) => {
+  try {
+    const result = await fetchUrl('https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap37_O').catch(e => ({ error: e.message }))
+    const tpexCount = Array.isArray(result) ? result.length : 0
+    // 強制重整快取
+    _warrantApiCache.ts = 0
+    const data = await getWarrantBaseData()
+    res.json({
+      tpexDirectFetch: Array.isArray(result) ? `${tpexCount} 筆` : result,
+      cacheOtcBasicCount: Array.isArray(data.otcBasicRaw) ? data.otcBasicRaw.length : 0,
+      cacheTseBasicCount: Array.isArray(data.basicRaw) ? data.basicRaw.length : 0,
+    })
+  } catch(e) { res.status(500).json({ error: e.message }) }
+})
+
 app.get('/api/warrant/covered-stocks', async (req, res) => {
   try {
     const { basicRaw, companyRaw } = await getWarrantBaseData()
