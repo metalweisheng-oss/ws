@@ -4,7 +4,8 @@ import Image from 'next/image';
 import { useEffect, useState, useCallback } from 'react';
 import {
   fetchQueue, fetchHistory, fetchPopular, getFavorites, toggleFavorite, isFavorite,
-  addToQueue, verifyAdminPin, nextSong, QueueItem, PopularItem, FavoriteItem, formatDuration,
+  addToQueue, removeOwnSong, getMySongIds, verifyAdminPin, nextSong,
+  QueueItem, PopularItem, FavoriteItem, formatDuration,
 } from '@/lib/api';
 import { getSocket } from '@/lib/socket';
 import SearchBar from '@/components/SearchBar';
@@ -28,6 +29,8 @@ export default function Home() {
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState('');
   const [pinLoading, setPinLoading] = useState(false);
+  const [mySongIds, setMySongIds] = useState<Set<number>>(new Set());
+  const [removing, setRemoving] = useState<number | null>(null);
 
   const refresh = useCallback(() => {
     fetchQueue().then(setQueue).catch(() => {});
@@ -36,12 +39,20 @@ export default function Home() {
   useEffect(() => {
     refresh();
     setFavorites(getFavorites());
+    setMySongIds(getMySongIds());
     const saved = sessionStorage.getItem('adminPin');
     if (saved) setAdminPin(saved);
     const socket = getSocket();
     socket.on('queue:updated', (q: QueueItem[]) => setQueue(q));
     return () => { socket.off('queue:updated'); };
   }, [refresh]);
+
+  const handleRemoveOwn = async (id: number) => {
+    setRemoving(id);
+    await removeOwnSong(id).catch(() => null);
+    setRemoving(null);
+    refresh();
+  };
 
   const handleVerifyPin = async () => {
     setPinLoading(true); setPinError('');
@@ -76,6 +87,7 @@ export default function Home() {
     setAdding(video_id);
     await addToQueue(video_id).catch(() => null);
     setAdding(null);
+    setMySongIds(getMySongIds());
     refresh();
   };
 
@@ -200,6 +212,16 @@ export default function Home() {
               <span className="text-gray-500 w-4 text-center flex-shrink-0">{idx + 1}</span>
               <span className="truncate flex-1">{item.title}</span>
               <span className="text-gray-500 text-xs flex-shrink-0">{item.requester}</span>
+              {mySongIds.has(item.id) && (
+                <button
+                  onClick={() => handleRemoveOwn(item.id)}
+                  disabled={removing === item.id}
+                  className="flex-shrink-0 px-2 py-0.5 rounded text-xs text-gray-400 hover:text-red-400 hover:bg-red-900/30 transition-colors disabled:opacity-40"
+                  title="取消這首歌"
+                >
+                  {removing === item.id ? '…' : '✕'}
+                </button>
+              )}
             </div>
           ))}
         </div>

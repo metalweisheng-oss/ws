@@ -9,6 +9,7 @@ export interface QueueItem {
   requester: string;
   status: 'waiting' | 'playing' | 'done';
   added_at: number;
+  owner_token?: string;
 }
 
 export interface AddItemInput {
@@ -17,6 +18,7 @@ export interface AddItemInput {
   thumbnail: string;
   duration: number;
   requester?: string;
+  owner_token?: string;
 }
 
 export const getQueue = (): QueueItem[] =>
@@ -30,9 +32,9 @@ export const addItem = (input: AddItemInput): { item: QueueItem; autoPlaying: bo
   const autoPlay = !hasPlaying && !hasWaiting;
 
   const result = db.prepare(`
-    INSERT INTO queue (video_id, title, thumbnail, duration, requester, status)
-    VALUES (@video_id, @title, @thumbnail, @duration, @requester, @status)
-  `).run({ requester: 'anonymous', ...input, status: autoPlay ? 'playing' : 'waiting' });
+    INSERT INTO queue (video_id, title, thumbnail, duration, requester, status, owner_token)
+    VALUES (@video_id, @title, @thumbnail, @duration, @requester, @status, @owner_token)
+  `).run({ requester: 'anonymous', owner_token: null, ...input, status: autoPlay ? 'playing' : 'waiting' });
 
   const item = db.prepare('SELECT * FROM queue WHERE id = ?').get(result.lastInsertRowid) as QueueItem;
   return { item, autoPlaying: autoPlay };
@@ -40,6 +42,13 @@ export const addItem = (input: AddItemInput): { item: QueueItem; autoPlaying: bo
 
 export const removeItem = (id: number): boolean => {
   const result = db.prepare(`DELETE FROM queue WHERE id = ? AND status != 'playing'`).run(id);
+  return result.changes > 0;
+};
+
+export const removeItemByToken = (id: number, token: string): boolean => {
+  const result = db.prepare(
+    `DELETE FROM queue WHERE id = ? AND status = 'waiting' AND owner_token = ?`
+  ).run(id, token);
   return result.changes > 0;
 };
 

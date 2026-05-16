@@ -74,14 +74,49 @@ export function isFavorite(video_id: string): boolean {
   return getFavorites().some(f => f.video_id === video_id);
 }
 
+export function getDeviceToken(): string {
+  if (typeof window === 'undefined') return '';
+  let token = localStorage.getItem('jukebox_device_token');
+  if (!token) {
+    token = crypto.randomUUID();
+    localStorage.setItem('jukebox_device_token', token);
+  }
+  return token;
+}
+
+const MY_SONGS_KEY = 'jukebox_my_songs';
+
+export function recordMySong(id: number): void {
+  if (typeof window === 'undefined') return;
+  const ids: number[] = JSON.parse(localStorage.getItem(MY_SONGS_KEY) ?? '[]');
+  ids.unshift(id);
+  localStorage.setItem(MY_SONGS_KEY, JSON.stringify(ids.slice(0, 100)));
+}
+
+export function getMySongIds(): Set<number> {
+  if (typeof window === 'undefined') return new Set();
+  return new Set(JSON.parse(localStorage.getItem(MY_SONGS_KEY) ?? '[]'));
+}
+
 export async function addToQueue(video_id: string, requester?: string): Promise<QueueItem> {
+  const owner_token = getDeviceToken();
   const res = await fetch(`${BASE}/api/queue`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ video_id, requester }),
+    body: JSON.stringify({ video_id, requester, owner_token }),
   });
   if (!res.ok) throw new Error(await res.text());
-  return res.json();
+  const item: QueueItem = await res.json();
+  recordMySong(item.id);
+  return item;
+}
+
+export async function removeOwnSong(id: number): Promise<void> {
+  const token = getDeviceToken();
+  await fetch(`${BASE}/api/queue/${id}`, {
+    method: 'DELETE',
+    headers: { 'x-owner-token': token },
+  });
 }
 
 export async function sendAnnouncement(text: string, pin: string): Promise<void> {
@@ -107,6 +142,7 @@ export async function removeFromQueue(id: number, pin: string): Promise<void> {
     headers: { 'x-admin-pin': pin },
   });
 }
+
 
 export async function jumpToItem(id: number, pin: string): Promise<void> {
   await fetch(`${BASE}/api/queue/${id}/jump`, {
