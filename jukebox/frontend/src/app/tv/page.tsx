@@ -15,50 +15,71 @@ declare global {
 export default function TVPage() {
   const playerRef = useRef<any>(null);
   const playerDivRef = useRef<HTMLDivElement>(null);
-  // Keep a ref in sync with state so YT callbacks always see the latest value
   const currentRef = useRef<QueueItem | null>(null);
+  const adminPinRef = useRef<string>('');
+
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [current, setCurrent] = useState<QueueItem | null>(null);
   const [playerReady, setPlayerReady] = useState(false);
+  const [blocked, setBlocked] = useState(false); // autoplay blocked by browser
   const [qrOpen, setQrOpen] = useState(true);
 
   const setCurrentBoth = (item: QueueItem | null) => {
     currentRef.current = item;
     setCurrent(item);
+    setBlocked(false);
   };
 
-  // Load YouTube IFrame API
+  // Load YouTube IFrame API once
   useEffect(() => {
-    if (window.YT?.Player) { initPlayer(); return; }
-    window.onYouTubeIframeAPIReady = initPlayer;
-    const tag = document.createElement('script');
-    tag.src = 'https://www.youtube.com/iframe_api';
-    document.head.appendChild(tag);
+    // Store admin pin from session for next-song calls
+    adminPinRef.current = sessionStorage.getItem('adminPin') ?? '';
+
+    const init = () => {
+      if (playerRef.current) return;
+      playerRef.current = new window.YT.Player(playerDivRef.current!, {
+        width: '100%',
+        height: '100%',
+        playerVars: { autoplay: 1, controls: 1, rel: 0 },
+        events: {
+          onReady: () => {
+            setPlayerReady(true);
+            if (currentRef.current) {
+              playerRef.current.loadVideoById(currentRef.current.video_id);
+            }
+          },
+          onStateChange: (e: any) => {
+            // ENDED = 0
+            if (e.data === 0) {
+              nextSong(adminPinRef.current || undefined).catch(() => {});
+            }
+            // If still unstarted (-1) after loadVideoById → autoplay was blocked
+            if (e.data === -1 && currentRef.current) {
+              setTimeout(() => {
+                if (playerRef.current?.getPlayerState() === -1) {
+                  setBlocked(true);
+                }
+              }, 1500);
+            }
+            // Playing = 1 → no longer blocked
+            if (e.data === 1) setBlocked(false);
+          },
+        },
+      });
+    };
+
+    if (window.YT?.Player) {
+      init();
+    } else {
+      window.onYouTubeIframeAPIReady = init;
+      const tag = document.createElement('script');
+      tag.src = 'https://www.youtube.com/iframe_api';
+      document.head.appendChild(tag);
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const initPlayer = () => {
-    if (!playerDivRef.current || playerRef.current) return;
-    playerRef.current = new window.YT.Player(playerDivRef.current, {
-      width: '100%',
-      height: '100%',
-      playerVars: { autoplay: 1, controls: 1, rel: 0 },
-      events: {
-        onReady: () => {
-          setPlayerReady(true);
-          // If a song was queued before player was ready, load it now
-          if (currentRef.current) {
-            playerRef.current.loadVideoById(currentRef.current.video_id);
-          }
-        },
-        onStateChange: (e: any) => {
-          if (e.data === 0) nextSong().catch(() => {}); // ENDED
-        },
-      },
-    });
-  };
-
-  // Load video whenever current changes AND player is ready
+  // Load video whenever current or playerReady changes
   useEffect(() => {
     if (!playerReady || !playerRef.current || !current) return;
     playerRef.current.loadVideoById(current.video_id);
@@ -87,22 +108,47 @@ export default function TVPage() {
     };
   }, []);
 
+  const handleUnblock = () => {
+    setBlocked(false);
+    playerRef.current?.playVideo?.();
+  };
+
   const waiting = queue.filter(i => i.status === 'waiting');
   const qrUrl = `${BACKEND_URL}/api/qrcode`;
 
   return (
     <div className="min-h-screen bg-black flex flex-col relative">
-      {/* Player */}
+      {/* Player area */}
       <div className="flex-1 relative">
-        {current ? (
-          <div ref={playerDivRef} id="yt-player" className="w-full h-full min-h-[60vh]" />
-        ) : (
-          <>
-            <div ref={playerDivRef} id="yt-player" className="hidden" />
-            <div className="flex items-center justify-center min-h-[60vh] text-gray-600 text-2xl">
-              等待點歌中...
+        {/* Always render the player div so YT can attach to it */}
+        <div
+          ref={playerDivRef}
+          id="yt-player"
+          className={`w-full h-full min-h-[60vh] ${current ? '' : 'hidden'}`}
+        />
+
+        {/* Idle state */}
+        {!current && (
+          <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4 text-gray-600">
+            <p className="text-2xl">等待點歌中...</p>
+            <p className="text-sm">掃描右下角 QR code 點歌</p>
+          </div>
+        )}
+
+        {/* Autoplay blocked overlay */}
+        {current && blocked && (
+          <div
+            className="absolute inset-0 flex items-center justify-center bg-black/70 cursor-pointer z-10"
+            onClick={handleUnblock}
+          >
+            <div className="flex flex-col items-center gap-3">
+              <div className="w-20 h-20 rounded-full bg-white/10 flex items-center justify-center text-5xl">
+                ▶
+              </div>
+              <p className="text-white text-lg font-semibold">點擊開始播放</p>
+              <p className="text-gray-400 text-sm text-center max-w-xs">{current.title}</p>
             </div>
-          </>
+          </div>
         )}
       </div>
 
@@ -122,7 +168,7 @@ export default function TVPage() {
           <div className="flex gap-3 overflow-x-auto pb-1">
             {waiting.slice(0, 10).map((item, idx) => (
               <div key={item.id} className="flex-shrink-0 w-32 text-center">
-                <img src={item.thumbnail} alt={item.title} className="w-32 h-18 object-cover rounded mb-1" />
+                <img src={item.thumbnail} alt={item.title} className="w-32 object-cover rounded mb-1" />
                 <p className="text-xs line-clamp-2 text-gray-300">{idx + 1}. {item.title}</p>
                 <p className="text-xs text-gray-500">{item.requester}</p>
               </div>
