@@ -69,6 +69,17 @@ export async function searchYouTube(q: string): Promise<VideoInfo[]> {
   return res.json();
 }
 
+export async function fetchSuggestions(q: string): Promise<string[]> {
+  if (q.trim().length < 2) return [];
+  try {
+    const res = await fetch(`${BASE}/api/suggestions?q=${encodeURIComponent(q)}`);
+    if (!res.ok) return [];
+    return res.json();
+  } catch {
+    return [];
+  }
+}
+
 // Supports: youtu.be/ID, youtube.com/watch?v=ID, /shorts/ID, /embed/ID
 export function extractYouTubeId(input: string): string | null {
   try {

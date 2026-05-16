@@ -8,6 +8,7 @@ import youtubeRouter from './routes/youtube';
 import qrcodeRouter from './routes/qrcode';
 import adminRouter from './routes/admin';
 import lyricsRouter from './routes/lyrics';
+import suggestionsRouter from './routes/suggestions';
 import { registerSocketHandlers } from './socket/handlers';
 
 const app = express();
@@ -30,6 +31,7 @@ app.use('/api/youtube', youtubeRouter);
 app.use('/api/qrcode', qrcodeRouter);
 app.use('/api/admin', adminRouter);
 app.use('/api/lyrics', lyricsRouter);
+app.use('/api/suggestions', suggestionsRouter);
 
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
