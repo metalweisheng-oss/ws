@@ -70,7 +70,7 @@ export async function searchYouTube(q: string): Promise<VideoInfo[]> {
 }
 
 export async function fetchSuggestions(q: string): Promise<string[]> {
-  if (q.trim().length < 2) return [];
+  if (q.trim().length < 1) return [];
   try {
     const res = await fetch(`${BASE}/api/suggestions?q=${encodeURIComponent(q)}`);
     if (!res.ok) return [];

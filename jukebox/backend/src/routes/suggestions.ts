@@ -4,7 +4,7 @@ const router = express.Router();
 
 router.get('/', async (req, res) => {
   const q = String(req.query.q ?? '').trim();
-  if (q.length < 2) return res.json([]);
+  if (q.length < 1) return res.json([]);
 
   try {
     const url = `https://suggestqueries.google.com/complete/search?client=firefox&ds=yt&q=${encodeURIComponent(q)}&hl=zh-TW`;

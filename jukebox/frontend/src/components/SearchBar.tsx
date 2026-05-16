@@ -28,7 +28,7 @@ export default function SearchBar({ onAdded }: Props) {
   useEffect(() => {
     if (suggestTimer.current) clearTimeout(suggestTimer.current);
     const q = query.trim();
-    if (!q || isUrl(q) || q.length < 2) {
+    if (!q || isUrl(q) || q.length < 1) {
       setSuggestions([]);
       setShowSuggestions(false);
       return;
