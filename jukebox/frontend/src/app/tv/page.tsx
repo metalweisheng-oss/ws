@@ -120,13 +120,14 @@ export default function TVPage() {
     <div className="h-screen bg-black flex flex-col relative">
       {/* Player area — flex-1 with explicit min-h-0 to allow children to fill via absolute */}
       <div className="flex-1 relative min-h-0">
-        {/* Player div always in DOM; absolute inset-0 guarantees defined dimensions for YouTube IFrame */}
+        {/* Outer wrapper controls visibility — visibility is inherited by the iframe YouTube creates inside */}
         <div
-          ref={playerDivRef}
-          id="yt-player"
           className="absolute inset-0"
           style={{ visibility: current ? 'visible' : 'hidden' }}
-        />
+        >
+          {/* YouTube replaces this div with an iframe; wrapper provides definite pixel dimensions */}
+          <div ref={playerDivRef} id="yt-player" style={{ width: '100%', height: '100%' }} />
+        </div>
 
         {/* Idle state */}
         {!current && (
