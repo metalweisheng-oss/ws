@@ -117,19 +117,20 @@ export default function TVPage() {
   const qrUrl = `${BACKEND_URL}/api/qrcode`;
 
   return (
-    <div className="min-h-screen bg-black flex flex-col relative">
-      {/* Player area */}
-      <div className="flex-1 relative">
-        {/* Always render the player div so YT can attach to it */}
+    <div className="h-screen bg-black flex flex-col relative">
+      {/* Player area — flex-1 with explicit min-h-0 to allow children to fill via absolute */}
+      <div className="flex-1 relative min-h-0">
+        {/* Player div always in DOM; absolute inset-0 guarantees defined dimensions for YouTube IFrame */}
         <div
           ref={playerDivRef}
           id="yt-player"
-          className={`w-full h-full min-h-[60vh] ${current ? '' : 'hidden'}`}
+          className="absolute inset-0"
+          style={{ display: current ? 'block' : 'none' }}
         />
 
         {/* Idle state */}
         {!current && (
-          <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4 text-gray-600">
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 text-gray-600">
             <p className="text-2xl">等待點歌中...</p>
             <p className="text-sm">掃描右下角 QR code 點歌</p>
           </div>
