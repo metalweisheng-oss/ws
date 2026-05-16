@@ -4,7 +4,7 @@ import Image from 'next/image';
 import { useEffect, useState, useCallback } from 'react';
 import {
   fetchQueue, fetchHistory, fetchPopular, getFavorites, toggleFavorite, isFavorite,
-  addToQueue, QueueItem, PopularItem, FavoriteItem, formatDuration,
+  addToQueue, verifyAdminPin, nextSong, QueueItem, PopularItem, FavoriteItem, formatDuration,
 } from '@/lib/api';
 import { getSocket } from '@/lib/socket';
 import SearchBar from '@/components/SearchBar';
@@ -23,6 +23,12 @@ export default function Home() {
   const [adding, setAdding] = useState<string | null>(null);
   const [favMap, setFavMap] = useState<Record<string, boolean>>({});
 
+  const [adminPin, setAdminPin] = useState<string>('');
+  const [showPinModal, setShowPinModal] = useState(false);
+  const [pinInput, setPinInput] = useState('');
+  const [pinError, setPinError] = useState('');
+  const [pinLoading, setPinLoading] = useState(false);
+
   const refresh = useCallback(() => {
     fetchQueue().then(setQueue).catch(() => {});
   }, []);
@@ -30,10 +36,29 @@ export default function Home() {
   useEffect(() => {
     refresh();
     setFavorites(getFavorites());
+    const saved = sessionStorage.getItem('adminPin');
+    if (saved) setAdminPin(saved);
     const socket = getSocket();
     socket.on('queue:updated', (q: QueueItem[]) => setQueue(q));
     return () => { socket.off('queue:updated'); };
   }, [refresh]);
+
+  const handleVerifyPin = async () => {
+    setPinLoading(true); setPinError('');
+    const ok = await verifyAdminPin(pinInput);
+    if (ok) {
+      setAdminPin(pinInput);
+      sessionStorage.setItem('adminPin', pinInput);
+      setShowPinModal(false); setPinInput('');
+    } else setPinError('密碼錯誤');
+    setPinLoading(false);
+  };
+
+  const handleSkip = async () => {
+    if (!adminPin) return;
+    await nextSong(adminPin);
+    refresh();
+  };
 
   useEffect(() => {
     if (tab === 'history') fetchHistory().then(setHistory).catch(() => {});
@@ -77,10 +102,51 @@ export default function Home() {
     <main className="min-h-screen flex flex-col gap-4 p-4 pt-8 max-w-lg mx-auto">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">🎵 點歌系統</h1>
-        <Link href="/tv" className="text-xs text-gray-500 hover:text-gray-300 px-3 py-1.5 rounded-lg border border-gray-700 hover:border-gray-500 transition-colors">
-          📺 TV 畫面
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link href="/tv" className="text-xs text-gray-500 hover:text-gray-300 px-3 py-1.5 rounded-lg border border-gray-700 hover:border-gray-500 transition-colors">
+            📺 TV 畫面
+          </Link>
+          {adminPin ? (
+            <button
+              onClick={() => { setAdminPin(''); sessionStorage.removeItem('adminPin'); }}
+              className="text-xs text-green-400 hover:text-gray-300 px-3 py-1.5 rounded-lg border border-green-700 hover:border-gray-500 transition-colors"
+            >
+              🔓 管理員
+            </button>
+          ) : (
+            <button
+              onClick={() => setShowPinModal(true)}
+              className="text-xs text-gray-500 hover:text-gray-300 px-3 py-1.5 rounded-lg border border-gray-700 hover:border-gray-500 transition-colors"
+            >
+              🔐 管理員
+            </button>
+          )}
+        </div>
       </div>
+
+      {/* PIN Modal */}
+      {showPinModal && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-900 rounded-2xl p-6 w-full max-w-xs flex flex-col gap-4">
+            <h2 className="text-lg font-bold text-center">管理員登入</h2>
+            <input
+              type="password" inputMode="numeric"
+              className="bg-gray-800 rounded-lg px-4 py-3 text-center text-xl tracking-widest outline-none focus:ring-2 focus:ring-red-500"
+              placeholder="輸入 PIN 碼" value={pinInput}
+              onChange={e => { setPinInput(e.target.value); setPinError(''); }}
+              onKeyDown={e => e.key === 'Enter' && handleVerifyPin()}
+              autoFocus
+            />
+            {pinError && <p className="text-red-400 text-sm text-center">{pinError}</p>}
+            <div className="flex gap-2">
+              <button onClick={() => { setShowPinModal(false); setPinInput(''); setPinError(''); }} className="flex-1 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-sm transition-colors">取消</button>
+              <button onClick={handleVerifyPin} disabled={pinLoading || !pinInput} className="flex-1 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-sm font-medium disabled:opacity-50 transition-colors">
+                {pinLoading ? '驗證中...' : '確認'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Search */}
       <SearchBar onAdded={refresh} />
@@ -90,6 +156,15 @@ export default function Home() {
         <div className="bg-red-900/30 border border-red-500/40 rounded-xl px-4 py-3 flex items-center gap-3">
           <span className="text-red-400 text-xs font-bold flex-shrink-0">NOW PLAYING</span>
           <span className="text-sm truncate flex-1">{playing.title}</span>
+          {adminPin && (
+            <button
+              onClick={handleSkip}
+              className="flex-shrink-0 px-2 py-1 bg-yellow-600 hover:bg-yellow-500 rounded text-xs font-medium transition-colors"
+              title="切歌"
+            >
+              ⏭ 切歌
+            </button>
+          )}
         </div>
       )}
 
