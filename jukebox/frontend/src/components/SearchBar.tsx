@@ -13,7 +13,6 @@ export default function SearchBar({ onAdded }: Props) {
   const [loading, setLoading] = useState(false);
   const [adding, setAdding] = useState<string | null>(null);
   const [added, setAdded] = useState<string | null>(null); // brief ✓ feedback
-  const [requester, setRequester] = useState('');
   const [error, setError] = useState('');
 
   const [suggestions, setSuggestions] = useState<string[]>([]);
@@ -66,7 +65,7 @@ export default function SearchBar({ onAdded }: Props) {
     if (videoId) {
       setLoading(true);
       try {
-        await addToQueue(videoId, requester || undefined);
+        await addToQueue(videoId);
         setQuery('');
         setResults([]);
         onAdded();
@@ -117,7 +116,7 @@ export default function SearchBar({ onAdded }: Props) {
 
   const add = async (v: VideoInfo) => {
     setAdding(v.video_id);
-    await addToQueue(v.video_id, requester || undefined).catch(() => null);
+    await addToQueue(v.video_id).catch(() => null);
     setAdding(null);
     setAdded(v.video_id);
     setTimeout(() => setAdded(id => id === v.video_id ? null : id), 2000);
@@ -170,13 +169,6 @@ export default function SearchBar({ onAdded }: Props) {
           {loading ? '...' : isUrl(query) ? '加入' : '搜尋'}
         </button>
       </div>
-
-      <input
-        className="bg-gray-800 rounded-lg px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-red-500"
-        placeholder="你的名字（選填）"
-        value={requester}
-        onChange={e => setRequester(e.target.value)}
-      />
 
       {error && <p className="text-red-400 text-sm">{error}</p>}
 

@@ -50,9 +50,7 @@ export default function QueueList({ queue, onUpdate, adminPin }: Props) {
           <Image src={item.thumbnail} alt={item.title} width={64} height={36} className="rounded object-cover flex-shrink-0" />
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium line-clamp-1">{item.title}</p>
-            <p className="text-xs text-gray-400">
-              {item.requester} · {formatDuration(item.duration)}
-            </p>
+            <p className="text-xs text-gray-400">{formatDuration(item.duration)}</p>
           </div>
           {item.status === 'waiting' && (
             <div className="flex gap-1 flex-shrink-0">
