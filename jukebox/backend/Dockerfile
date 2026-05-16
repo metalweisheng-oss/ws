@@ -11,7 +11,6 @@ COPY src ./src
 RUN npm run build
 
 ENV NODE_ENV=production
-ENV PORT=4000
 ENV DB_PATH=/data/jukebox.db
 
 EXPOSE 4000

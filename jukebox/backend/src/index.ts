@@ -12,12 +12,15 @@ const app = express();
 const httpServer = createServer(app);
 
 const FRONTEND_URL = process.env.FRONTEND_URL ?? 'http://localhost:3001';
+const allowedOrigins = FRONTEND_URL.split(',').map(s => s.trim());
 
 const io = new Server(httpServer, {
-  cors: { origin: FRONTEND_URL, methods: ['GET', 'POST'] },
+  cors: { origin: allowedOrigins, methods: ['GET', 'POST'] },
+  transports: ['websocket', 'polling'],
 });
 
-app.use(cors({ origin: FRONTEND_URL }));
+app.set('trust proxy', 1);
+app.use(cors({ origin: allowedOrigins }));
 app.use(express.json());
 
 app.use('/api/queue', buildQueueRouter(io));
