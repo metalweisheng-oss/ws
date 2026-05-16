@@ -23,6 +23,57 @@ export async function fetchQueue(): Promise<QueueItem[]> {
   return res.json();
 }
 
+export async function fetchHistory(): Promise<QueueItem[]> {
+  const res = await fetch(`${BASE}/api/queue/history`);
+  return res.json();
+}
+
+export interface PopularItem {
+  video_id: string;
+  title: string;
+  thumbnail: string;
+  duration: number;
+  play_count: number;
+}
+
+export async function fetchPopular(): Promise<PopularItem[]> {
+  const res = await fetch(`${BASE}/api/queue/popular`);
+  return res.json();
+}
+
+// ── Favorites (localStorage) ──────────────────────────────────────────────────
+
+export interface FavoriteItem {
+  video_id: string;
+  title: string;
+  thumbnail: string;
+  duration: number;
+}
+
+const FAV_KEY = 'jukebox_favorites';
+
+export function getFavorites(): FavoriteItem[] {
+  if (typeof window === 'undefined') return [];
+  try { return JSON.parse(localStorage.getItem(FAV_KEY) ?? '[]'); } catch { return []; }
+}
+
+export function toggleFavorite(item: FavoriteItem): boolean {
+  const favs = getFavorites();
+  const idx = favs.findIndex(f => f.video_id === item.video_id);
+  if (idx >= 0) {
+    favs.splice(idx, 1);
+    localStorage.setItem(FAV_KEY, JSON.stringify(favs));
+    return false;
+  }
+  favs.unshift({ video_id: item.video_id, title: item.title, thumbnail: item.thumbnail, duration: item.duration });
+  localStorage.setItem(FAV_KEY, JSON.stringify(favs.slice(0, 50)));
+  return true;
+}
+
+export function isFavorite(video_id: string): boolean {
+  return getFavorites().some(f => f.video_id === video_id);
+}
+
 export async function addToQueue(video_id: string, requester?: string): Promise<QueueItem> {
   const res = await fetch(`${BASE}/api/queue`, {
     method: 'POST',

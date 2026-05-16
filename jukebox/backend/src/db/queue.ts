@@ -66,3 +66,23 @@ export const markCurrentDone = (): QueueItem | null => {
 
 export const getCurrentPlaying = (): QueueItem | null =>
   (db.prepare(`SELECT * FROM queue WHERE status = 'playing' LIMIT 1`).get() as QueueItem | undefined) ?? null;
+
+export interface PopularItem {
+  video_id: string;
+  title: string;
+  thumbnail: string;
+  duration: number;
+  play_count: number;
+}
+
+export const getHistory = (limit = 30): QueueItem[] =>
+  db.prepare(`SELECT * FROM queue WHERE status = 'done' ORDER BY id DESC LIMIT ?`).all(limit) as QueueItem[];
+
+export const getPopular = (limit = 10): PopularItem[] =>
+  db.prepare(`
+    SELECT video_id, title, thumbnail, duration, COUNT(*) as play_count
+    FROM queue WHERE status = 'done'
+    GROUP BY video_id
+    ORDER BY play_count DESC
+    LIMIT ?
+  `).all(limit) as PopularItem[];

@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { Server } from 'socket.io';
-import { getQueue, addItem, removeItem, jumpItem, markCurrentDone } from '../db/queue';
+import { getQueue, addItem, removeItem, jumpItem, markCurrentDone, getHistory, getPopular } from '../db/queue';
 import { getVideoInfo } from '../services/youtube';
 import { requireAdmin } from '../middleware/requireAdmin';
 
@@ -9,6 +9,14 @@ export function buildQueueRouter(io: Server): Router {
 
   router.get('/', (_req: Request, res: Response) => {
     res.json(getQueue());
+  });
+
+  router.get('/history', (_req: Request, res: Response) => {
+    res.json(getHistory(40));
+  });
+
+  router.get('/popular', (_req: Request, res: Response) => {
+    res.json(getPopular(10));
   });
 
   router.post('/', async (req: Request, res: Response) => {
