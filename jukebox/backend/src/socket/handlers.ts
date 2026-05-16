@@ -4,13 +4,22 @@ import { getVideoInfo } from '../services/youtube';
 
 export function registerSocketHandlers(io: Server, socket: Socket) {
   // Send current state on connect
-  socket.emit('queue:updated', getQueue());
+  const queue = getQueue();
+  socket.emit('queue:updated', queue);
+  const playing = queue.find(i => i.status === 'playing') ?? null;
+  if (playing) {
+    socket.emit('player:state', { action: 'play', item: playing });
+  }
 
   socket.on('queue:add', async (data: { video_id: string; requester?: string }) => {
     const info = await getVideoInfo(data.video_id).catch(() => null);
     if (!info) return;
-    addItem({ ...info, requester: data.requester ?? 'anonymous' });
-    io.emit('queue:updated', getQueue());
+    const { item, autoPlaying } = addItem({ ...info, requester: data.requester ?? 'anonymous' });
+    const queue = getQueue();
+    io.emit('queue:updated', queue);
+    if (autoPlaying) {
+      io.emit('player:state', { action: 'play', item });
+    }
   });
 
   socket.on('queue:remove', (data: { id: number }) => {

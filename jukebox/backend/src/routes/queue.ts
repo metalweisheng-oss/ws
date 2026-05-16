@@ -17,8 +17,12 @@ export function buildQueueRouter(io: Server): Router {
     const info = await getVideoInfo(video_id).catch(() => null);
     if (!info) { res.status(404).json({ error: 'Video not found' }); return; }
 
-    const item = addItem({ ...info, requester: requester ?? 'anonymous' });
-    io.emit('queue:updated', getQueue());
+    const { item, autoPlaying } = addItem({ ...info, requester: requester ?? 'anonymous' });
+    const queue = getQueue();
+    io.emit('queue:updated', queue);
+    if (autoPlaying) {
+      io.emit('player:state', { action: 'play', item });
+    }
     res.status(201).json(item);
   });
 

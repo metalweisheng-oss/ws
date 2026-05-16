@@ -23,12 +23,19 @@ export const getQueue = (): QueueItem[] =>
   db.prepare(`SELECT * FROM queue WHERE status != 'done' ORDER BY
     CASE status WHEN 'playing' THEN 0 ELSE 1 END, id ASC`).all() as QueueItem[];
 
-export const addItem = (input: AddItemInput): QueueItem => {
+export const addItem = (input: AddItemInput): { item: QueueItem; autoPlaying: boolean } => {
+  const hasPlaying = !!db.prepare(`SELECT 1 FROM queue WHERE status = 'playing'`).get();
+  const hasWaiting = !!db.prepare(`SELECT 1 FROM queue WHERE status = 'waiting'`).get();
+  // Auto-play if nothing is currently playing or waiting
+  const autoPlay = !hasPlaying && !hasWaiting;
+
   const result = db.prepare(`
-    INSERT INTO queue (video_id, title, thumbnail, duration, requester)
-    VALUES (@video_id, @title, @thumbnail, @duration, @requester)
-  `).run({ requester: 'anonymous', ...input });
-  return db.prepare('SELECT * FROM queue WHERE id = ?').get(result.lastInsertRowid) as QueueItem;
+    INSERT INTO queue (video_id, title, thumbnail, duration, requester, status)
+    VALUES (@video_id, @title, @thumbnail, @duration, @requester, @status)
+  `).run({ requester: 'anonymous', ...input, status: autoPlay ? 'playing' : 'waiting' });
+
+  const item = db.prepare('SELECT * FROM queue WHERE id = ?').get(result.lastInsertRowid) as QueueItem;
+  return { item, autoPlaying: autoPlay };
 };
 
 export const removeItem = (id: number): boolean => {
