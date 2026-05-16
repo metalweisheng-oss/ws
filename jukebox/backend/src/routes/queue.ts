@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { Server } from 'socket.io';
 import { getQueue, addItem, removeItem, jumpItem, markCurrentDone } from '../db/queue';
 import { getVideoInfo } from '../services/youtube';
+import { requireAdmin } from '../middleware/requireAdmin';
 
 export function buildQueueRouter(io: Server): Router {
   const router = Router();
@@ -20,20 +21,18 @@ export function buildQueueRouter(io: Server): Router {
     const { item, autoPlaying } = addItem({ ...info, requester: requester ?? 'anonymous' });
     const queue = getQueue();
     io.emit('queue:updated', queue);
-    if (autoPlaying) {
-      io.emit('player:state', { action: 'play', item });
-    }
+    if (autoPlaying) io.emit('player:state', { action: 'play', item });
     res.status(201).json(item);
   });
 
-  router.delete('/:id', (req: Request, res: Response) => {
+  router.delete('/:id', requireAdmin, (req: Request, res: Response) => {
     const id = Number(req.params.id);
     if (!removeItem(id)) { res.status(404).json({ error: 'Not found or currently playing' }); return; }
     io.emit('queue:updated', getQueue());
     res.json({ ok: true });
   });
 
-  router.post('/:id/jump', (req: Request, res: Response) => {
+  router.post('/:id/jump', requireAdmin, (req: Request, res: Response) => {
     const id = Number(req.params.id);
     if (!jumpItem(id)) { res.status(404).json({ error: 'Not found or not waiting' }); return; }
     const queue = getQueue();
@@ -43,7 +42,7 @@ export function buildQueueRouter(io: Server): Router {
     res.json({ ok: true });
   });
 
-  router.post('/player/next', (_req: Request, res: Response) => {
+  router.post('/player/next', requireAdmin, (_req: Request, res: Response) => {
     const next = markCurrentDone();
     const queue = getQueue();
     io.emit('queue:updated', queue);

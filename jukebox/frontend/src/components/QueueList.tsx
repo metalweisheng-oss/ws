@@ -5,13 +5,15 @@ import { QueueItem, removeFromQueue, jumpToItem, formatDuration } from '@/lib/ap
 interface Props {
   queue: QueueItem[];
   onUpdate: () => void;
-  isAdmin?: boolean;
+  adminPin?: string;
 }
 
-export default function QueueList({ queue, onUpdate, isAdmin = false }: Props) {
+export default function QueueList({ queue, onUpdate, adminPin }: Props) {
   if (!queue.length) {
     return <p className="text-center text-gray-500 py-8">歌單是空的，快來點歌！</p>;
   }
+
+  const isAdmin = !!adminPin;
 
   const handle = async (action: () => Promise<void>) => {
     await action();
@@ -40,14 +42,14 @@ export default function QueueList({ queue, onUpdate, isAdmin = false }: Props) {
           {isAdmin && item.status === 'waiting' && (
             <div className="flex gap-1 flex-shrink-0">
               <button
-                onClick={() => handle(() => jumpToItem(item.id))}
+                onClick={() => handle(() => jumpToItem(item.id, adminPin))}
                 className="px-2 py-1 bg-yellow-600 hover:bg-yellow-500 rounded text-xs transition-colors"
                 title="立即播放"
               >
                 跳播
               </button>
               <button
-                onClick={() => handle(() => removeFromQueue(item.id))}
+                onClick={() => handle(() => removeFromQueue(item.id, adminPin))}
                 className="px-2 py-1 bg-gray-600 hover:bg-gray-500 rounded text-xs transition-colors"
                 title="移除"
               >

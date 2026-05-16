@@ -6,6 +6,7 @@ import cors from 'cors';
 import { buildQueueRouter } from './routes/queue';
 import youtubeRouter from './routes/youtube';
 import qrcodeRouter from './routes/qrcode';
+import adminRouter from './routes/admin';
 import { registerSocketHandlers } from './socket/handlers';
 
 const app = express();
@@ -26,6 +27,7 @@ app.use(express.json());
 app.use('/api/queue', buildQueueRouter(io));
 app.use('/api/youtube', youtubeRouter);
 app.use('/api/qrcode', qrcodeRouter);
+app.use('/api/admin', adminRouter);
 
 app.get('/health', (_req, res) => res.json({ ok: true }));
 

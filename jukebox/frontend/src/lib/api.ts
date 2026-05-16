@@ -33,16 +33,33 @@ export async function addToQueue(video_id: string, requester?: string): Promise<
   return res.json();
 }
 
-export async function removeFromQueue(id: number): Promise<void> {
-  await fetch(`${BASE}/api/queue/${id}`, { method: 'DELETE' });
+export async function verifyAdminPin(pin: string): Promise<boolean> {
+  const res = await fetch(`${BASE}/api/admin/verify`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pin }),
+  });
+  return res.ok;
 }
 
-export async function jumpToItem(id: number): Promise<void> {
-  await fetch(`${BASE}/api/queue/${id}/jump`, { method: 'POST' });
+export async function removeFromQueue(id: number, pin: string): Promise<void> {
+  await fetch(`${BASE}/api/queue/${id}`, {
+    method: 'DELETE',
+    headers: { 'x-admin-pin': pin },
+  });
 }
 
-export async function nextSong(): Promise<QueueItem | null> {
-  const res = await fetch(`${BASE}/api/queue/player/next`, { method: 'POST' });
+export async function jumpToItem(id: number, pin: string): Promise<void> {
+  await fetch(`${BASE}/api/queue/${id}/jump`, {
+    method: 'POST',
+    headers: { 'x-admin-pin': pin },
+  });
+}
+
+export async function nextSong(pin?: string): Promise<QueueItem | null> {
+  const headers: Record<string, string> = {};
+  if (pin) headers['x-admin-pin'] = pin;
+  const res = await fetch(`${BASE}/api/queue/player/next`, { method: 'POST', headers });
   const data = await res.json();
   return data.item ?? null;
 }
