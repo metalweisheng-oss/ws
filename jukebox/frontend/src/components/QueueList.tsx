@@ -1,6 +1,7 @@
 'use client';
 import Image from 'next/image';
-import { QueueItem, removeFromQueue, jumpToItem, formatDuration } from '@/lib/api';
+import { useState, useEffect } from 'react';
+import { QueueItem, removeFromQueue, removeOwnSong, getMySongIds, jumpToItem, formatDuration } from '@/lib/api';
 
 interface Props {
   queue: QueueItem[];
@@ -9,6 +10,13 @@ interface Props {
 }
 
 export default function QueueList({ queue, onUpdate, adminPin }: Props) {
+  const [mySongIds, setMySongIds] = useState<Set<number>>(new Set());
+  const [removing, setRemoving] = useState<number | null>(null);
+
+  useEffect(() => {
+    setMySongIds(getMySongIds());
+  }, [queue]);
+
   if (!queue.length) {
     return <p className="text-center text-gray-500 py-8">歌單是空的，快來點歌！</p>;
   }
@@ -17,6 +25,13 @@ export default function QueueList({ queue, onUpdate, adminPin }: Props) {
 
   const handle = async (action: () => Promise<void>) => {
     await action();
+    onUpdate();
+  };
+
+  const handleRemoveOwn = async (id: number) => {
+    setRemoving(id);
+    await removeOwnSong(id).catch(() => null);
+    setRemoving(null);
     onUpdate();
   };
 
@@ -39,22 +54,36 @@ export default function QueueList({ queue, onUpdate, adminPin }: Props) {
               {item.requester} · {formatDuration(item.duration)}
             </p>
           </div>
-          {isAdmin && item.status === 'waiting' && (
+          {item.status === 'waiting' && (
             <div className="flex gap-1 flex-shrink-0">
-              <button
-                onClick={() => handle(() => jumpToItem(item.id, adminPin))}
-                className="px-2 py-1 bg-yellow-600 hover:bg-yellow-500 rounded text-xs transition-colors"
-                title="立即播放"
-              >
-                跳播
-              </button>
-              <button
-                onClick={() => handle(() => removeFromQueue(item.id, adminPin))}
-                className="px-2 py-1 bg-gray-600 hover:bg-gray-500 rounded text-xs transition-colors"
-                title="移除"
-              >
-                ✕
-              </button>
+              {isAdmin && (
+                <>
+                  <button
+                    onClick={() => handle(() => jumpToItem(item.id, adminPin))}
+                    className="px-2 py-1 bg-yellow-600 hover:bg-yellow-500 rounded text-xs transition-colors"
+                    title="立即播放"
+                  >
+                    跳播
+                  </button>
+                  <button
+                    onClick={() => handle(() => removeFromQueue(item.id, adminPin))}
+                    className="px-2 py-1 bg-gray-600 hover:bg-gray-500 rounded text-xs transition-colors"
+                    title="移除"
+                  >
+                    ✕
+                  </button>
+                </>
+              )}
+              {!isAdmin && mySongIds.has(item.id) && (
+                <button
+                  onClick={() => handleRemoveOwn(item.id)}
+                  disabled={removing === item.id}
+                  className="px-2 py-1 rounded text-xs text-gray-400 hover:text-red-400 hover:bg-red-900/30 transition-colors disabled:opacity-40"
+                  title="取消這首歌"
+                >
+                  {removing === item.id ? '…' : '✕'}
+                </button>
+              )}
             </div>
           )}
         </li>
