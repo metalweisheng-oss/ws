@@ -5,3 +5,23 @@
 body {
   @apply bg-gray-950 text-gray-100;
 }
+
+@keyframes eq-bar {
+  0%   { transform: scaleY(0.15); }
+  100% { transform: scaleY(1); }
+}
+
+@keyframes marquee-scroll {
+  from { transform: translateX(100vw); }
+  to   { transform: translateX(-100%); }
+}
+
+.animate-eq-bar {
+  animation: eq-bar 0.7s ease-in-out infinite alternate;
+  transform-origin: bottom;
+}
+
+.animate-marquee {
+  display: inline-block;
+  animation: marquee-scroll 18s linear forwards;
+}

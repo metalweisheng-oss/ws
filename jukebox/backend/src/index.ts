@@ -6,7 +6,7 @@ import cors from 'cors';
 import { buildQueueRouter } from './routes/queue';
 import youtubeRouter from './routes/youtube';
 import qrcodeRouter from './routes/qrcode';
-import adminRouter from './routes/admin';
+import { buildAdminRouter } from './routes/admin';
 import lyricsRouter from './routes/lyrics';
 import suggestionsRouter from './routes/suggestions';
 import { registerSocketHandlers } from './socket/handlers';
@@ -29,7 +29,7 @@ app.use(express.json());
 app.use('/api/queue', buildQueueRouter(io));
 app.use('/api/youtube', youtubeRouter);
 app.use('/api/qrcode', qrcodeRouter);
-app.use('/api/admin', adminRouter);
+app.use('/api/admin', buildAdminRouter(io));
 app.use('/api/lyrics', lyricsRouter);
 app.use('/api/suggestions', suggestionsRouter);
 

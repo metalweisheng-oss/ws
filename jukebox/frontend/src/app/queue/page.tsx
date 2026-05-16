@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
-import { fetchQueue, verifyAdminPin, nextSong, QueueItem } from '@/lib/api';
+import { fetchQueue, verifyAdminPin, nextSong, sendAnnouncement, QueueItem } from '@/lib/api';
 import { getSocket } from '@/lib/socket';
 import SearchBar from '@/components/SearchBar';
 import QueueList from '@/components/QueueList';
@@ -12,6 +12,8 @@ export default function QueuePage() {
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState('');
   const [pinLoading, setPinLoading] = useState(false);
+  const [announceText, setAnnounceText] = useState('');
+  const [announceSending, setAnnounceSending] = useState(false);
 
   const refresh = useCallback(() => {
     fetchQueue().then(setQueue).catch(() => {});
@@ -52,6 +54,14 @@ export default function QueuePage() {
     if (!adminPin) return;
     await nextSong(adminPin);
     refresh();
+  };
+
+  const handleAnnounce = async () => {
+    if (!adminPin || !announceText.trim()) return;
+    setAnnounceSending(true);
+    await sendAnnouncement(announceText.trim(), adminPin).catch(() => {});
+    setAnnounceText('');
+    setAnnounceSending(false);
   };
 
   const isAdmin = !!adminPin;
@@ -118,14 +128,33 @@ export default function QueuePage() {
 
       {/* Admin Panel */}
       {isAdmin && (
-        <div className="bg-gray-800/60 border border-yellow-600/40 rounded-xl p-3 flex items-center justify-between">
-          <span className="text-xs text-yellow-400">管理員控制台</span>
-          <button
-            onClick={handleSkip}
-            className="px-3 py-1.5 bg-yellow-600 hover:bg-yellow-500 rounded-lg text-xs font-medium transition-colors"
-          >
-            ⏭ 跳過當前
-          </button>
+        <div className="bg-gray-800/60 border border-yellow-600/40 rounded-xl p-3 flex flex-col gap-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-yellow-400 font-semibold">管理員控制台</span>
+            <button
+              onClick={handleSkip}
+              className="px-3 py-1.5 bg-yellow-600 hover:bg-yellow-500 rounded-lg text-xs font-medium transition-colors"
+            >
+              ⏭ 跳過當前
+            </button>
+          </div>
+          {/* TV 公告 */}
+          <div className="flex gap-2">
+            <input
+              className="flex-1 bg-gray-700 rounded-lg px-3 py-1.5 text-xs outline-none focus:ring-1 focus:ring-yellow-500 placeholder-gray-500"
+              placeholder="📢 發送公告到 TV 畫面跑馬燈…"
+              value={announceText}
+              onChange={e => setAnnounceText(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleAnnounce()}
+            />
+            <button
+              onClick={handleAnnounce}
+              disabled={announceSending || !announceText.trim()}
+              className="px-3 py-1.5 bg-yellow-600 hover:bg-yellow-500 rounded-lg text-xs font-medium disabled:opacity-50 transition-colors whitespace-nowrap"
+            >
+              {announceSending ? '發送中…' : '發送'}
+            </button>
+          </div>
         </div>
       )}
 

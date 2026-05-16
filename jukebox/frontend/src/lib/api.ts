@@ -33,6 +33,14 @@ export async function addToQueue(video_id: string, requester?: string): Promise<
   return res.json();
 }
 
+export async function sendAnnouncement(text: string, pin: string): Promise<void> {
+  await fetch(`${BASE}/api/admin/announce`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-admin-pin': pin },
+    body: JSON.stringify({ text }),
+  });
+}
+
 export async function verifyAdminPin(pin: string): Promise<boolean> {
   const res = await fetch(`${BASE}/api/admin/verify`, {
     method: 'POST',
