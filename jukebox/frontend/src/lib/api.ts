@@ -92,3 +92,56 @@ export function formatDuration(seconds: number): string {
   const s = seconds % 60;
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
+
+export interface LrcLine {
+  time: number; // seconds
+  text: string;
+}
+
+function parseLrc(lrc: string): LrcLine[] {
+  const lines: LrcLine[] = [];
+  for (const raw of lrc.split('\n')) {
+    const m = raw.match(/\[(\d+):(\d+)[.:,](\d{1,3})\](.*)/);
+    if (!m) continue;
+    const text = m[4].trim();
+    if (!text) continue;
+    // centiseconds: pad to 2 digits so [00:12.3] and [00:12.34] both work
+    const cs = parseInt(m[3].padEnd(2, '0').slice(0, 2));
+    lines.push({ time: parseInt(m[1]) * 60 + parseInt(m[2]) + cs / 100, text });
+  }
+  return lines.sort((a, b) => a.time - b.time);
+}
+
+// Strip common YouTube title decorations: (Official MV), [HD], 【MV】…
+function stripTitle(s: string): string {
+  return s.replace(/\s*[[(（【][^\]\)）】]*[\]\)）】]/g, '').trim();
+}
+
+export async function fetchLyrics(title: string, duration: number): Promise<LrcLine[]> {
+  const parts = title.split(/ [-－] /);
+  const attempts: [string, string][] = [];
+
+  if (parts.length >= 2) {
+    const artist = stripTitle(parts[0]);
+    const track = stripTitle(parts.slice(1).join(' - '));
+    attempts.push(['get', `artist_name=${encodeURIComponent(artist)}&track_name=${encodeURIComponent(track)}&duration=${duration}`]);
+    attempts.push(['search', `q=${encodeURIComponent(`${track} ${artist}`)}`]);
+  }
+  attempts.push(['search', `q=${encodeURIComponent(stripTitle(title))}`]);
+
+  for (const [type, q] of attempts) {
+    try {
+      const url = type === 'get'
+        ? `https://lrclib.net/api/get?${q}`
+        : `https://lrclib.net/api/search?${q}&limit=3`;
+      const res = await fetch(url);
+      if (!res.ok) continue;
+      const data = await res.json();
+      const items: any[] = Array.isArray(data) ? data : [data];
+      for (const item of items) {
+        if (item?.syncedLyrics) return parseLrc(item.syncedLyrics);
+      }
+    } catch { /* ignore, try next */ }
+  }
+  return [];
+}

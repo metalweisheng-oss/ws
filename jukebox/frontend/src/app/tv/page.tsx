@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import { getSocket } from '@/lib/socket';
-import { fetchQueue, nextSong, QueueItem, formatDuration } from '@/lib/api';
+import { fetchQueue, nextSong, fetchLyrics, QueueItem, LrcLine, formatDuration } from '@/lib/api';
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? 'http://localhost:4000';
 
@@ -17,12 +17,18 @@ export default function TVPage() {
   const playerDivRef = useRef<HTMLDivElement>(null);
   const currentRef = useRef<QueueItem | null>(null);
   const adminPinRef = useRef<string>('');
+  const lyricIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [current, setCurrent] = useState<QueueItem | null>(null);
   const [playerReady, setPlayerReady] = useState(false);
-  const [blocked, setBlocked] = useState(false); // autoplay blocked by browser
+  const [blocked, setBlocked] = useState(false);
   const [qrOpen, setQrOpen] = useState(true);
+
+  const [lrcLines, setLrcLines] = useState<LrcLine[]>([]);
+  const [lyricIdx, setLyricIdx] = useState(-1);
+  const [showLyrics, setShowLyrics] = useState(true);
+  const [karaokeMode, setKaraokeMode] = useState(false);
 
   const setCurrentBoth = (item: QueueItem | null) => {
     currentRef.current = item;
@@ -32,7 +38,6 @@ export default function TVPage() {
 
   // Load YouTube IFrame API once
   useEffect(() => {
-    // Store admin pin from session for next-song calls
     adminPinRef.current = sessionStorage.getItem('adminPin') ?? '';
 
     const init = () => {
@@ -49,19 +54,14 @@ export default function TVPage() {
             }
           },
           onStateChange: (e: any) => {
-            // ENDED = 0
             if (e.data === 0) {
               nextSong(adminPinRef.current || undefined).catch(() => {});
             }
-            // If still unstarted (-1) after loadVideoById → autoplay was blocked
             if (e.data === -1 && currentRef.current) {
               setTimeout(() => {
-                if (playerRef.current?.getPlayerState() === -1) {
-                  setBlocked(true);
-                }
+                if (playerRef.current?.getPlayerState() === -1) setBlocked(true);
               }, 1500);
             }
-            // Playing = 1 → no longer blocked
             if (e.data === 1) setBlocked(false);
           },
         },
@@ -79,11 +79,36 @@ export default function TVPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Load video whenever current or playerReady changes
+  // Load video when current or playerReady changes
   useEffect(() => {
     if (!playerReady || !playerRef.current || !current) return;
     playerRef.current.loadVideoById(current.video_id);
   }, [current, playerReady]);
+
+  // Fetch lyrics when current song changes
+  useEffect(() => {
+    setLrcLines([]);
+    setLyricIdx(-1);
+    if (!current) return;
+    fetchLyrics(current.title, current.duration).then(setLrcLines);
+  }, [current]);
+
+  // Track playback position and sync lyric index
+  useEffect(() => {
+    if (lyricIntervalRef.current) clearInterval(lyricIntervalRef.current);
+    if (!lrcLines.length) return;
+    lyricIntervalRef.current = setInterval(() => {
+      if (typeof playerRef.current?.getCurrentTime !== 'function') return;
+      const t: number = playerRef.current.getCurrentTime();
+      let idx = -1;
+      for (let i = 0; i < lrcLines.length; i++) {
+        if (lrcLines[i].time <= t) idx = i;
+        else break;
+      }
+      setLyricIdx(idx);
+    }, 300);
+    return () => { if (lyricIntervalRef.current) clearInterval(lyricIntervalRef.current); };
+  }, [lrcLines]);
 
   // Socket + initial fetch
   useEffect(() => {
@@ -116,16 +141,19 @@ export default function TVPage() {
   const waiting = queue.filter(i => i.status === 'waiting');
   const qrUrl = `${BACKEND_URL}/api/qrcode`;
 
+  const prevLine = lyricIdx > 0 ? lrcLines[lyricIdx - 1] : null;
+  const curLine = lyricIdx >= 0 ? lrcLines[lyricIdx] : null;
+  const nextLine = lyricIdx >= 0 && lyricIdx < lrcLines.length - 1 ? lrcLines[lyricIdx + 1] : null;
+
   return (
     <div className="h-screen bg-black flex flex-col relative">
-      {/* Player area — flex-1 with explicit min-h-0 to allow children to fill via absolute */}
+      {/* Player area */}
       <div className="flex-1 relative min-h-0">
-        {/* Outer wrapper controls visibility — visibility is inherited by the iframe YouTube creates inside */}
+        {/* Outer wrapper controls visibility — visibility inherits to the YouTube iframe inside */}
         <div
           className="absolute inset-0"
           style={{ visibility: current ? 'visible' : 'hidden' }}
         >
-          {/* YouTube replaces this div with an iframe; wrapper provides definite pixel dimensions */}
           <div ref={playerDivRef} id="yt-player" style={{ width: '100%', height: '100%' }} />
         </div>
 
@@ -144,12 +172,68 @@ export default function TVPage() {
             onClick={handleUnblock}
           >
             <div className="flex flex-col items-center gap-3">
-              <div className="w-20 h-20 rounded-full bg-white/10 flex items-center justify-center text-5xl">
-                ▶
-              </div>
+              <div className="w-20 h-20 rounded-full bg-white/10 flex items-center justify-center text-5xl">▶</div>
               <p className="text-white text-lg font-semibold">點擊開始播放</p>
               <p className="text-gray-400 text-sm text-center max-w-xs">{current.title}</p>
             </div>
+          </div>
+        )}
+
+        {/* Lyrics controls — top-right corner */}
+        {current && playerReady && (
+          <div className="absolute top-3 right-3 z-30 flex gap-2">
+            <button
+              onClick={() => setShowLyrics(v => !v)}
+              className={`px-3 py-1 rounded-full text-xs font-semibold backdrop-blur transition-colors ${
+                showLyrics ? 'bg-white/25 text-white' : 'bg-black/50 text-gray-400'
+              }`}
+            >
+              字幕
+            </button>
+            {showLyrics && lrcLines.length > 0 && (
+              <button
+                onClick={() => setKaraokeMode(v => !v)}
+                className={`px-3 py-1 rounded-full text-xs font-semibold backdrop-blur transition-colors ${
+                  karaokeMode ? 'bg-yellow-400 text-black' : 'bg-black/50 text-gray-400'
+                }`}
+              >
+                🎤 導唱
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Lyrics overlay */}
+        {current && showLyrics && curLine && (
+          <div className="absolute bottom-0 left-0 right-0 z-20 pointer-events-none select-none">
+            <div className={`flex flex-col items-center gap-1 px-8 pb-4 pt-12 bg-gradient-to-t from-black/85 via-black/40 to-transparent ${karaokeMode ? 'pb-6' : ''}`}>
+              {karaokeMode && prevLine && (
+                <p className="text-gray-400 text-xl text-center leading-snug opacity-70 transition-all duration-300">
+                  {prevLine.text}
+                </p>
+              )}
+              <p
+                className={`text-center font-bold leading-snug drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)] transition-all duration-300 ${
+                  karaokeMode
+                    ? 'text-yellow-300 text-4xl'
+                    : 'text-white text-3xl'
+                }`}
+              >
+                {curLine.text}
+              </p>
+              {karaokeMode && nextLine && (
+                <p className="text-gray-400 text-xl text-center leading-snug opacity-70 transition-all duration-300">
+                  {nextLine.text}
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* No lyrics indicator */}
+        {current && showLyrics && lrcLines.length === 0 && playerReady && (
+          <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 pointer-events-none">
+            <span className="text-gray-500 text-xs bg-black/40 px-3 py-1 rounded-full">找不到歌詞</span>
           </div>
         )}
       </div>
