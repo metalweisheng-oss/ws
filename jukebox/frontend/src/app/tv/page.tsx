@@ -125,7 +125,7 @@ export default function TVPage() {
           ref={playerDivRef}
           id="yt-player"
           className="absolute inset-0"
-          style={{ display: current ? 'block' : 'none' }}
+          style={{ visibility: current ? 'visible' : 'hidden' }}
         />
 
         {/* Idle state */}
