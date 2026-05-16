@@ -15,55 +15,69 @@ declare global {
 export default function TVPage() {
   const playerRef = useRef<any>(null);
   const playerDivRef = useRef<HTMLDivElement>(null);
+  // Keep a ref in sync with state so YT callbacks always see the latest value
+  const currentRef = useRef<QueueItem | null>(null);
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [current, setCurrent] = useState<QueueItem | null>(null);
-  const [ready, setReady] = useState(false);
+  const [playerReady, setPlayerReady] = useState(false);
   const [qrOpen, setQrOpen] = useState(true);
+
+  const setCurrentBoth = (item: QueueItem | null) => {
+    currentRef.current = item;
+    setCurrent(item);
+  };
 
   // Load YouTube IFrame API
   useEffect(() => {
-    if (window.YT?.Player) { setReady(true); return; }
-    window.onYouTubeIframeAPIReady = () => setReady(true);
+    if (window.YT?.Player) { initPlayer(); return; }
+    window.onYouTubeIframeAPIReady = initPlayer;
     const tag = document.createElement('script');
     tag.src = 'https://www.youtube.com/iframe_api';
     document.head.appendChild(tag);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Init player after API ready
-  useEffect(() => {
-    if (!ready || !playerDivRef.current || playerRef.current) return;
+  const initPlayer = () => {
+    if (!playerDivRef.current || playerRef.current) return;
     playerRef.current = new window.YT.Player(playerDivRef.current, {
       width: '100%',
       height: '100%',
       playerVars: { autoplay: 1, controls: 1, rel: 0 },
       events: {
+        onReady: () => {
+          setPlayerReady(true);
+          // If a song was queued before player was ready, load it now
+          if (currentRef.current) {
+            playerRef.current.loadVideoById(currentRef.current.video_id);
+          }
+        },
         onStateChange: (e: any) => {
-          if (e.data === 0) nextSong().catch(() => {});
+          if (e.data === 0) nextSong().catch(() => {}); // ENDED
         },
       },
     });
-  }, [ready]);
+  };
 
-  // Load video when current changes
+  // Load video whenever current changes AND player is ready
   useEffect(() => {
-    if (!playerRef.current || !current) return;
+    if (!playerReady || !playerRef.current || !current) return;
     playerRef.current.loadVideoById(current.video_id);
-  }, [current]);
+  }, [current, playerReady]);
 
   // Socket + initial fetch
   useEffect(() => {
     fetchQueue().then(q => {
       setQueue(q);
-      setCurrent(q.find(i => i.status === 'playing') ?? null);
+      setCurrentBoth(q.find(i => i.status === 'playing') ?? null);
     });
 
     const socket = getSocket();
     socket.on('queue:updated', (q: QueueItem[]) => setQueue(q));
     socket.on('player:state', (data: { action: 'play' | 'idle'; item?: QueueItem }) => {
       if (data.action === 'play' && data.item) {
-        setCurrent(data.item);
+        setCurrentBoth(data.item);
       } else {
-        setCurrent(null);
+        setCurrentBoth(null);
         playerRef.current?.stopVideo?.();
       }
     });
@@ -83,9 +97,12 @@ export default function TVPage() {
         {current ? (
           <div ref={playerDivRef} id="yt-player" className="w-full h-full min-h-[60vh]" />
         ) : (
-          <div className="flex items-center justify-center min-h-[60vh] text-gray-600 text-2xl">
-            等待點歌中...
-          </div>
+          <>
+            <div ref={playerDivRef} id="yt-player" className="hidden" />
+            <div className="flex items-center justify-center min-h-[60vh] text-gray-600 text-2xl">
+              等待點歌中...
+            </div>
+          </>
         )}
       </div>
 
@@ -114,25 +131,17 @@ export default function TVPage() {
         </div>
       )}
 
-      {/* QR Code overlay — bottom-right corner */}
+      {/* QR Code overlay */}
       <div className="absolute bottom-24 right-4 flex flex-col items-center gap-1">
         {qrOpen ? (
           <div className="bg-white rounded-xl p-2 shadow-2xl flex flex-col items-center gap-1">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={qrUrl} alt="點歌 QR Code" width={120} height={120} className="rounded" />
             <p className="text-gray-800 text-xs font-semibold">掃碼點歌</p>
-            <button
-              onClick={() => setQrOpen(false)}
-              className="text-gray-400 text-xs hover:text-gray-600 leading-none"
-            >
-              收起
-            </button>
+            <button onClick={() => setQrOpen(false)} className="text-gray-400 text-xs hover:text-gray-600 leading-none">收起</button>
           </div>
         ) : (
-          <button
-            onClick={() => setQrOpen(true)}
-            className="bg-white/90 hover:bg-white text-gray-800 text-xs font-semibold px-3 py-2 rounded-lg shadow-lg transition-colors"
-          >
+          <button onClick={() => setQrOpen(true)} className="bg-white/90 hover:bg-white text-gray-800 text-xs font-semibold px-3 py-2 rounded-lg shadow-lg transition-colors">
             📱 點歌 QR
           </button>
         )}
