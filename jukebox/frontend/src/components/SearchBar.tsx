@@ -1,6 +1,6 @@
 'use client';
 import { useState } from 'react';
-import { searchYouTube, addToQueue, VideoInfo, formatDuration } from '@/lib/api';
+import { searchYouTube, addToQueue, extractYouTubeId, VideoInfo, formatDuration } from '@/lib/api';
 import Image from 'next/image';
 
 interface Props {
@@ -13,13 +13,36 @@ export default function SearchBar({ onAdded }: Props) {
   const [loading, setLoading] = useState(false);
   const [adding, setAdding] = useState<string | null>(null);
   const [requester, setRequester] = useState('');
+  const [error, setError] = useState('');
 
-  const search = async () => {
-    if (!query.trim()) return;
-    setLoading(true);
-    const data = await searchYouTube(query).catch(() => []);
-    setResults(data);
-    setLoading(false);
+  const isUrl = (s: string) => extractYouTubeId(s.trim()) !== null;
+
+  const handleSubmit = async () => {
+    const q = query.trim();
+    if (!q) return;
+    setError('');
+
+    const videoId = extractYouTubeId(q);
+    if (videoId) {
+      // Direct URL — skip search, add immediately
+      setLoading(true);
+      try {
+        await addToQueue(videoId, requester || undefined);
+        setQuery('');
+        setResults([]);
+        onAdded();
+      } catch {
+        setError('找不到這部影片，請確認連結是否正確');
+      } finally {
+        setLoading(false);
+      }
+    } else {
+      // Keyword search
+      setLoading(true);
+      const data = await searchYouTube(q).catch(() => []);
+      setResults(data);
+      setLoading(false);
+    }
   };
 
   const add = async (v: VideoInfo) => {
@@ -31,30 +54,36 @@ export default function SearchBar({ onAdded }: Props) {
     onAdded();
   };
 
+  const placeholder = '搜尋歌名，或貼上 YouTube 連結…';
+
   return (
     <div className="flex flex-col gap-3">
       <div className="flex gap-2">
         <input
           className="flex-1 bg-gray-800 rounded-lg px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-red-500"
-          placeholder="搜尋 YouTube..."
+          placeholder={placeholder}
           value={query}
-          onChange={e => setQuery(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && search()}
+          onChange={e => { setQuery(e.target.value); setError(''); setResults([]); }}
+          onKeyDown={e => e.key === 'Enter' && handleSubmit()}
         />
         <button
-          onClick={search}
+          onClick={handleSubmit}
           disabled={loading}
-          className="px-4 py-2 bg-red-600 hover:bg-red-500 rounded-lg text-sm font-medium disabled:opacity-50 transition-colors"
+          className="px-4 py-2 bg-red-600 hover:bg-red-500 rounded-lg text-sm font-medium disabled:opacity-50 transition-colors whitespace-nowrap"
         >
-          {loading ? '...' : '搜尋'}
+          {loading ? '...' : isUrl(query) ? '加入' : '搜尋'}
         </button>
       </div>
+
       <input
         className="bg-gray-800 rounded-lg px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-red-500"
         placeholder="你的名字（選填）"
         value={requester}
         onChange={e => setRequester(e.target.value)}
       />
+
+      {error && <p className="text-red-400 text-sm">{error}</p>}
+
       {results.length > 0 && (
         <ul className="flex flex-col gap-2 max-h-[60vh] overflow-y-auto">
           {results.map(v => (
