@@ -2,23 +2,60 @@ import express from 'express';
 
 const router = express.Router();
 
-function stripTitle(s: string): string {
-  return s.replace(/\s*[[(（【][^\]\)）】]*[\]\)）】]/g, '').trim();
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function stripDecorations(s: string): string {
+  // Remove (Official MV), [HD], 【MV】, 「Live」 etc.
+  return s.replace(/\s*[[(（【「『][^\]\)）】」』]*[\]\)）】」』]/g, '').trim();
+}
+
+function extractBracketContent(s: string): string {
+  // Pull text from 【…】「…」brackets (often song name in JP/CN titles)
+  const m = s.match(/[【「『]([^】」』]+)[】」』]/);
+  return m ? m[1].trim() : '';
+}
+
+/** Build ordered list of query strings to try for Kugou */
+function buildQueries(title: string): string[] {
+  const stripped = stripDecorations(title);
+  const parts = stripped.split(/ [-－—] /);
+  const queries: string[] = [];
+
+  if (parts.length >= 2) {
+    const left = parts[0].trim();
+    const right = parts.slice(1).join(' - ').trim();
+    // Try each part alone — either could be the song name
+    queries.push(right);
+    queries.push(left);
+    // Then combined
+    queries.push(`${left} ${right}`);
+  } else {
+    queries.push(stripped);
+  }
+
+  // Bracket content often contains the song name
+  const bracket = extractBracketContent(title);
+  if (bracket) queries.unshift(bracket);
+
+  // Deduplicate while preserving order
+  return [...new Set(queries.filter(q => q.length > 1))];
 }
 
 // ── lrclib.net (English / Japanese) ──────────────────────────────────────────
 
 async function fromLrcLib(title: string, duration: number): Promise<string | null> {
-  const parts = title.split(/ [-－] /);
-  const urls: string[] = [];
+  const queries = buildQueries(title);
+  const parts = stripDecorations(title).split(/ [-－—] /);
 
+  const urls: string[] = [];
   if (parts.length >= 2) {
-    const artist = encodeURIComponent(stripTitle(parts[0]));
-    const track = encodeURIComponent(stripTitle(parts.slice(1).join(' - ')));
+    const artist = encodeURIComponent(parts[0].trim());
+    const track = encodeURIComponent(parts.slice(1).join(' - ').trim());
     urls.push(`https://lrclib.net/api/get?artist_name=${artist}&track_name=${track}&duration=${duration}`);
-    urls.push(`https://lrclib.net/api/search?q=${track}+${artist}&limit=3`);
   }
-  urls.push(`https://lrclib.net/api/search?q=${encodeURIComponent(stripTitle(title))}&limit=3`);
+  for (const q of queries.slice(0, 2)) {
+    urls.push(`https://lrclib.net/api/search?q=${encodeURIComponent(q)}&limit=3`);
+  }
 
   for (const url of urls) {
     try {
@@ -34,66 +71,72 @@ async function fromLrcLib(title: string, duration: number): Promise<string | nul
   return null;
 }
 
-// ── 酷狗音樂 Kugou (Chinese — best LRC coverage) ────────────────────────────
+// ── 酷狗音樂 Kugou ────────────────────────────────────────────────────────────
+// Note: Kugou search returns duration in SECONDS; lyrics search needs MILLISECONDS.
+
+const KUGOU_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  'Referer': 'https://www.kugou.com',
+};
+
+async function kugouSearch(keyword: string): Promise<any[]> {
+  const res = await fetch(
+    `http://mobilecdn.kugou.com/api/v3/search/song?format=json&keyword=${encodeURIComponent(keyword)}&page=1&pagesize=10`,
+    { headers: KUGOU_HEADERS, signal: AbortSignal.timeout(5000) },
+  );
+  if (!res.ok) return [];
+  const data = await res.json() as any;
+  return data?.data?.info ?? [];
+}
+
+async function kugouDownloadLrc(keyword: string, hash: string, durationSec: number): Promise<string | null> {
+  // Lyrics search expects duration in milliseconds
+  const candRes = await fetch(
+    `http://lyrics.kugou.com/search?ver=1&man=yes&client=pc&keyword=${encodeURIComponent(keyword)}&duration=${durationSec * 1000}&hash=${hash}`,
+    { headers: KUGOU_HEADERS, signal: AbortSignal.timeout(5000) },
+  );
+  if (!candRes.ok) return null;
+  const candData = await candRes.json() as any;
+  const candidates: any[] = candData?.candidates ?? [];
+  if (!candidates.length) return null;
+
+  const best = candidates.find((c: any) => c.product_from?.includes('官方')) ?? candidates[0];
+
+  const dlRes = await fetch(
+    `http://lyrics.kugou.com/download?ver=1&client=pc&id=${best.id}&accesskey=${best.accesskey}&fmt=lrc&charset=utf8`,
+    { headers: KUGOU_HEADERS, signal: AbortSignal.timeout(5000) },
+  );
+  if (!dlRes.ok) return null;
+  const dlData = await dlRes.json() as any;
+  if (dlData.status !== 200 || !dlData.content) return null;
+
+  const lrc = Buffer.from(dlData.content, 'base64').toString('utf8');
+  return lrc.includes('[') ? lrc : null;
+}
 
 async function fromKugou(title: string, duration: number): Promise<string | null> {
-  // Build search queries: try artist+track split, then full title, then stripped title
-  const parts = title.split(/ [-－] /);
-  const queries: string[] = [];
-  if (parts.length >= 2) {
-    queries.push(`${stripTitle(parts[0])} ${stripTitle(parts.slice(1).join(' - '))}`);
-  }
-  queries.push(stripTitle(title));
-  if (title !== stripTitle(title)) queries.push(title);
+  const queries = buildQueries(title);
 
   for (const q of queries) {
     try {
-      const searchRes = await fetch(
-        `http://mobilecdn.kugou.com/api/v3/search/song?format=json&keyword=${encodeURIComponent(q)}&page=1&pagesize=5`,
-        { signal: AbortSignal.timeout(5000) },
-      );
-      if (!searchRes.ok) continue;
-      const searchData = await searchRes.json() as any;
-      const songs: any[] = searchData?.data?.info ?? [];
+      const songs = await kugouSearch(q);
       if (!songs.length) continue;
 
-      // Pick best match: prefer duration-closest song
-      const durationMs = duration * 1000;
-      songs.sort((a, b) => Math.abs(a.duration - durationMs) - Math.abs(b.duration - durationMs));
-      const song = songs[0];
-      const hash: string = song.hash;
-      const songDuration: number = song.duration; // ms
+      // Sort by duration closeness (Kugou duration is in seconds)
+      songs.sort((a, b) => Math.abs(a.duration - duration) - Math.abs(b.duration - duration));
 
-      // Get lyric candidates for this hash
-      const candRes = await fetch(
-        `http://lyrics.kugou.com/search?ver=1&man=yes&client=pc&keyword=${encodeURIComponent(q)}&duration=${songDuration}&hash=${hash}`,
-        { signal: AbortSignal.timeout(5000) },
-      );
-      if (!candRes.ok) continue;
-      const candData = await candRes.json() as any;
-      const candidates: any[] = candData?.candidates ?? [];
-      if (!candidates.length) continue;
-
-      // Prefer official lyrics (product_from contains 官方)
-      const best = candidates.find((c: any) => c.product_from?.includes('官方')) ?? candidates[0];
-
-      // Download LRC (base64 encoded)
-      const dlRes = await fetch(
-        `http://lyrics.kugou.com/download?ver=1&client=pc&id=${best.id}&accesskey=${best.accesskey}&fmt=lrc&charset=utf8`,
-        { signal: AbortSignal.timeout(5000) },
-      );
-      if (!dlRes.ok) continue;
-      const dlData = await dlRes.json() as any;
-      if (dlData.status !== 200 || !dlData.content) continue;
-
-      const lrc = Buffer.from(dlData.content, 'base64').toString('utf8');
-      if (lrc.includes('[') && lrc.includes(']')) return lrc;
+      // Try top 3 closest matches (within 3 minutes tolerance)
+      for (const song of songs.slice(0, 3)) {
+        if (Math.abs(song.duration - duration) > 180) continue;
+        const lrc = await kugouDownloadLrc(q, song.hash, song.duration);
+        if (lrc) return lrc;
+      }
     } catch { /* try next query */ }
   }
   return null;
 }
 
-// ── 網易雲音樂 Netease (fallback, limited for Taiwanese artists) ───────────────
+// ── 網易雲音樂 Netease (fallback) ─────────────────────────────────────────────
 
 async function fromNetease(title: string): Promise<string | null> {
   const NE_HEADERS = {
@@ -105,7 +148,7 @@ async function fromNetease(title: string): Promise<string | null> {
     const searchRes = await fetch('https://music.163.com/api/search/get', {
       method: 'POST',
       headers: { ...NE_HEADERS, 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: `s=${encodeURIComponent(stripTitle(title))}&type=1&limit=5&offset=0`,
+      body: `s=${encodeURIComponent(stripDecorations(title))}&type=1&limit=5&offset=0`,
       signal: AbortSignal.timeout(6000),
     });
     if (!searchRes.ok) return null;
@@ -126,7 +169,7 @@ async function fromNetease(title: string): Promise<string | null> {
   return null;
 }
 
-// ── Route ────────────────────────────────────────────────────────────────────
+// ── Route ─────────────────────────────────────────────────────────────────────
 
 router.get('/', async (req, res) => {
   const title = String(req.query.title ?? '').trim();
