@@ -112,36 +112,12 @@ function parseLrc(lrc: string): LrcLine[] {
   return lines.sort((a, b) => a.time - b.time);
 }
 
-// Strip common YouTube title decorations: (Official MV), [HD], 【MV】…
-function stripTitle(s: string): string {
-  return s.replace(/\s*[[(（【][^\]\)）】]*[\]\)）】]/g, '').trim();
-}
-
 export async function fetchLyrics(title: string, duration: number): Promise<LrcLine[]> {
-  const parts = title.split(/ [-－] /);
-  const attempts: [string, string][] = [];
-
-  if (parts.length >= 2) {
-    const artist = stripTitle(parts[0]);
-    const track = stripTitle(parts.slice(1).join(' - '));
-    attempts.push(['get', `artist_name=${encodeURIComponent(artist)}&track_name=${encodeURIComponent(track)}&duration=${duration}`]);
-    attempts.push(['search', `q=${encodeURIComponent(`${track} ${artist}`)}`]);
-  }
-  attempts.push(['search', `q=${encodeURIComponent(stripTitle(title))}`]);
-
-  for (const [type, q] of attempts) {
-    try {
-      const url = type === 'get'
-        ? `https://lrclib.net/api/get?${q}`
-        : `https://lrclib.net/api/search?${q}&limit=3`;
-      const res = await fetch(url);
-      if (!res.ok) continue;
-      const data = await res.json();
-      const items: any[] = Array.isArray(data) ? data : [data];
-      for (const item of items) {
-        if (item?.syncedLyrics) return parseLrc(item.syncedLyrics);
-      }
-    } catch { /* ignore, try next */ }
-  }
+  try {
+    const res = await fetch(`${BASE}/api/lyrics?title=${encodeURIComponent(title)}&duration=${duration}`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    if (data.lrc) return parseLrc(data.lrc);
+  } catch { /* ignore */ }
   return [];
 }

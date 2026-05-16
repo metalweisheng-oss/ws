@@ -7,6 +7,7 @@ import { buildQueueRouter } from './routes/queue';
 import youtubeRouter from './routes/youtube';
 import qrcodeRouter from './routes/qrcode';
 import adminRouter from './routes/admin';
+import lyricsRouter from './routes/lyrics';
 import { registerSocketHandlers } from './socket/handlers';
 
 const app = express();
@@ -28,6 +29,7 @@ app.use('/api/queue', buildQueueRouter(io));
 app.use('/api/youtube', youtubeRouter);
 app.use('/api/qrcode', qrcodeRouter);
 app.use('/api/admin', adminRouter);
+app.use('/api/lyrics', lyricsRouter);
 
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
