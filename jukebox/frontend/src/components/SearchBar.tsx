@@ -12,6 +12,7 @@ export default function SearchBar({ onAdded }: Props) {
   const [results, setResults] = useState<VideoInfo[]>([]);
   const [loading, setLoading] = useState(false);
   const [adding, setAdding] = useState<string | null>(null);
+  const [added, setAdded] = useState<string | null>(null); // brief ✓ feedback
   const [requester, setRequester] = useState('');
   const [error, setError] = useState('');
 
@@ -118,9 +119,10 @@ export default function SearchBar({ onAdded }: Props) {
     setAdding(v.video_id);
     await addToQueue(v.video_id, requester || undefined).catch(() => null);
     setAdding(null);
-    setResults([]);
-    setQuery('');
+    setAdded(v.video_id);
+    setTimeout(() => setAdded(id => id === v.video_id ? null : id), 2000);
     onAdded();
+    // Keep query and results so user can keep adding from the same search
   };
 
   return (
@@ -190,9 +192,13 @@ export default function SearchBar({ onAdded }: Props) {
               <button
                 onClick={() => add(v)}
                 disabled={adding === v.video_id}
-                className="px-3 py-1.5 bg-red-600 hover:bg-red-500 rounded-lg text-xs font-medium flex-shrink-0 disabled:opacity-50 transition-colors"
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium flex-shrink-0 disabled:opacity-50 transition-colors ${
+                  added === v.video_id
+                    ? 'bg-green-600 text-white'
+                    : 'bg-red-600 hover:bg-red-500'
+                }`}
               >
-                {adding === v.video_id ? '加入中...' : '點歌'}
+                {adding === v.video_id ? '加入中...' : added === v.video_id ? '✓ 已加入' : '點歌'}
               </button>
             </li>
           ))}
