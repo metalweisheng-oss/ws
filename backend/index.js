@@ -4728,6 +4728,14 @@ app.get('/api/market/movers', async (req, res) => {
 
 // ── 漲停觀察名單每30分快照 ────────────────────────────────────
 async function saveLimitWatchSnapshot() {
+  const now = Date.now()
+  // 若快取空或超過 5 分鐘，先自我呼叫 movers endpoint 以確保有最新資料
+  const cacheAge = _moversCache.ts ? now - _moversCache.ts : Infinity
+  if (!(_moversCache.data || _moversCache.lastGoodData) || cacheAge > 5 * 60 * 1000) {
+    try {
+      await fetch(`http://localhost:${process.env.PORT || 3000}/api/market/movers?limit=200`)
+    } catch(e) { console.warn('[limit-watch] 預熱快取失敗:', e.message) }
+  }
   const cache = _moversCache.data || _moversCache.lastGoodData
   if (!cache) return
   const tw = new Date(Date.now() + 8 * 3600000)
