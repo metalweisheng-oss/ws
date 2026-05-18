@@ -656,12 +656,11 @@ async function fetchMovers() {
 }
 
 function onMoversDateChange() {
-  // 歷史模式停止自動刷新
-  clearInterval(moversTimer)
+  clearTimeout(moversTimer)
   moversTimer = null
   fetchMovers()
   if (!moversDate.value) {
-    moversTimer = setInterval(fetchMovers, 60000)
+    scheduleNextMovers()
   }
 }
 
@@ -678,23 +677,28 @@ function isNearOpen() {
   return m >= 8 * 60 + 50 && m < 9 * 60 + 20
 }
 
+function getMoversInterval() {
+  if (isNearOpen()) return 10000
+  if (isMarketHours()) return 15000
+  return 120000
+}
+
+function scheduleNextMovers() {
+  moversTimer = setTimeout(() => {
+    fetchMovers()
+    scheduleNextMovers()
+  }, getMoversInterval())
+}
+
 function startMoversAutoRefresh() {
-  clearInterval(moversTimer)
+  clearTimeout(moversTimer)
   moversTimer = null
   fetchMoversDates()
   fetchMovers()
-  const interval = isNearOpen() ? 10000 : 30000
-  moversTimer = setInterval(() => {
-    fetchMovers()
-    // 開盤後轉回 30 秒
-    if (!isNearOpen() && moversTimer) {
-      clearInterval(moversTimer)
-      moversTimer = setInterval(fetchMovers, 60000)
-    }
-  }, interval)
+  scheduleNextMovers()
 }
 function stopMoversAutoRefresh() {
-  clearInterval(moversTimer)
+  clearTimeout(moversTimer)
   moversTimer = null
 }
 
