@@ -634,8 +634,10 @@ async function fetchLimitSnapshots() {
     for (const s of d.snapshots || []) { map[s.time] = s.gainers; times.push(s.time) }
     limitSnapshotMap.value = map
     limitSnapshotTimes.value = times
-    // 若目前選的時段已不存在，重設為即時
-    if (limitSnapshotTime.value && !map[limitSnapshotTime.value]) limitSnapshotTime.value = ''
+    // 預設選最新時段；若目前選的已不存在也切到最新
+    if (!limitSnapshotTime.value || !map[limitSnapshotTime.value]) {
+      limitSnapshotTime.value = times.length ? times[times.length - 1] : ''
+    }
   } catch(e) {}
 }
 
