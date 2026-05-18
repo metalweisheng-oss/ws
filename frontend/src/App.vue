@@ -1694,6 +1694,12 @@ function signColor(v) { return +v > 0 ? 'text-red-400' : +v < 0 ? 'text-green-40
 
 const changelog = [
   {
+    date: '2026-05-19', tag: '新功能',
+    items: [
+      '漲跌排行：Telegram 觀察名單通知中，有對應權證的股票後面加註「(權)」',
+    ]
+  },
+  {
     date: '2026-05-19', tag: '修正',
     items: [
       '漲跌排行：修正「傳送觀察名單」Telegram 通知遺漏第三順位的問題——原本後端會過濾掉沒有對應權證的股票，導致網頁顯示的名單與傳送的訊息不一致，現已移除此過濾，傳送名單與網頁完全相同',
