@@ -3590,6 +3590,8 @@ cron.schedule('0,30 9-13 * * 1-5', async () => {
   catch(e) { console.error(`[close-snapshot] ${label} 失敗:`, e.message) }
   try { await saveLimitWatchSnapshot() }
   catch(e) { console.error(`[limit-watch] ${label} 快照失敗:`, e.message) }
+  try { await sendSqueezeAlert(`${label} 快照`) }
+  catch(e) { console.error(`[limit-watch] ${label} Telegram 失敗:`, e.message) }
 }, { timezone: 'Asia/Taipei' })
 
 // 13:35 收盤後儲存漲停委買快照（市場 13:30 收盤），標記漲停收盤
@@ -3798,11 +3800,7 @@ async function sendSqueezeAlert(label = '13:00 定時') {
   }
 }
 
-// 每日 13:00 自動發送量縮漲停觀察名單
-cron.schedule('0 13 * * 1-5', async () => {
-  console.log('[cron] 13:00 發送量縮漲停觀察名單')
-  await sendSqueezeAlert('13:00 定時')
-}, { timezone: 'Asia/Taipei' })
+// 13:00 Telegram 通知已整合進 0,30 9-13 快照排程，此處不再重複
 
 // 13:40 補試（若今日無資料）
 cron.schedule('40 13 * * 1-5', async () => {
