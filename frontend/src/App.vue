@@ -450,7 +450,14 @@ async function sendSqueezeTest() {
   squeezeTestLoading.value = true
   squeezeTestResult.value  = null
   try {
-    const r = await fetch(`${API}/api/test/squeeze-telegram`, { method: 'POST' })
+    const body = limitSnapshotTime.value
+      ? JSON.stringify({ snapshotTime: limitSnapshotTime.value })
+      : undefined
+    const r = await fetch(`${API}/api/test/squeeze-telegram`, {
+      method: 'POST',
+      headers: body ? { 'Content-Type': 'application/json' } : {},
+      body
+    })
     squeezeTestResult.value = await r.json()
   } catch(e) {
     squeezeTestResult.value = { ok: false, message: e.message }
@@ -1686,6 +1693,12 @@ function signShares(v) {
 function signColor(v) { return +v > 0 ? 'text-red-400' : +v < 0 ? 'text-green-400' : 'text-gray-400' }
 
 const changelog = [
+  {
+    date: '2026-05-18', tag: '修正',
+    items: [
+      '漲跌排行：「傳送觀察名單」按鈕改為傳送當下「觀察時段」下拉所選時段的快照名單，而非即時名單',
+    ]
+  },
   {
     date: '2026-05-18', tag: '新功能',
     items: [

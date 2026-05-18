@@ -1601,6 +1601,32 @@ app.post('/api/test/telegram', (req, res) => {
 
 app.post('/api/test/squeeze-telegram', async (req, res) => {
   try {
+    const { snapshotTime, date } = req.body || {}
+    if (snapshotTime) {
+      // 使用指定快照時段的資料
+      const tw = new Date(Date.now() + 8 * 3600000)
+      const tradeDate = date || tw.toISOString().slice(0, 10)
+      const { rows } = await pool.query(
+        `SELECT gainers FROM limit_watch_snapshots WHERE trade_date = $1 AND snapshot_time = $2`,
+        [tradeDate, snapshotTime]
+      )
+      if (!rows.length) return res.json({ ok: false, message: `找不到 ${tradeDate} ${snapshotTime} 的快照` })
+      const gainers = rows[0].gainers
+      const covered = await getWarrantCoveredSet()
+      const filterW = arr => covered && covered.size > 0 ? arr.filter(r => covered.has(r.stockNo)) : arr
+      const sq = buildSqueezeListsFromGainers(gainers)
+      const sg = buildSurgeListsFromGainers(gainers)
+      const sq1 = filterW(sq.list1), sq2 = filterW(sq.list2), sq3 = filterW(sq.list3)
+      const sg1 = filterW(sg.list1), sg2 = filterW(sg.list2), sg3 = filterW(sg.list3)
+      const label = `${tradeDate} ${snapshotTime} 快照`
+      const sqMsg = formatSqueezeMsg(sq1, sq2, sq3, label)
+      const sgMsg = formatSurgeMsg(sg1, sg2, sg3, label)
+      if (sqMsg) sendTelegram(sqMsg)
+      if (sgMsg) sendTelegram(sgMsg)
+      const sqTotal = sq1.length + sq2.length + sq3.length
+      const sgTotal = sg1.length + sg2.length + sg3.length
+      return res.json({ ok: true, message: `已傳送 ${label}，量縮 ${sqTotal} 檔、量增 ${sgTotal} 檔` })
+    }
     const result = await sendSqueezeAlert('手動傳送')
     res.json(result)
   } catch(e) {
