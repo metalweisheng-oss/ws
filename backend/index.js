@@ -1612,12 +1612,8 @@ app.post('/api/test/squeeze-telegram', async (req, res) => {
       )
       if (!rows.length) return res.json({ ok: false, message: `找不到 ${tradeDate} ${snapshotTime} 的快照` })
       const gainers = rows[0].gainers
-      const covered = await getWarrantCoveredSet()
-      const filterW = arr => covered && covered.size > 0 ? arr.filter(r => covered.has(r.stockNo)) : arr
-      const sq = buildSqueezeListsFromGainers(gainers)
-      const sg = buildSurgeListsFromGainers(gainers)
-      const sq1 = filterW(sq.list1), sq2 = filterW(sq.list2), sq3 = filterW(sq.list3)
-      const sg1 = filterW(sg.list1), sg2 = filterW(sg.list2), sg3 = filterW(sg.list3)
+      const { list1: sq1, list2: sq2, list3: sq3 } = buildSqueezeListsFromGainers(gainers)
+      const { list1: sg1, list2: sg2, list3: sg3 } = buildSurgeListsFromGainers(gainers)
       const label = `${tradeDate} ${snapshotTime} 快照`
       const sqMsg = formatSqueezeMsg(sq1, sq2, sq3, label)
       const sgMsg = formatSurgeMsg(sg1, sg2, sg3, label)
@@ -3793,12 +3789,8 @@ async function sendSqueezeAlert(label = '13:00 定時') {
     const squeezeRaw = buildSqueezeListsFromGainers(gainers)
     const surgeRaw   = buildSurgeListsFromGainers(gainers)
 
-    // 只保留有效權證的個股
-    const covered = await getWarrantCoveredSet()
-    const filterW = arr => covered && covered.size > 0 ? arr.filter(r => covered.has(r.stockNo)) : arr
-
-    const sq1 = filterW(squeezeRaw.list1), sq2 = filterW(squeezeRaw.list2), sq3 = filterW(squeezeRaw.list3)
-    const sg1 = filterW(surgeRaw.list1),   sg2 = filterW(surgeRaw.list2),   sg3 = filterW(surgeRaw.list3)
+    const { list1: sq1, list2: sq2, list3: sq3 } = squeezeRaw
+    const { list1: sg1, list2: sg2, list3: sg3 } = surgeRaw
 
     const sqMsg = formatSqueezeMsg(sq1, sq2, sq3, label)
     const sgMsg = formatSurgeMsg(sg1, sg2, sg3, label)
