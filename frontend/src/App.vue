@@ -1658,6 +1658,14 @@ function signColor(v) { return +v > 0 ? 'text-red-400' : +v < 0 ? 'text-green-40
 
 const changelog = [
   {
+    date: '2026-05-18', tag: '修正',
+    items: [
+      '漲跌排行：修正盤中更新太慢的問題——前端輪詢間隔從 60 秒縮短為 15 秒（盤中 09:00–13:30），後端快取 TTL 從 60 秒縮短為 12 秒，盤後維持 120 秒/60 秒以節省資源',
+      '漲跌排行：修正開盤後輪詢邏輯錯誤——原本在 09:20 之後會從 30 秒切換至 60 秒，改用 setTimeout 遞迴確保每次依當前時段正確設定間隔',
+      '主力監控（StockAI）：修正排程執行但 Railway logs 無任何輸出的問題——新增 logging.basicConfig(level=INFO)，scheduler 及 ingest 服務的 INFO 訊息現在可正常在 Railway logs 顯示',
+    ]
+  },
+  {
     date: '2026-05-14', tag: '新功能',
     items: [
       '雙模選股：新增置頂「系統說明」面板（可收折），說明 Regime 判斷邏輯、動能/價值模式評分架構、族群熱度用途及建議操作流程',
