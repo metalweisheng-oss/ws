@@ -3849,8 +3849,13 @@ async function getQualifiedWarrantsMap(stockNos) {
         ? (strike + price / ratio - stockPrice) / stockPrice * 100 : null
       if (premiumPct == null || premiumPct <= -5 || premiumPct >= 10) continue
 
+      // 檢查是否有委賣單（a = 委賣價，f = 委賣量）
+      const hasAsk = mis.a && mis.a !== '-' && mis.a.split('_').some(v => parseFloat(v) > 0)
+        && mis.f && mis.f !== '-' && mis.f.split('_').some(v => parseInt(v) > 0)
+      const noAsk = !hasAsk
+
       if (!result[stockNo]) result[stockNo] = []
-      result[stockNo].push(code)
+      result[stockNo].push(noAsk ? `${code}(無單)` : code)
     }
     return result
   } catch(e) {
