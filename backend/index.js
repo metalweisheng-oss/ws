@@ -3708,9 +3708,9 @@ function formatSqueezeMsg(list1, list2, list3, label = '13:00 定時', covered =
   const dateStr = `${now.getUTCFullYear()}-${String(now.getUTCMonth()+1).padStart(2,'0')}-${String(now.getUTCDate()).padStart(2,'0')} ${String(now.getUTCHours()).padStart(2,'0')}:${String(now.getUTCMinutes()).padStart(2,'0')}`
   const fmt = (r) => {
     const w = warrantsMap?.[r.stockNo]
-    const withLine    = w?.with?.length    ? '\n    🎫 ' + w.with.join(' ') : ''
-    const withoutLine = w?.without?.length ? '\n       ' + w.without.map(c => `${c}(無單)`).join(' ') : ''
-    return `  • ${r.stockName}(${r.stockNo})${covered?.has(r.stockNo) ? '(權)' : ''}${r.earlyLimitUp ? ' ⚡' : ''}${withLine}${withoutLine}`
+    const withBlock    = w?.with?.length    ? '\n    （有單）\n' + w.with.map(c => `    ${c}`).join('\n') : ''
+    const withoutBlock = w?.without?.length ? '\n    （無單）\n' + w.without.map(c => `    ${c}`).join('\n') : ''
+    return `  • ${r.stockName}(${r.stockNo})${covered?.has(r.stockNo) ? '(權)' : ''}${r.earlyLimitUp ? ' ⚡' : ''}${withBlock}${withoutBlock}`
   }
   const total = list1.length + list2.length + list3.length
   if (total === 0) return null
@@ -3733,9 +3733,9 @@ function formatSurgeMsg(list1, list2, list3, label = '13:00 定時', covered = n
   const dateStr = `${now.getUTCFullYear()}-${String(now.getUTCMonth()+1).padStart(2,'0')}-${String(now.getUTCDate()).padStart(2,'0')} ${String(now.getUTCHours()).padStart(2,'0')}:${String(now.getUTCMinutes()).padStart(2,'0')}`
   const fmt = (r) => {
     const w = warrantsMap?.[r.stockNo]
-    const withLine    = w?.with?.length    ? '\n    🎫 ' + w.with.join(' ') : ''
-    const withoutLine = w?.without?.length ? '\n       ' + w.without.map(c => `${c}(無單)`).join(' ') : ''
-    return `  • ${r.stockName}(${r.stockNo})${covered?.has(r.stockNo) ? '(權)' : ''}${r.earlyLimitUp ? ' ⚡' : ''}${withLine}${withoutLine}`
+    const withBlock    = w?.with?.length    ? '\n    （有單）\n' + w.with.map(c => `    ${c}`).join('\n') : ''
+    const withoutBlock = w?.without?.length ? '\n    （無單）\n' + w.without.map(c => `    ${c}`).join('\n') : ''
+    return `  • ${r.stockName}(${r.stockNo})${covered?.has(r.stockNo) ? '(權)' : ''}${r.earlyLimitUp ? ' ⚡' : ''}${withBlock}${withoutBlock}`
   }
   const total = list1.length + list2.length + list3.length
   if (total === 0) return null
