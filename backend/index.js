@@ -1616,8 +1616,11 @@ app.post('/api/test/squeeze-telegram', async (req, res) => {
       const { list1: sg1, list2: sg2, list3: sg3 } = buildSurgeListsFromGainers(gainers)
       const label = `${tradeDate} ${snapshotTime} 快照`
       const covered = await getWarrantCoveredSet()
-      const sqMsg = formatSqueezeMsg(sq1, sq2, sq3, label, covered)
-      const sgMsg = formatSurgeMsg(sg1, sg2, sg3, label, covered)
+      const coveredStockNos = [...new Set([...sq1, ...sq2, ...sq3, ...sg1, ...sg2, ...sg3]
+        .filter(r => covered?.has(r.stockNo)).map(r => r.stockNo))]
+      const warrantsMap = coveredStockNos.length ? await getQualifiedWarrantsMap(coveredStockNos) : {}
+      const sqMsg = formatSqueezeMsg(sq1, sq2, sq3, label, covered, warrantsMap)
+      const sgMsg = formatSurgeMsg(sg1, sg2, sg3, label, covered, warrantsMap)
       if (sqMsg) sendTelegram(sqMsg)
       if (sgMsg) sendTelegram(sgMsg)
       const sqTotal = sq1.length + sq2.length + sq3.length
@@ -3700,10 +3703,13 @@ function buildSqueezeListsFromGainers(gainers) {
   return { list1, list2, list3 }
 }
 
-function formatSqueezeMsg(list1, list2, list3, label = '13:00 定時', covered = null) {
+function formatSqueezeMsg(list1, list2, list3, label = '13:00 定時', covered = null, warrantsMap = null) {
   const now = new Date(Date.now() + 8 * 3600000)
   const dateStr = `${now.getUTCFullYear()}-${String(now.getUTCMonth()+1).padStart(2,'0')}-${String(now.getUTCDate()).padStart(2,'0')} ${String(now.getUTCHours()).padStart(2,'0')}:${String(now.getUTCMinutes()).padStart(2,'0')}`
-  const fmt = (r) => `  • ${r.stockName}(${r.stockNo})${covered?.has(r.stockNo) ? '(權)' : ''}${r.earlyLimitUp ? ' ⚡' : ''}`
+  const fmt = (r) => {
+    const wCodes = warrantsMap?.[r.stockNo]
+    return `  • ${r.stockName}(${r.stockNo})${covered?.has(r.stockNo) ? '(權)' : ''}${r.earlyLimitUp ? ' ⚡' : ''}${wCodes?.length ? '\n    🎫 ' + wCodes.join(' ') : ''}`
+  }
   const total = list1.length + list2.length + list3.length
   if (total === 0) return null
   let msg = `📊 <b>量縮漲停觀察名單</b>　[${dateStr}]　<i>${label}</i>\n`
@@ -3720,10 +3726,13 @@ function formatSqueezeMsg(list1, list2, list3, label = '13:00 定時', covered =
   return msg
 }
 
-function formatSurgeMsg(list1, list2, list3, label = '13:00 定時', covered = null) {
+function formatSurgeMsg(list1, list2, list3, label = '13:00 定時', covered = null, warrantsMap = null) {
   const now = new Date(Date.now() + 8 * 3600000)
   const dateStr = `${now.getUTCFullYear()}-${String(now.getUTCMonth()+1).padStart(2,'0')}-${String(now.getUTCDate()).padStart(2,'0')} ${String(now.getUTCHours()).padStart(2,'0')}:${String(now.getUTCMinutes()).padStart(2,'0')}`
-  const fmt = (r) => `  • ${r.stockName}(${r.stockNo})${covered?.has(r.stockNo) ? '(權)' : ''}${r.earlyLimitUp ? ' ⚡' : ''}`
+  const fmt = (r) => {
+    const wCodes = warrantsMap?.[r.stockNo]
+    return `  • ${r.stockName}(${r.stockNo})${covered?.has(r.stockNo) ? '(權)' : ''}${r.earlyLimitUp ? ' ⚡' : ''}${wCodes?.length ? '\n    🎫 ' + wCodes.join(' ') : ''}`
+  }
   const total = list1.length + list2.length + list3.length
   if (total === 0) return null
   let msg = `🔥 <b>量增漲停觀察名單</b>　[${dateStr}]　<i>${label}</i>\n`
@@ -3766,6 +3775,90 @@ async function getWarrantCoveredSet() {
   }
 }
 
+// 批次查詢多支股票的符合條件 call 權證，回傳 { stockNo: [warrantCode, ...] }
+async function getQualifiedWarrantsMap(stockNos) {
+  try {
+    const { basicRaw, otcBasicRaw, companyRaw } = await getWarrantBaseData()
+    const codeToName = {}
+    for (const row of Array.isArray(companyRaw) ? companyRaw : []) {
+      const code = (row['公司代號'] || '').trim()
+      const name = (row['公司簡稱'] || '').trim()
+      if (code && name) codeToName[code] = name
+    }
+    const today = new Date()
+    const todayRoc = String(today.getFullYear() - 1911).padStart(3, '0')
+      + String(today.getMonth() + 1).padStart(2, '0')
+      + String(today.getDate()).padStart(2, '0')
+
+    const allWarrantData = [
+      ...((Array.isArray(basicRaw) ? basicRaw : []).map(r => ({ ...r, _exchange: 'tse' }))),
+      ...((Array.isArray(otcBasicRaw) ? otcBasicRaw : []).map(r => ({ ...r, _exchange: 'otc' }))),
+    ]
+
+    // 收集每支股票剩餘天數 > 60 的 call 權證
+    const pending = [] // { stockNo, code, w, exchange }
+    for (const stockNo of stockNos) {
+      const stockName = codeToName[stockNo]
+      if (!stockName) continue
+      for (const w of allWarrantData) {
+        if (w['標的證券/指數'] !== stockName || w['最後交易日'] < todayRoc) continue
+        if ((w['權證類型'] || '').includes('售')) continue // 只要 call
+        const code = w['權証代号'] || w['權證代號']
+        if (!code) continue
+        const exp = rocToGregorian(w['最後交易日'])
+        const daysLeft = exp ? Math.max(0, Math.round((exp - today) / 86400000)) : null
+        if (!daysLeft || daysLeft <= 60) continue
+        pending.push({ stockNo, code, w, exchange: w._exchange })
+      }
+    }
+    if (!pending.length) return {}
+
+    // 批次查 MIS 權證現價 + 標的現價
+    const batchFetch = async (codes, exchange) => {
+      const map = {}
+      for (let i = 0; i < codes.length; i += 100) {
+        const mis = await fetchMisBatch(codes.slice(i, i + 100), 8000, exchange).catch(() => null)
+        for (const item of mis?.msgArray || []) map[item.c] = item
+      }
+      return map
+    }
+    const tseCodes = pending.filter(p => p.exchange === 'tse').map(p => p.code)
+    const otcCodes = pending.filter(p => p.exchange === 'otc').map(p => p.code)
+    const [tsePMap, otcPMap, sPMap] = await Promise.all([
+      tseCodes.length ? batchFetch(tseCodes, 'tse') : Promise.resolve({}),
+      otcCodes.length ? batchFetch(otcCodes, 'otc') : Promise.resolve({}),
+      batchFetch([...new Set(stockNos)], 'tse'),
+    ])
+    const wPMap = { ...tsePMap, ...otcPMap }
+
+    const result = {}
+    for (const { stockNo, code, w } of pending) {
+      const mis = wPMap[code] || {}
+      const zVal = mis.z && mis.z !== '-' ? parseFloat(mis.z) : null
+      const yVal = mis.y && mis.y !== '-' ? parseFloat(mis.y) : null
+      const price = zVal ?? yVal ?? null
+      const volume = parseInt(mis.v) || 0
+      if (volume <= 30) continue
+
+      const sMis = sPMap[stockNo] || {}
+      const stockPrice = (sMis.z && sMis.z !== '-' ? parseFloat(sMis.z) : null)
+        ?? (sMis.y && sMis.y !== '-' ? parseFloat(sMis.y) : null)
+      const ratio = (parseFloat(w['最新標的履約配發數量(每仟單位權證)']) || 0) / 1000 || null
+      const strike = parseFloat(w['最新履約價格(元)/履約指數']) || null
+      const premiumPct = (stockPrice && price && ratio && strike)
+        ? (strike + price / ratio - stockPrice) / stockPrice * 100 : null
+      if (premiumPct == null || premiumPct <= -5 || premiumPct >= 10) continue
+
+      if (!result[stockNo]) result[stockNo] = []
+      result[stockNo].push(code)
+    }
+    return result
+  } catch(e) {
+    console.error('[getQualifiedWarrantsMap]', e.message)
+    return {}
+  }
+}
+
 async function sendSqueezeAlert(label = '13:00 定時') {
   try {
     // 確保快取是新鮮的（10 分鐘內），否則主動呼叫自身 movers 端點刷新
@@ -3794,8 +3887,11 @@ async function sendSqueezeAlert(label = '13:00 定時') {
     const { list1: sg1, list2: sg2, list3: sg3 } = surgeRaw
 
     const covered = await getWarrantCoveredSet()
-    const sqMsg = formatSqueezeMsg(sq1, sq2, sq3, label, covered)
-    const sgMsg = formatSurgeMsg(sg1, sg2, sg3, label, covered)
+    const coveredStockNos = [...new Set([...sq1, ...sq2, ...sq3, ...sg1, ...sg2, ...sg3]
+      .filter(r => covered?.has(r.stockNo)).map(r => r.stockNo))]
+    const warrantsMap = coveredStockNos.length ? await getQualifiedWarrantsMap(coveredStockNos) : {}
+    const sqMsg = formatSqueezeMsg(sq1, sq2, sq3, label, covered, warrantsMap)
+    const sgMsg = formatSurgeMsg(sg1, sg2, sg3, label, covered, warrantsMap)
 
     if (!sqMsg && !sgMsg) {
       console.log('[squeeze-alert] 兩份名單皆為空，略過')
