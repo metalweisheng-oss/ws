@@ -4766,6 +4766,71 @@ app.get('/api/market/limit-snapshots', async (req, res) => {
   }
 })
 
+// 補齊歷史漲停觀察快照（每日一筆 13:30 收盤快照）
+app.post('/api/sync/backfill-limit-snapshots', async (req, res) => {
+  try {
+    const dates = req.body.dates  // 陣列，e.g. ['2026-05-14', ...]
+    if (!Array.isArray(dates) || !dates.length) return res.status(400).json({ error: 'dates required' })
+    const results = []
+    for (const date of dates) {
+      const { rows } = await pool.query(`
+        WITH ma AS (
+          SELECT stock_no, trade_date,
+            close::float AS price,
+            open_p::float AS open_p,
+            volume::bigint AS volume,
+            LAG(close::float)  OVER (PARTITION BY stock_no ORDER BY trade_date) AS prev_close,
+            LAG(volume::bigint) OVER (PARTITION BY stock_no ORDER BY trade_date) AS prev_vol,
+            ROUND(AVG(volume::numeric) OVER (PARTITION BY stock_no ORDER BY trade_date ROWS BETWEEN 4 PRECEDING AND CURRENT ROW))::bigint AS vol_ma5,
+            ROUND(AVG(volume::numeric) OVER (PARTITION BY stock_no ORDER BY trade_date ROWS BETWEEN 2 PRECEDING AND CURRENT ROW))::bigint AS vol_ma3
+          FROM market_daily
+          WHERE close > 0 AND trade_date >= $1::date - INTERVAL '20 days' AND trade_date <= $1::date
+        )
+        SELECT m.stock_no, md.stock_name,
+          m.price, m.prev_close,
+          ROUND(((m.price - m.prev_close) / m.prev_close * 100)::numeric, 2)::float AS change_pct,
+          m.volume, m.vol_ma5, m.vol_ma3, m.prev_vol,
+          dlb.limit_bid_vol,
+          COALESCE(dlb.closed_limit_up, false) AS closed_limit_up,
+          dlb.bid_snapshot_count,
+          dlb.bid_vol_sum,
+          dlb.close_limit_bid_vol
+        FROM ma m
+        JOIN market_daily md ON md.stock_no = m.stock_no AND md.trade_date = m.trade_date
+        LEFT JOIN daily_limit_bid dlb ON dlb.stock_no = m.stock_no AND dlb.trade_date = m.trade_date
+        WHERE m.trade_date = $1::date
+          AND m.prev_close IS NOT NULL AND m.prev_close > 0
+          AND (m.price - m.prev_close) / m.prev_close * 100 >= 9.5
+      `, [date])
+
+      const gainers = rows.map(r => ({
+        stockNo: r.stock_no, stockName: r.stock_name,
+        price: r.price, prevClose: r.prev_close,
+        change: Math.round((r.price - r.prev_close) * 100) / 100,
+        changePct: r.change_pct,
+        volume: Number(r.volume), volMa5: Number(r.vol_ma5), volMa3: Number(r.vol_ma3),
+        prevVol: Number(r.prev_vol),
+        limitBidVol: r.limit_bid_vol ? Number(r.limit_bid_vol) : null,
+        closedLimitUp: r.closed_limit_up,
+        bidSnapshotCount: r.bid_snapshot_count,
+        bidVolSum: r.bid_vol_sum ? Number(r.bid_vol_sum) : null,
+        closeLimitBidVol: r.close_limit_bid_vol ? Number(r.close_limit_bid_vol) : null,
+        innerVol: null, outerVol: null, limitDays: null, earlyLimitUp: false,
+      }))
+
+      await pool.query(`
+        INSERT INTO limit_watch_snapshots (trade_date, snapshot_time, gainers)
+        VALUES ($1, '13:30', $2)
+        ON CONFLICT (trade_date, snapshot_time) DO UPDATE SET gainers = EXCLUDED.gainers
+      `, [date, JSON.stringify(gainers)])
+      results.push({ date, count: gainers.length })
+    }
+    res.json({ ok: true, results })
+  } catch(e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
 // 個股即時報價
 app.get('/api/fubon/quote', async (req, res) => {
   const symbol = (req.query.symbol || '2330').trim()
