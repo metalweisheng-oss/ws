@@ -12,6 +12,7 @@ const https = require('https')
 const http  = require('http')
 const zlib  = require('zlib')
 const cron  = require('node-cron')
+const nodemailer = require('nodemailer')
 require('dotenv').config()
 const { pool } = require('./db')
 
@@ -196,6 +197,28 @@ function sendTelegram(text) {
   req.on('error', () => {})
   req.write(body)
   req.end()
+}
+
+async function sendEmail(subject, htmlBody) {
+  const user = process.env.GMAIL_USER
+  const pass = process.env.GMAIL_APP_PASSWORD
+  if (!user || !pass) { console.warn('[email] GMAIL_USER / GMAIL_APP_PASSWORD 未設定'); return }
+  const transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: { user, pass },
+  })
+  await transporter.sendMail({
+    from: `"主力監控" <${user}>`,
+    to: 'metalweisheng@gmail.com',
+    subject,
+    html: htmlBody,
+  })
+  console.log(`[email] 已寄出：${subject}`)
+}
+
+// 將 Telegram HTML 訊息轉為 email HTML（保留 <b><i>，換行改 <br>）
+function telegramToEmailHtml(text) {
+  return `<div style="font-family:monospace;font-size:14px;line-height:1.8;white-space:pre-wrap">${text.replace(/\n/g, '<br>')}</div>`
 }
 
 // ── 集保大戶持股（全市場） ────────────────────────────
@@ -1629,6 +1652,58 @@ app.post('/api/test/squeeze-telegram', async (req, res) => {
     }
     const result = await sendSqueezeAlert('手動傳送')
     res.json(result)
+  } catch(e) {
+    res.json({ ok: false, message: e.message })
+  }
+})
+
+app.post('/api/test/send-email', async (req, res) => {
+  try {
+    const { snapshotTime, date } = req.body || {}
+    let sqMsg, sgMsg, label
+
+    if (snapshotTime) {
+      const tw = new Date(Date.now() + 8 * 3600000)
+      const tradeDate = date || tw.toISOString().slice(0, 10)
+      const { rows } = await pool.query(
+        `SELECT gainers FROM limit_watch_snapshots WHERE trade_date = $1 AND snapshot_time = $2`,
+        [tradeDate, snapshotTime]
+      )
+      if (!rows.length) return res.json({ ok: false, message: `找不到 ${tradeDate} ${snapshotTime} 的快照` })
+      const gainers = rows[0].gainers
+      const { list1: sq1, list2: sq2, list3: sq3 } = buildSqueezeListsFromGainers(gainers)
+      const { list1: sg1, list2: sg2, list3: sg3 } = buildSurgeListsFromGainers(gainers)
+      label = `${tradeDate} ${snapshotTime} 快照`
+      const covered = await getWarrantCoveredSet()
+      const coveredStockNos = [...new Set([...sq1, ...sq2, ...sq3, ...sg1, ...sg2, ...sg3]
+        .filter(r => covered?.has(r.stockNo)).map(r => r.stockNo))]
+      const warrantsMap = coveredStockNos.length ? await getQualifiedWarrantsMap(coveredStockNos) : {}
+      sqMsg = formatSqueezeMsg(sq1, sq2, sq3, label, covered, warrantsMap)
+      sgMsg = formatSurgeMsg(sg1, sg2, sg3, label, covered, warrantsMap)
+    } else {
+      // 使用即時資料
+      if (!_moversCache.data) {
+        await fetch(`http://localhost:${process.env.PORT || 3000}/api/market/movers?limit=2000`).catch(() => {})
+      }
+      const gainers = _moversCache.data?.gainers || _moversCache.lastGoodData?.gainers || []
+      if (!gainers.length) return res.json({ ok: false, message: '無即時資料' })
+      label = '手動寄送'
+      const { list1: sq1, list2: sq2, list3: sq3 } = buildSqueezeListsFromGainers(gainers)
+      const { list1: sg1, list2: sg2, list3: sg3 } = buildSurgeListsFromGainers(gainers)
+      const covered = await getWarrantCoveredSet()
+      const coveredStockNos = [...new Set([...sq1, ...sq2, ...sq3, ...sg1, ...sg2, ...sg3]
+        .filter(r => covered?.has(r.stockNo)).map(r => r.stockNo))]
+      const warrantsMap = coveredStockNos.length ? await getQualifiedWarrantsMap(coveredStockNos) : {}
+      sqMsg = formatSqueezeMsg(sq1, sq2, sq3, label, covered, warrantsMap)
+      sgMsg = formatSurgeMsg(sg1, sg2, sg3, label, covered, warrantsMap)
+    }
+
+    if (!sqMsg && !sgMsg) return res.json({ ok: false, message: '名單為空，無內容可寄' })
+
+    const combined = [sqMsg, sgMsg].filter(Boolean).join('\n\n' + '─'.repeat(30) + '\n\n')
+    const subject = `漲停觀察名單 ${label}`
+    await sendEmail(subject, telegramToEmailHtml(combined))
+    res.json({ ok: true, message: `已寄出至 metalweisheng@gmail.com` })
   } catch(e) {
     res.json({ ok: false, message: e.message })
   }

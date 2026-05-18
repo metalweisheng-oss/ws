@@ -466,6 +466,28 @@ async function sendSqueezeTest() {
   }
 }
 
+const emailSendLoading = ref(false)
+const emailSendResult  = ref(null)
+async function sendEmailAlert() {
+  emailSendLoading.value = true
+  emailSendResult.value  = null
+  try {
+    const body = limitSnapshotTime.value
+      ? JSON.stringify({ snapshotTime: limitSnapshotTime.value, date: moversDate.value || undefined })
+      : undefined
+    const r = await fetch(`${API}/api/test/send-email`, {
+      method: 'POST',
+      headers: body ? { 'Content-Type': 'application/json' } : {},
+      body
+    })
+    emailSendResult.value = await r.json()
+  } catch(e) {
+    emailSendResult.value = { ok: false, message: e.message }
+  } finally {
+    emailSendLoading.value = false
+  }
+}
+
 const warrantAskMap   = ref({})
 const askLoading      = ref(false)
 const askLastUpdated  = ref(null)
@@ -4367,15 +4389,24 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
       </div>
 
       <!-- 量縮漲停觀察 Telegram 測試鈕 -->
-      <div class="flex items-center gap-3 px-1">
+      <div class="flex items-center gap-3 px-1 flex-wrap">
         <button
           @click="sendSqueezeTest"
           :disabled="squeezeTestLoading"
           class="px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-900/50 border border-blue-500/40 text-blue-300 hover:bg-blue-800/60 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
           {{ squeezeTestLoading ? '傳送中…' : '📨 傳送觀察名單' }}
         </button>
+        <button
+          @click="sendEmailAlert"
+          :disabled="emailSendLoading"
+          class="px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-900/50 border border-emerald-500/40 text-emerald-300 hover:bg-emerald-800/60 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+          {{ emailSendLoading ? '寄送中…' : '✉️ 傳送到 Mail' }}
+        </button>
         <span v-if="squeezeTestResult" :class="squeezeTestResult.ok ? 'text-green-400' : squeezeTestResult.skipped ? 'text-yellow-400' : 'text-red-400'" class="text-xs">
           {{ squeezeTestResult.message || squeezeTestResult.reason }}
+        </span>
+        <span v-if="emailSendResult" :class="emailSendResult.ok ? 'text-green-400' : 'text-red-400'" class="text-xs">
+          {{ emailSendResult.message }}
         </span>
       </div>
 
