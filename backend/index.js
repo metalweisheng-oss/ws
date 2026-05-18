@@ -3707,8 +3707,10 @@ function formatSqueezeMsg(list1, list2, list3, label = '13:00 定時', covered =
   const now = new Date(Date.now() + 8 * 3600000)
   const dateStr = `${now.getUTCFullYear()}-${String(now.getUTCMonth()+1).padStart(2,'0')}-${String(now.getUTCDate()).padStart(2,'0')} ${String(now.getUTCHours()).padStart(2,'0')}:${String(now.getUTCMinutes()).padStart(2,'0')}`
   const fmt = (r) => {
-    const wCodes = warrantsMap?.[r.stockNo]
-    return `  • ${r.stockName}(${r.stockNo})${covered?.has(r.stockNo) ? '(權)' : ''}${r.earlyLimitUp ? ' ⚡' : ''}${wCodes?.length ? '\n    🎫 ' + wCodes.join(' ') : ''}`
+    const w = warrantsMap?.[r.stockNo]
+    const withLine    = w?.with?.length    ? '\n    🎫 ' + w.with.join(' ') : ''
+    const withoutLine = w?.without?.length ? '\n       ' + w.without.map(c => `${c}(無單)`).join(' ') : ''
+    return `  • ${r.stockName}(${r.stockNo})${covered?.has(r.stockNo) ? '(權)' : ''}${r.earlyLimitUp ? ' ⚡' : ''}${withLine}${withoutLine}`
   }
   const total = list1.length + list2.length + list3.length
   if (total === 0) return null
@@ -3730,8 +3732,10 @@ function formatSurgeMsg(list1, list2, list3, label = '13:00 定時', covered = n
   const now = new Date(Date.now() + 8 * 3600000)
   const dateStr = `${now.getUTCFullYear()}-${String(now.getUTCMonth()+1).padStart(2,'0')}-${String(now.getUTCDate()).padStart(2,'0')} ${String(now.getUTCHours()).padStart(2,'0')}:${String(now.getUTCMinutes()).padStart(2,'0')}`
   const fmt = (r) => {
-    const wCodes = warrantsMap?.[r.stockNo]
-    return `  • ${r.stockName}(${r.stockNo})${covered?.has(r.stockNo) ? '(權)' : ''}${r.earlyLimitUp ? ' ⚡' : ''}${wCodes?.length ? '\n    🎫 ' + wCodes.join(' ') : ''}`
+    const w = warrantsMap?.[r.stockNo]
+    const withLine    = w?.with?.length    ? '\n    🎫 ' + w.with.join(' ') : ''
+    const withoutLine = w?.without?.length ? '\n       ' + w.without.map(c => `${c}(無單)`).join(' ') : ''
+    return `  • ${r.stockName}(${r.stockNo})${covered?.has(r.stockNo) ? '(權)' : ''}${r.earlyLimitUp ? ' ⚡' : ''}${withLine}${withoutLine}`
   }
   const total = list1.length + list2.length + list3.length
   if (total === 0) return null
@@ -3852,10 +3856,10 @@ async function getQualifiedWarrantsMap(stockNos) {
       // 檢查是否有委賣單（a = 委賣價，f = 委賣量）
       const hasAsk = mis.a && mis.a !== '-' && mis.a.split('_').some(v => parseFloat(v) > 0)
         && mis.f && mis.f !== '-' && mis.f.split('_').some(v => parseInt(v) > 0)
-      const noAsk = !hasAsk
 
-      if (!result[stockNo]) result[stockNo] = []
-      result[stockNo].push(noAsk ? `${code}(無單)` : code)
+      if (!result[stockNo]) result[stockNo] = { with: [], without: [] }
+      if (hasAsk) result[stockNo].with.push(code)
+      else result[stockNo].without.push(code)
     }
     return result
   } catch(e) {
