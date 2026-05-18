@@ -612,6 +612,26 @@ async function fetchWarrantCoverage() {
 const moversRealtime  = ref(true)
 let   moversTimer     = null
 
+// 漲停觀察名單快照（每30分）
+const limitSnapshotTime  = ref('')   // '' = 即時，'09:30' = 歷史快照
+const limitSnapshotMap   = ref({})   // { '09:30': [...gainers] }
+const limitSnapshotTimes = ref([])   // 可選時段列表
+
+async function fetchLimitSnapshots() {
+  try {
+    const qs = moversDate.value ? `?date=${moversDate.value}` : ''
+    const r = await fetch(`${API}/api/market/limit-snapshots${qs}`)
+    const d = await r.json()
+    const map = {}
+    const times = []
+    for (const s of d.snapshots || []) { map[s.time] = s.gainers; times.push(s.time) }
+    limitSnapshotMap.value = map
+    limitSnapshotTimes.value = times
+    // 若目前選的時段已不存在，重設為即時
+    if (limitSnapshotTime.value && !map[limitSnapshotTime.value]) limitSnapshotTime.value = ''
+  } catch(e) {}
+}
+
 // 五檔報價 Modal
 const quoteVisible  = ref(false)
 const quoteData     = ref(null)
@@ -658,7 +678,9 @@ async function fetchMovers() {
 function onMoversDateChange() {
   clearTimeout(moversTimer)
   moversTimer = null
+  limitSnapshotTime.value = ''
   fetchMovers()
+  fetchLimitSnapshots()
   if (!moversDate.value) {
     scheduleNextMovers()
   }
@@ -695,6 +717,7 @@ function startMoversAutoRefresh() {
   moversTimer = null
   fetchMoversDates()
   fetchMovers()
+  fetchLimitSnapshots()
   scheduleNextMovers()
 }
 function stopMoversAutoRefresh() {
@@ -775,8 +798,14 @@ function bidRatioClass(r) {
   return 'text-gray-400'
 }
 
+const watchBaseGainers = computed(() =>
+  (limitSnapshotTime.value && limitSnapshotMap.value[limitSnapshotTime.value])
+    ? limitSnapshotMap.value[limitSnapshotTime.value]
+    : moversGainers.value
+)
+
 const limitSqueezeList1 = computed(() => {
-  return moversGainers.value.filter(r => {
+  return watchBaseGainers.value.filter(r => {
     if (r.changePct < 9.5) return false
     if (!passAntiSpoof(r)) return false
     if (!passAntiFake(r)) return false
@@ -788,7 +817,7 @@ const limitSqueezeList1 = computed(() => {
 })
 const limitSqueezeList2 = computed(() => {
   const tier1 = new Set(limitSqueezeList1.value.map(r => r.stockNo))
-  return moversGainers.value.filter(r => {
+  return watchBaseGainers.value.filter(r => {
     if (tier1.has(r.stockNo)) return false
     if (r.changePct < 9.5) return false
     if (!passAntiSpoof(r)) return false
@@ -804,7 +833,7 @@ const limitSqueezeList3 = computed(() => {
     ...limitSqueezeList1.value.map(r => r.stockNo),
     ...limitSqueezeList2.value.map(r => r.stockNo),
   ])
-  return moversGainers.value.filter(r => {
+  return watchBaseGainers.value.filter(r => {
     if (tier12.has(r.stockNo)) return false
     if (r.changePct < 9.5) return false
     if (!passAntiSpoof(r)) return false
@@ -836,7 +865,7 @@ function rowBgClass(r) {
 }
 
 const volIncreaseLimitList1 = computed(() => {
-  return moversGainers.value.filter(r => {
+  return watchBaseGainers.value.filter(r => {
     if (r.changePct < 9.5) return false
     if (!passAntiSpoof(r)) return false
     if (!passAntiFake(r)) return false
@@ -852,7 +881,7 @@ const volIncreaseLimitList1 = computed(() => {
 })
 const volIncreaseLimitList2 = computed(() => {
   const tier1 = new Set(volIncreaseLimitList1.value.map(r => r.stockNo))
-  return moversGainers.value.filter(r => {
+  return watchBaseGainers.value.filter(r => {
     if (tier1.has(r.stockNo)) return false
     if (r.changePct < 9.5) return false
     if (!passAntiSpoof(r)) return false
@@ -870,7 +899,7 @@ const volIncreaseLimitList3 = computed(() => {
     ...volIncreaseLimitList1.value.map(r => r.stockNo),
     ...volIncreaseLimitList2.value.map(r => r.stockNo),
   ])
-  return moversGainers.value.filter(r => {
+  return watchBaseGainers.value.filter(r => {
     if (tier12.has(r.stockNo)) return false
     if (r.changePct < 9.5) return false
     if (!passAntiSpoof(r)) return false
@@ -4275,6 +4304,20 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
           <span>點<span class="text-blue-400 underline decoration-dotted">代號</span> → 即時五檔</span>
           <span>點觀察區整列 → 跳到量縮清單</span>
         </div>
+      </div>
+
+      <!-- 觀察名單時段快照下拉 -->
+      <div class="flex items-center gap-2 px-1">
+        <span class="text-xs text-gray-500">觀察時段：</span>
+        <select
+          v-model="limitSnapshotTime"
+          class="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1 text-xs text-gray-200 focus:outline-none focus:ring-1 focus:ring-blue-500">
+          <option value="">即時</option>
+          <option v-for="t in limitSnapshotTimes" :key="t" :value="t">{{ t }}</option>
+        </select>
+        <span v-if="limitSnapshotTime" class="text-xs text-yellow-400">歷史快照</span>
+        <span v-else-if="limitSnapshotTimes.length === 0" class="text-xs text-gray-600">（今日尚無快照）</span>
+        <span v-else class="text-xs text-gray-600">{{ limitSnapshotTimes.length }} 個時段可查</span>
       </div>
 
       <!-- 量縮漲停觀察 Telegram 測試鈕 -->

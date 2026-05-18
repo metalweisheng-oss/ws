@@ -2609,6 +2609,14 @@ app.get('/api/debug/screener-check', async (req, res) => {
       )
     `)
     await pool.query(`
+      CREATE TABLE IF NOT EXISTS limit_watch_snapshots (
+        trade_date    DATE    NOT NULL,
+        snapshot_time VARCHAR(5) NOT NULL,
+        gainers       JSONB   NOT NULL DEFAULT '[]',
+        PRIMARY KEY (trade_date, snapshot_time)
+      )
+    `)
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS stock_ticks (
         id          BIGSERIAL PRIMARY KEY,
         stock_no    VARCHAR(10) NOT NULL,
@@ -3580,6 +3588,8 @@ cron.schedule('0,30 9-13 * * 1-5', async () => {
   console.log(`[cron] ${label} 盤中漲停委買快照`)
   try { await saveCloseSnapshot(null, false) }
   catch(e) { console.error(`[close-snapshot] ${label} 失敗:`, e.message) }
+  try { await saveLimitWatchSnapshot() }
+  catch(e) { console.error(`[limit-watch] ${label} 快照失敗:`, e.message) }
 }, { timezone: 'Asia/Taipei' })
 
 // 13:35 收盤後儲存漲停委買快照（市場 13:30 收盤），標記漲停收盤
@@ -4712,6 +4722,38 @@ app.get('/api/market/movers', async (req, res) => {
     }
   } catch(e) {
     _moversCache.fetchInProgress = false
+    res.status(500).json({ error: e.message })
+  }
+})
+
+// ── 漲停觀察名單每30分快照 ────────────────────────────────────
+async function saveLimitWatchSnapshot() {
+  const cache = _moversCache.data || _moversCache.lastGoodData
+  if (!cache) return
+  const tw = new Date(Date.now() + 8 * 3600000)
+  const tradeDate = tw.toISOString().slice(0, 10)
+  const hh = String(tw.getUTCHours()).padStart(2, '0')
+  const mm = String(tw.getUTCMinutes()).padStart(2, '0')
+  const snapshotTime = `${hh}:${mm}`
+  const gainers = (cache.gainers || []).filter(r => r.changePct >= 9.5)
+  await pool.query(`
+    INSERT INTO limit_watch_snapshots (trade_date, snapshot_time, gainers)
+    VALUES ($1, $2, $3)
+    ON CONFLICT (trade_date, snapshot_time) DO UPDATE SET gainers = EXCLUDED.gainers
+  `, [tradeDate, snapshotTime, JSON.stringify(gainers)])
+  console.log(`[limit-watch] ${snapshotTime} 快照已存 ${gainers.length} 支`)
+}
+
+app.get('/api/market/limit-snapshots', async (req, res) => {
+  try {
+    const tw = new Date(Date.now() + 8 * 3600000)
+    const date = req.query.date || tw.toISOString().slice(0, 10)
+    const { rows } = await pool.query(
+      `SELECT snapshot_time, gainers FROM limit_watch_snapshots WHERE trade_date = $1 ORDER BY snapshot_time`,
+      [date]
+    )
+    res.json({ date, snapshots: rows.map(r => ({ time: r.snapshot_time, gainers: r.gainers })) })
+  } catch(e) {
     res.status(500).json({ error: e.message })
   }
 })
