@@ -1615,8 +1615,9 @@ app.post('/api/test/squeeze-telegram', async (req, res) => {
       const { list1: sq1, list2: sq2, list3: sq3 } = buildSqueezeListsFromGainers(gainers)
       const { list1: sg1, list2: sg2, list3: sg3 } = buildSurgeListsFromGainers(gainers)
       const label = `${tradeDate} ${snapshotTime} 快照`
-      const sqMsg = formatSqueezeMsg(sq1, sq2, sq3, label)
-      const sgMsg = formatSurgeMsg(sg1, sg2, sg3, label)
+      const covered = await getWarrantCoveredSet()
+      const sqMsg = formatSqueezeMsg(sq1, sq2, sq3, label, covered)
+      const sgMsg = formatSurgeMsg(sg1, sg2, sg3, label, covered)
       if (sqMsg) sendTelegram(sqMsg)
       if (sgMsg) sendTelegram(sgMsg)
       const sqTotal = sq1.length + sq2.length + sq3.length
@@ -3699,10 +3700,10 @@ function buildSqueezeListsFromGainers(gainers) {
   return { list1, list2, list3 }
 }
 
-function formatSqueezeMsg(list1, list2, list3, label = '13:00 定時') {
+function formatSqueezeMsg(list1, list2, list3, label = '13:00 定時', covered = null) {
   const now = new Date(Date.now() + 8 * 3600000)
   const dateStr = `${now.getUTCFullYear()}-${String(now.getUTCMonth()+1).padStart(2,'0')}-${String(now.getUTCDate()).padStart(2,'0')} ${String(now.getUTCHours()).padStart(2,'0')}:${String(now.getUTCMinutes()).padStart(2,'0')}`
-  const fmt = (r) => `  • ${r.stockName}(${r.stockNo})${r.earlyLimitUp ? ' ⚡' : ''}`
+  const fmt = (r) => `  • ${r.stockName}(${r.stockNo})${covered?.has(r.stockNo) ? '(權)' : ''}${r.earlyLimitUp ? ' ⚡' : ''}`
   const total = list1.length + list2.length + list3.length
   if (total === 0) return null
   let msg = `📊 <b>量縮漲停觀察名單</b>　[${dateStr}]　<i>${label}</i>\n`
@@ -3719,10 +3720,10 @@ function formatSqueezeMsg(list1, list2, list3, label = '13:00 定時') {
   return msg
 }
 
-function formatSurgeMsg(list1, list2, list3, label = '13:00 定時') {
+function formatSurgeMsg(list1, list2, list3, label = '13:00 定時', covered = null) {
   const now = new Date(Date.now() + 8 * 3600000)
   const dateStr = `${now.getUTCFullYear()}-${String(now.getUTCMonth()+1).padStart(2,'0')}-${String(now.getUTCDate()).padStart(2,'0')} ${String(now.getUTCHours()).padStart(2,'0')}:${String(now.getUTCMinutes()).padStart(2,'0')}`
-  const fmt = (r) => `  • ${r.stockName}(${r.stockNo})${r.earlyLimitUp ? ' ⚡' : ''}`
+  const fmt = (r) => `  • ${r.stockName}(${r.stockNo})${covered?.has(r.stockNo) ? '(權)' : ''}${r.earlyLimitUp ? ' ⚡' : ''}`
   const total = list1.length + list2.length + list3.length
   if (total === 0) return null
   let msg = `🔥 <b>量增漲停觀察名單</b>　[${dateStr}]　<i>${label}</i>\n`
@@ -3792,12 +3793,13 @@ async function sendSqueezeAlert(label = '13:00 定時') {
     const { list1: sq1, list2: sq2, list3: sq3 } = squeezeRaw
     const { list1: sg1, list2: sg2, list3: sg3 } = surgeRaw
 
-    const sqMsg = formatSqueezeMsg(sq1, sq2, sq3, label)
-    const sgMsg = formatSurgeMsg(sg1, sg2, sg3, label)
+    const covered = await getWarrantCoveredSet()
+    const sqMsg = formatSqueezeMsg(sq1, sq2, sq3, label, covered)
+    const sgMsg = formatSurgeMsg(sg1, sg2, sg3, label, covered)
 
     if (!sqMsg && !sgMsg) {
-      console.log('[squeeze-alert] 過濾後兩份名單皆為空，略過')
-      return { skipped: true, reason: '無符合條件且有權證的漲停股' }
+      console.log('[squeeze-alert] 兩份名單皆為空，略過')
+      return { skipped: true, reason: '無符合條件的漲停股' }
     }
     if (sqMsg) sendTelegram(sqMsg)
     if (sgMsg) sendTelegram(sgMsg)
@@ -3805,7 +3807,7 @@ async function sendSqueezeAlert(label = '13:00 定時') {
     const sqTotal = sq1.length + sq2.length + sq3.length
     const sgTotal = sg1.length + sg2.length + sg3.length
     const total   = sqTotal + sgTotal
-    console.log(`[squeeze-alert] 已發送，量縮 ${sqTotal} 檔 / 量增 ${sgTotal} 檔（含權證過濾）`)
+    console.log(`[squeeze-alert] 已發送，量縮 ${sqTotal} 檔 / 量增 ${sgTotal} 檔`)
     return {
       ok: true, total,
       squeeze: { count: sqTotal, list1: sq1.length, list2: sq2.length, list3: sq3.length },
