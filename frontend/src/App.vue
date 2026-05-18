@@ -451,7 +451,7 @@ async function sendSqueezeTest() {
   squeezeTestResult.value  = null
   try {
     const body = limitSnapshotTime.value
-      ? JSON.stringify({ snapshotTime: limitSnapshotTime.value })
+      ? JSON.stringify({ snapshotTime: limitSnapshotTime.value, date: moversDate.value || undefined })
       : undefined
     const r = await fetch(`${API}/api/test/squeeze-telegram`, {
       method: 'POST',

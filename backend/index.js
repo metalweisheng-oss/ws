@@ -4790,6 +4790,33 @@ app.get('/api/market/limit-snapshots', async (req, res) => {
   }
 })
 
+// 手動存一筆快照（用目前快取，可指定 time/date）
+app.post('/api/sync/save-limit-snapshot', async (req, res) => {
+  try {
+    const tw = new Date(Date.now() + 8 * 3600000)
+    const { time, date } = req.body || {}
+    const tradeDate = date || tw.toISOString().slice(0, 10)
+    const snapshotTime = time || `${String(tw.getUTCHours()).padStart(2,'0')}:${String(tw.getUTCMinutes()).padStart(2,'0')}`
+
+    // 先確保有快取
+    if (!(_moversCache.data || _moversCache.lastGoodData)) {
+      await fetch(`http://localhost:${process.env.PORT || 3000}/api/market/movers?limit=200`)
+    }
+    const cache = _moversCache.data || _moversCache.lastGoodData
+    if (!cache) return res.json({ ok: false, message: '快取無資料' })
+
+    const gainers = (cache.gainers || []).filter(r => r.changePct >= 9.5)
+    await pool.query(`
+      INSERT INTO limit_watch_snapshots (trade_date, snapshot_time, gainers)
+      VALUES ($1, $2, $3)
+      ON CONFLICT (trade_date, snapshot_time) DO UPDATE SET gainers = EXCLUDED.gainers
+    `, [tradeDate, snapshotTime, JSON.stringify(gainers)])
+    res.json({ ok: true, date: tradeDate, time: snapshotTime, count: gainers.length })
+  } catch(e) {
+    res.json({ ok: false, message: e.message })
+  }
+})
+
 // 補齊歷史漲停觀察快照（每日一筆 13:30 收盤快照）
 app.post('/api/sync/backfill-limit-snapshots', async (req, res) => {
   try {
