@@ -1690,8 +1690,9 @@ const changelog = [
     date: '2026-05-18', tag: '新功能',
     items: [
       '漲跌排行：量縮漲停觀察與量增漲停觀察新增「觀察時段」下拉選單，每 30 分鐘自動存查一次（09:30、10:00、10:30…13:30），可隨時回顧當日各時段的名單狀態',
+      '漲跌排行：每 30 分鐘存查的同時自動傳送 Telegram 通知，含當下量縮 + 量增漲停觀察名單（原 13:00 單次通知改為全天每半小時通知）',
       '漲跌排行：修正快照潛在遺漏問題——伺服器重啟後快取為空時，快照排程會先自動預熱 movers 資料再存查，確保每個時段都有完整紀錄',
-      '漲跌排行：說明區新增 Telegram 每日通知時間備註（週一至週五 13:00 自動傳送量縮 + 量增漲停觀察名單）',
+      '漲跌排行：說明區新增 Telegram 通知時間備註',
     ]
   },
   {
@@ -4316,7 +4317,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
         <!-- Telegram 通知說明 -->
         <div class="flex items-center gap-2 border-t border-gray-800 pt-2 text-gray-600">
           <span class="text-blue-400">📨</span>
-          <span>每個交易日 <span class="text-gray-300 font-medium">13:00</span> 自動發送量縮 + 量增漲停觀察名單至 Telegram（週一至週五）</span>
+          <span>每個交易日 <span class="text-gray-300 font-medium">09:30 起每 30 分鐘</span>（09:30、10:00、10:30…13:30）自動傳送量縮 + 量增漲停觀察名單至 Telegram（週一至週五）</span>
         </div>
       </div>
 
