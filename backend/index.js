@@ -3683,7 +3683,20 @@ app.get('/api/inst/history', async (req, res) => {
 })
 
 // 盤中每 30 分鐘拍快照（9:00～13:30），只更新委買量最大值，不標記漲停收盤
-cron.schedule('0,30 9-13 * * 1-5', async () => {
+// 09:00-13:00（整點）＋ 09:30-12:30（半點）：共 09:00,09:30,...,13:00，排除 13:30
+// 13:30 MIS 進入收盤結算模式，資料嚴重不完整，不儲存快照
+cron.schedule('0 9-13 * * 1-5', async () => {
+  const t = new Date(Date.now() + 8 * 3600000)
+  const label = `${t.getUTCHours()}:${String(t.getUTCMinutes()).padStart(2,'0')}`
+  console.log(`[cron] ${label} 盤中漲停委買快照`)
+  try { await saveCloseSnapshot(null, false) }
+  catch(e) { console.error(`[close-snapshot] ${label} 失敗:`, e.message) }
+  try { await saveLimitWatchSnapshot() }
+  catch(e) { console.error(`[limit-watch] ${label} 快照失敗:`, e.message) }
+  try { await sendSqueezeAlert(`${label} 快照`) }
+  catch(e) { console.error(`[limit-watch] ${label} Telegram 失敗:`, e.message) }
+}, { timezone: 'Asia/Taipei' })
+cron.schedule('30 9-12 * * 1-5', async () => {
   const t = new Date(Date.now() + 8 * 3600000)
   const label = `${t.getUTCHours()}:${String(t.getUTCMinutes()).padStart(2,'0')}`
   console.log(`[cron] ${label} 盤中漲停委買快照`)

@@ -657,8 +657,15 @@ async function fetchLimitSnapshots() {
     limitSnapshotMap.value = map
     limitSnapshotTimes.value = times
     // 預設選最新時段；若目前選的已不存在也切到最新
+    // 但若最新快照資料量遠少於前一筆（MIS 收盤後資料不完整），改選前一筆
     if (!limitSnapshotTime.value || !map[limitSnapshotTime.value]) {
-      limitSnapshotTime.value = times.length ? times[times.length - 1] : ''
+      let bestTime = times.length ? times[times.length - 1] : ''
+      if (times.length >= 2) {
+        const latestCount = (map[times[times.length - 1]] || []).length
+        const prevCount   = (map[times[times.length - 2]] || []).length
+        if (prevCount > 0 && latestCount < prevCount * 0.5) bestTime = times[times.length - 2]
+      }
+      limitSnapshotTime.value = bestTime
     }
   } catch(e) {}
 }
