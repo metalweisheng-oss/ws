@@ -546,7 +546,7 @@ function openScenario(row) {
   scenarioWarrant.value = row
   scenarioVisible.value = true
 }
-const scenarioRows = [-10, -8, -6, -4, -2, 0, 2, 4, 6, 8, 10]
+const scenarioRows = [10, 8, 6, 4, 2, 0, -2, -4, -6, -8, -10]
 const scenarioIVOffsets = [-2, -1, 0, 1, 2]
 const scenarioTable = computed(() => {
   const w = scenarioWarrant.value
