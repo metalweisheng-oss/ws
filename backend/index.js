@@ -4738,7 +4738,7 @@ app.get('/api/market/movers', async (req, res) => {
   try {
     const [{ rows: stockRows }, { rows: dlbRows }, { rows: maRows }] = await Promise.all([
       pool.query(`SELECT DISTINCT ON (stock_no) stock_no, stock_name FROM market_daily ORDER BY stock_no, trade_date DESC`),
-      pool.query(`SELECT stock_no, bid_snapshot_count, bid_vol_sum, close_limit_bid_vol FROM daily_limit_bid WHERE trade_date = CURRENT_DATE`).catch(() => ({ rows: [] })),
+      pool.query(`SELECT stock_no, limit_bid_vol, bid_snapshot_count, bid_vol_sum, close_limit_bid_vol FROM daily_limit_bid WHERE trade_date = CURRENT_DATE`).catch(() => ({ rows: [] })),
       pool.query(`
         WITH ranked AS (
           SELECT stock_no, open_p::numeric, close::numeric, volume::numeric,
@@ -4767,6 +4767,7 @@ app.get('/api/market/movers', async (req, res) => {
 
     const dlbMap = {}
     for (const r of dlbRows) dlbMap[r.stock_no] = {
+      limitBidVol:      r.limit_bid_vol      != null ? parseInt(r.limit_bid_vol)      : null,
       bidSnapshotCount: r.bid_snapshot_count != null ? parseInt(r.bid_snapshot_count) : null,
       bidVolSum:        r.bid_vol_sum        != null ? parseInt(r.bid_vol_sum)        : null,
       closeLimitBidVol: r.close_limit_bid_vol != null ? parseInt(r.close_limit_bid_vol) : null,
@@ -4810,7 +4811,7 @@ app.get('/api/market/movers', async (req, res) => {
         const vol = parseInt(item.v) || 0
         if (vol === 0) continue
         const changePct = +((z - y) / y * 100).toFixed(2)
-        // 漲停委買量：找委買五檔中價格等於漲停價的委買張數
+        // 漲停委買量：即時 MIS 委買五檔；若 MIS 無資料則 fallback 到 DB 快照累積最大值
         let limitBidVol = null
         const limitPrice = item.u && item.u !== '-' ? parseFloat(item.u) : null
         if (limitPrice && item.b && item.g) {
@@ -4824,6 +4825,7 @@ app.get('/api/market/movers', async (req, res) => {
           }
           if (total > 0) limitBidVol = total
         }
+        if (limitBidVol == null) limitBidVol = dlbMap[item.c]?.limitBidVol ?? null
         const innerVol = item.it && item.it !== '-' ? parseInt(item.it) : null
         const outerVol = item.ot && item.ot !== '-' ? parseInt(item.ot) : null
         movers.push({
