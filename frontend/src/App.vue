@@ -670,6 +670,24 @@ async function fetchLimitSnapshots() {
   } catch(e) {}
 }
 
+// 委買時序 Modal
+const bidTimelineVisible = ref(false)
+const bidTimelineStock   = ref(null)
+const bidTimeline = computed(() => {
+  if (!bidTimelineStock.value) return []
+  const sn = bidTimelineStock.value.stockNo
+  return limitSnapshotTimes.value.flatMap(time => {
+    const r = (limitSnapshotMap.value[time] || []).find(g => g.stockNo === sn)
+    if (!r) return []
+    const ratio = r.limitBidVol && r.volume ? r.limitBidVol / r.volume : null
+    return [{ time, volume: r.volume ?? null, limitBidVol: r.limitBidVol ?? null, ratio }]
+  })
+})
+function openBidTimeline(r) {
+  bidTimelineStock.value = { stockNo: r.stockNo, stockName: r.stockName }
+  bidTimelineVisible.value = true
+}
+
 // 五檔報價 Modal
 const quoteVisible  = ref(false)
 const quoteData     = ref(null)
@@ -1727,6 +1745,7 @@ const changelog = [
   {
     date: '2026-05-19', tag: '新功能',
     items: [
+      '漲跌排行：觀察名單個股新增「時序」按鈕，點擊後顯示該股當日各快照時段的成交量、漲停委買量與委買比，方便追蹤委買量隨時間的變化',
       '漲跌排行：新增「傳送到 Mail」按鈕，點擊後將觀察名單同步寄送至 metalweisheng@gmail.com，內容與 Telegram 訊息相同',
       '分頁順序調整：修正公告→漲跌排行→權證→台股選股→漲時看勢跌時看質→強勢族群→三大法人→財務分析→漲跌家數→處置股→庫藏股→即時監控→日報表→歷史資料→台指期籌碼',
       '漲跌排行：傳送觀察名單時，有對應權證的個股下方自動附上符合條件的 call 權證代碼，分「（有單）」與「（無單）」兩區塊列出，每個代碼各佔一行',
@@ -4453,7 +4472,10 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                   <span v-if="r.earlyLimitUp" class="text-yellow-300 text-xs" title="開盤一小時內漲停">⚡</span>
                   <span v-if="warrantCoveredSet.has(r.stockNo)" class="text-xs bg-purple-900/60 text-purple-300 px-1 py-0.5 rounded">有證</span>
                 </div>
-                <div class="text-xs text-gray-500">{{ r.stockNo }}</div>
+                <div class="flex items-center gap-1.5">
+                  <span class="text-xs text-gray-500">{{ r.stockNo }}</span>
+                  <button v-if="limitSnapshotTimes.length" @click.stop="openBidTimeline(r)" class="text-xs text-blue-600 hover:text-blue-400">時序</button>
+                </div>
               </td>
               <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.volMa5?.toLocaleString() ?? r.prevVol?.toLocaleString() ?? '-' }}</td>
               <td class="px-3 py-2 text-right font-mono text-xs" :class="r.volume >= 100000 ? 'text-rose-400 font-bold' : 'text-gray-400'">{{ r.volume.toLocaleString() }}</td>
@@ -4518,7 +4540,10 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                   <span v-if="r.earlyLimitUp" class="text-yellow-300 text-xs" title="開盤一小時內漲停">⚡</span>
                   <span v-if="warrantCoveredSet.has(r.stockNo)" class="text-xs bg-purple-900/60 text-purple-300 px-1 py-0.5 rounded">有證</span>
                 </div>
-                <div class="text-xs text-gray-500">{{ r.stockNo }}</div>
+                <div class="flex items-center gap-1.5">
+                  <span class="text-xs text-gray-500">{{ r.stockNo }}</span>
+                  <button v-if="limitSnapshotTimes.length" @click.stop="openBidTimeline(r)" class="text-xs text-blue-600 hover:text-blue-400">時序</button>
+                </div>
               </td>
               <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.volMa5?.toLocaleString() ?? r.prevVol?.toLocaleString() ?? '-' }}</td>
               <td class="px-3 py-2 text-right font-mono text-xs" :class="r.volume >= 100000 ? 'text-rose-400 font-bold' : 'text-gray-400'">{{ r.volume.toLocaleString() }}</td>
@@ -4582,7 +4607,10 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                   <span v-if="r.earlyLimitUp" class="text-yellow-300 text-xs" title="開盤一小時內漲停">⚡</span>
                   <span v-if="warrantCoveredSet.has(r.stockNo)" class="text-xs bg-purple-900/60 text-purple-300 px-1 py-0.5 rounded">有證</span>
                 </div>
-                <div class="text-xs text-gray-500">{{ r.stockNo }}</div>
+                <div class="flex items-center gap-1.5">
+                  <span class="text-xs text-gray-500">{{ r.stockNo }}</span>
+                  <button v-if="limitSnapshotTimes.length" @click.stop="openBidTimeline(r)" class="text-xs text-blue-600 hover:text-blue-400">時序</button>
+                </div>
               </td>
               <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.volMa5?.toLocaleString() ?? r.prevVol?.toLocaleString() ?? '-' }}</td>
               <td class="px-3 py-2 text-right font-mono text-xs" :class="r.volume >= 100000 ? 'text-rose-400 font-bold' : 'text-gray-400'">{{ r.volume.toLocaleString() }}</td>
@@ -4641,7 +4669,10 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                   <span v-if="r.earlyLimitUp" class="text-yellow-300 text-xs" title="開盤一小時內漲停">⚡</span>
                   <span v-if="warrantCoveredSet.has(r.stockNo)" class="text-xs bg-purple-900/60 text-purple-300 px-1 py-0.5 rounded">有證</span>
                 </div>
-                <div class="text-xs text-gray-500">{{ r.stockNo }}</div>
+                <div class="flex items-center gap-1.5">
+                  <span class="text-xs text-gray-500">{{ r.stockNo }}</span>
+                  <button v-if="limitSnapshotTimes.length" @click.stop="openBidTimeline(r)" class="text-xs text-blue-600 hover:text-blue-400">時序</button>
+                </div>
               </td>
               <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.volMa5?.toLocaleString() ?? r.prevVol?.toLocaleString() ?? '-' }}</td>
               <td class="px-3 py-2 text-right font-mono text-xs" :class="r.volume >= 100000 ? 'text-rose-400 font-bold' : 'text-gray-400'">{{ r.volume.toLocaleString() }}</td>
@@ -4700,7 +4731,10 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                   <span v-if="r.earlyLimitUp" class="text-yellow-300 text-xs" title="開盤一小時內漲停">⚡</span>
                   <span v-if="warrantCoveredSet.has(r.stockNo)" class="text-xs bg-purple-900/60 text-purple-300 px-1 py-0.5 rounded">有證</span>
                 </div>
-                <div class="text-xs text-gray-500">{{ r.stockNo }}</div>
+                <div class="flex items-center gap-1.5">
+                  <span class="text-xs text-gray-500">{{ r.stockNo }}</span>
+                  <button v-if="limitSnapshotTimes.length" @click.stop="openBidTimeline(r)" class="text-xs text-blue-600 hover:text-blue-400">時序</button>
+                </div>
               </td>
               <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.volMa5?.toLocaleString() ?? r.prevVol?.toLocaleString() ?? '-' }}</td>
               <td class="px-3 py-2 text-right font-mono text-xs" :class="r.volume >= 100000 ? 'text-rose-400 font-bold' : 'text-gray-400'">{{ r.volume.toLocaleString() }}</td>
@@ -4758,7 +4792,10 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                   <span v-if="r.earlyLimitUp" class="text-yellow-300 text-xs" title="開盤一小時內漲停">⚡</span>
                   <span v-if="warrantCoveredSet.has(r.stockNo)" class="text-xs bg-purple-900/60 text-purple-300 px-1 py-0.5 rounded">有證</span>
                 </div>
-                <div class="text-xs text-gray-500">{{ r.stockNo }}</div>
+                <div class="flex items-center gap-1.5">
+                  <span class="text-xs text-gray-500">{{ r.stockNo }}</span>
+                  <button v-if="limitSnapshotTimes.length" @click.stop="openBidTimeline(r)" class="text-xs text-blue-600 hover:text-blue-400">時序</button>
+                </div>
               </td>
               <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.volMa5?.toLocaleString() ?? r.prevVol?.toLocaleString() ?? '-' }}</td>
               <td class="px-3 py-2 text-right font-mono text-xs" :class="r.volume >= 100000 ? 'text-rose-400 font-bold' : 'text-gray-400'">{{ r.volume.toLocaleString() }}</td>
@@ -5532,6 +5569,48 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                       市價 {{ scenarioWarrant.price.toFixed(2) }}
                     </div>
                   </template>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </Teleport>
+
+  <!-- 委買時序 Modal -->
+  <Teleport to="body">
+    <div v-if="bidTimelineVisible" class="fixed inset-0 z-50 flex items-center justify-center" @click.self="bidTimelineVisible=false">
+      <div class="absolute inset-0 bg-black/70"></div>
+      <div class="relative bg-gray-950 border border-gray-700 rounded-xl shadow-2xl overflow-hidden w-72 max-w-[92vw]">
+        <div class="flex items-center justify-between px-4 py-3 border-b border-gray-800">
+          <div>
+            <span class="font-semibold text-white text-sm">{{ bidTimelineStock?.stockName }}</span>
+            <span class="text-gray-500 text-xs ml-1.5">{{ bidTimelineStock?.stockNo }}</span>
+          </div>
+          <button @click="bidTimelineVisible=false" class="text-gray-500 hover:text-white text-lg leading-none px-1">✕</button>
+        </div>
+        <div class="px-4 py-1.5 text-xs text-gray-500 border-b border-gray-800/50">當日各快照委買時序</div>
+        <div class="overflow-auto max-h-64">
+          <table class="w-full text-xs">
+            <thead>
+              <tr class="border-b border-gray-800 text-gray-500">
+                <th class="px-3 py-2 text-left font-normal">時段</th>
+                <th class="px-3 py-2 text-right font-normal">成交量</th>
+                <th class="px-3 py-2 text-right font-normal">委買量</th>
+                <th class="px-3 py-2 text-right font-normal">委買比</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-if="!bidTimeline.length">
+                <td colspan="4" class="px-3 py-4 text-center text-gray-600">無快照資料</td>
+              </tr>
+              <tr v-for="row in bidTimeline" :key="row.time" class="border-b border-gray-800/40 hover:bg-gray-900/50">
+                <td class="px-3 py-2 text-gray-300">{{ row.time }}</td>
+                <td class="px-3 py-2 text-right font-mono text-gray-400">{{ row.volume?.toLocaleString() ?? '-' }}</td>
+                <td class="px-3 py-2 text-right font-mono text-blue-300">{{ row.limitBidVol?.toLocaleString() ?? '-' }}</td>
+                <td class="px-3 py-2 text-right font-mono" :class="row.ratio >= 1.7 ? 'text-green-400 font-bold' : row.ratio >= 1 ? 'text-cyan-400' : row.ratio ? 'text-gray-400' : 'text-gray-600'">
+                  {{ row.ratio ? row.ratio.toFixed(2) : '-' }}
                 </td>
               </tr>
             </tbody>
