@@ -680,7 +680,9 @@ const bidTimeline = computed(() => {
     const r = (limitSnapshotMap.value[time] || []).find(g => g.stockNo === sn)
     if (!r) return []
     const ratio = r.limitBidVol && r.volume ? r.limitBidVol / r.volume : null
-    return [{ time, volume: r.volume ?? null, limitBidVol: r.limitBidVol ?? null, ratio }]
+    const ref = r.volMa5 || r.prevVol || null
+    const volRatio = ref && r.volume ? r.volume / ref : null
+    return [{ time, volume: r.volume ?? null, limitBidVol: r.limitBidVol ?? null, ratio, volRatio }]
   })
 })
 function openBidTimeline(r) {
@@ -5582,7 +5584,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
   <Teleport to="body">
     <div v-if="bidTimelineVisible" class="fixed inset-0 z-50 flex items-center justify-center" @click.self="bidTimelineVisible=false">
       <div class="absolute inset-0 bg-black/70"></div>
-      <div class="relative bg-gray-950 border border-gray-700 rounded-xl shadow-2xl overflow-hidden w-72 max-w-[92vw]">
+      <div class="relative bg-gray-950 border border-gray-700 rounded-xl shadow-2xl overflow-hidden w-80 max-w-[95vw]">
         <div class="flex items-center justify-between px-4 py-3 border-b border-gray-800">
           <div>
             <span class="font-semibold text-white text-sm">{{ bidTimelineStock?.stockName }}</span>
@@ -5599,6 +5601,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <th class="px-3 py-2 text-right font-normal">成交量</th>
                 <th class="px-3 py-2 text-right font-normal">委買量</th>
                 <th class="px-3 py-2 text-right font-normal">委買比</th>
+                <th class="px-3 py-2 text-right font-normal">5日量比</th>
               </tr>
             </thead>
             <tbody>
@@ -5611,6 +5614,9 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <td class="px-3 py-2 text-right font-mono text-blue-300">{{ row.limitBidVol?.toLocaleString() ?? '-' }}</td>
                 <td class="px-3 py-2 text-right font-mono" :class="row.ratio >= 1.7 ? 'text-green-400 font-bold' : row.ratio >= 1 ? 'text-cyan-400' : row.ratio ? 'text-gray-400' : 'text-gray-600'">
                   {{ row.ratio ? row.ratio.toFixed(2) : '-' }}
+                </td>
+                <td class="px-3 py-2 text-right font-mono" :class="row.volRatio >= 2 ? 'text-yellow-400 font-bold' : row.volRatio >= 0.7 ? 'text-gray-400' : row.volRatio >= 0.5 ? 'text-orange-400 font-bold' : row.volRatio ? 'text-orange-400 font-bold' : 'text-gray-600'">
+                  {{ row.volRatio ? row.volRatio.toFixed(2) : '-' }}
                 </td>
               </tr>
             </tbody>
