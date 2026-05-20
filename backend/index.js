@@ -2697,6 +2697,7 @@ app.get('/api/debug/screener-check', async (req, res) => {
       )
     `)
     await pool.query(`ALTER TABLE market_daily ADD COLUMN IF NOT EXISTS short_bal BIGINT`).catch(()=>{})
+    await pool.query(`ALTER TABLE market_daily ADD COLUMN IF NOT EXISTS exchange VARCHAR(5)`).catch(()=>{})
     await pool.query(`ALTER TABLE daily_limit_bid ADD COLUMN IF NOT EXISTS closed_limit_up BOOLEAN DEFAULT FALSE`).catch(()=>{})
     await pool.query(`ALTER TABLE daily_limit_bid ADD COLUMN IF NOT EXISTS bid_snapshot_count INTEGER DEFAULT 0`).catch(()=>{})
     await pool.query(`ALTER TABLE daily_limit_bid ADD COLUMN IF NOT EXISTS bid_vol_sum BIGINT DEFAULT 0`).catch(()=>{})
@@ -2933,7 +2934,7 @@ async function syncMarketDailyOne(dateStr8) {
     for (const r of batch) {
       const inst = instMap[r.stockNo]
       const marg = marginMap[r.stockNo]
-      vals.push(`($${p},$${p+1},$${p+2},$${p+3},$${p+4},$${p+5},$${p+6},$${p+7},$${p+8},$${p+9},$${p+10},$${p+11},$${p+12})`)
+      vals.push(`($${p},$${p+1},$${p+2},$${p+3},$${p+4},$${p+5},$${p+6},$${p+7},$${p+8},$${p+9},$${p+10},$${p+11},$${p+12},$${p+13})`)
       params.push(
         r.stockNo, tradeDate, r.stockName,
         r.close, r.open, r.high, r.low, r.vol,
@@ -2941,13 +2942,14 @@ async function syncMarketDailyOne(dateStr8) {
         inst ? inst.trust   : null,
         inst ? inst.dealer  : null,
         marg != null ? marg.margin : null,
-        marg != null ? marg.short  : null
+        marg != null ? marg.short  : null,
+        r.exchange || null
       )
-      p += 13
+      p += 14
     }
     await pool.query(`
       INSERT INTO market_daily
-        (stock_no,trade_date,stock_name,close,open_p,high,low,volume,inst_foreign,inst_trust,inst_dealer,margin_bal,short_bal)
+        (stock_no,trade_date,stock_name,close,open_p,high,low,volume,inst_foreign,inst_trust,inst_dealer,margin_bal,short_bal,exchange)
       VALUES ${vals.join(',')}
       ON CONFLICT (stock_no,trade_date) DO UPDATE SET
         stock_name=EXCLUDED.stock_name,
@@ -2956,7 +2958,8 @@ async function syncMarketDailyOne(dateStr8) {
         inst_trust=COALESCE(EXCLUDED.inst_trust,   market_daily.inst_trust),
         inst_dealer=COALESCE(EXCLUDED.inst_dealer,  market_daily.inst_dealer),
         margin_bal=COALESCE(EXCLUDED.margin_bal,   market_daily.margin_bal),
-        short_bal=COALESCE(EXCLUDED.short_bal,     market_daily.short_bal)
+        short_bal=COALESCE(EXCLUDED.short_bal,     market_daily.short_bal),
+        exchange=COALESCE(EXCLUDED.exchange,       market_daily.exchange)
     `, params)
     saved += batch.length
   }
@@ -4230,7 +4233,7 @@ const _moversCache = { data: null, ts: 0, lastGoodData: null, fetchInProgress: f
 function getMoversCacheTTL() {
   const tw = new Date(Date.now() + 8 * 3600000)
   const m = tw.getUTCHours() * 60 + tw.getUTCMinutes()
-  return (m >= 9 * 60 && m < 13 * 60 + 30) ? 12 * 1000 : 60 * 1000
+  return (m >= 9 * 60 && m < 13 * 60 + 30) ? 30 * 1000 : 60 * 1000
 }
 
 async function saveCloseSnapshot(dateStr, isClose = true) {
@@ -4750,7 +4753,7 @@ app.get('/api/market/movers', async (req, res) => {
   _moversCache.fetchInProgress = true
   try {
     const [{ rows: stockRows }, { rows: dlbRows }, { rows: maRows }] = await Promise.all([
-      pool.query(`SELECT DISTINCT ON (stock_no) stock_no, stock_name FROM market_daily ORDER BY stock_no, trade_date DESC`),
+      pool.query(`SELECT DISTINCT ON (stock_no) stock_no, stock_name, exchange FROM market_daily ORDER BY stock_no, trade_date DESC`),
       pool.query(`SELECT stock_no, limit_bid_vol, bid_snapshot_count, bid_vol_sum, close_limit_bid_vol FROM daily_limit_bid WHERE trade_date = CURRENT_DATE`).catch(() => ({ rows: [] })),
       pool.query(`
         WITH ranked AS (
@@ -4801,7 +4804,12 @@ app.get('/api/market/movers', async (req, res) => {
     const batches = []
     for (let i = 0; i < stockRows.length; i += BATCH_SIZE) {
       const slice = stockRows.slice(i, i + BATCH_SIZE)
-      batches.push(slice.flatMap(r => [`tse_${r.stock_no}.tw`, `otc_${r.stock_no}.tw`]))
+      // 有 exchange 資訊時只送對的交易所，否則雙送（相容舊資料）
+      batches.push(slice.flatMap(r => {
+        if (r.exchange === 'TWSE') return [`tse_${r.stock_no}.tw`]
+        if (r.exchange === 'TPEX') return [`otc_${r.stock_no}.tw`]
+        return [`tse_${r.stock_no}.tw`, `otc_${r.stock_no}.tw`]  // 舊資料 fallback
+      }))
     }
 
     // 限制並發數避免 TWSE rate-limit
@@ -5541,13 +5549,29 @@ app.get('/api/warrant/search', async (req, res) => {
 
     const allCodes = filteredWarrants.map(r => r['權證代號'])
 
+    const todayStr = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' })
+
     // Batch-query MIS for warrant prices — all batches in parallel (batch size 100)
+    // 同時並行查歷史 IV 均值，不佔 MIS 等待時間
     const batches = []
     for (let i = 0; i < allCodes.length; i += 100) batches.push(allCodes.slice(i, i + 100))
-    const [batchResults, stockMis] = await Promise.all([
+    const [batchResults, stockMis, ivHistRows] = await Promise.all([
       Promise.all(batches.map(batch => fetchMisBatch(batch, 6000, exchange).catch(() => null))),
       fetchMisBatch([resolvedStockNo], 6000, exchange).catch(() => null),
+      allCodes.length ? pool.query(`
+        SELECT warrant_no, ROUND(AVG(iv)::numeric, 2) AS avg_iv
+        FROM (
+          SELECT warrant_no, iv,
+                 ROW_NUMBER() OVER (PARTITION BY warrant_no ORDER BY trade_date DESC) AS rn
+          FROM warrant_iv_history
+          WHERE warrant_no = ANY($1) AND trade_date < $2
+        ) sub
+        WHERE rn <= 5
+        GROUP BY warrant_no
+      `, [allCodes, todayStr]).then(r => r.rows).catch(() => []) : Promise.resolve([]),
     ])
+    const ivAvgMap = {}
+    for (const r of ivHistRows) ivAvgMap[r.warrant_no] = r.avg_iv != null ? +parseFloat(r.avg_iv) : null
     const priceMap = {}
     for (const mis of batchResults) {
       for (const item of mis?.msgArray || []) priceMap[item.c] = item
@@ -5621,6 +5645,13 @@ app.get('/api/warrant/search', async (req, res) => {
         ? calcIV(stockPrice, strike, T, R, optPrice, isCall, Q) : null
       const ivStale = !iv && zVal == null && price != null  // 有昨收但 IV 無解（多因標的今日劇烈波動）
 
+      // 委買 IV：從即時委買一價反推，更貼近造市商目標波動率
+      const bidRaw = mis.b && mis.b !== '-' ? mis.b.split('_').find(x => x && !isNaN(parseFloat(x))) : null
+      const bidPrice = bidRaw ? parseFloat(bidRaw) : null
+      const optBid = (bidPrice && ratio) ? bidPrice / ratio : null
+      const ivBid = (stockPrice && strike && T && optBid)
+        ? calcIV(stockPrice, strike, T, R, optBid, isCall, Q) : null
+
       // Delta（已乘行使比例）
       const sigmaDec = iv ? iv / 100 : null
       const bsDelta  = (stockPrice && strike && T && sigmaDec)
@@ -5645,6 +5676,7 @@ app.get('/api/warrant/search', async (req, res) => {
         volume,
         premiumPct,
         iv,
+        ivBid: ivBid ? +ivBid.toFixed(2) : null,
         ivStale,
         leverage,
         delta,
@@ -5655,7 +5687,22 @@ app.get('/api/warrant/search', async (req, res) => {
       }
     }).filter(Boolean)
 
+    for (const r of rows) r.ivAvg5d = ivAvgMap[r.warrantNo] ?? null
+
     rows.sort((a, b) => (b.volume || 0) - (a.volume || 0))
+
+    // 今日 IV 寫入歷史（背景執行，不阻塞回應）
+    const ivable = rows.filter(r => r.iv != null)
+    if (ivable.length) {
+      const vals = ivable.map((_, i) => `($${i*4+1},$${i*4+2},$${i*4+3},$${i*4+4})`).join(',')
+      const params = ivable.flatMap(r => [r.warrantNo, todayStr, r.iv, r.ivBid])
+      pool.query(
+        `INSERT INTO warrant_iv_history(warrant_no,trade_date,iv,iv_bid) VALUES ${vals}
+         ON CONFLICT(warrant_no,trade_date) DO UPDATE SET iv=EXCLUDED.iv, iv_bid=EXCLUDED.iv_bid`,
+        params
+      ).catch(() => {})
+    }
+
     res.json({ rows, stockName, stockCode: resolvedStockNo, total: rows.length })
   } catch(e) {
     res.status(500).json({ error: e.message })
@@ -5924,6 +5971,23 @@ const PM_STOCKS = ['2059','3293','3008','9105','6274','3017','3037','8046']
     console.log('[post_market] 資料表就緒')
   } catch (e) {
     console.error('[post_market] 建表失敗:', e.message)
+  }
+})();
+
+(async () => {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS warrant_iv_history (
+        warrant_no  VARCHAR(8) NOT NULL,
+        trade_date  DATE       NOT NULL,
+        iv          FLOAT,
+        iv_bid      FLOAT,
+        PRIMARY KEY (warrant_no, trade_date)
+      )
+    `)
+    console.log('[warrant_iv] 資料表就緒')
+  } catch (e) {
+    console.error('[warrant_iv] 建表失敗:', e.message)
   }
 })()
 

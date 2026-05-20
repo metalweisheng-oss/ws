@@ -550,7 +550,10 @@ const scenarioRows = [10, 8, 6, 4, 2, 0, -2, -4, -6, -8, -10]
 const scenarioIVOffsets = [-2, -1, 0, 1, 2]
 const scenarioTable = computed(() => {
   const w = scenarioWarrant.value
-  if (!w || !w.iv || !w.strike || !w.ratio || !w.daysLeft) return null
+  if (!w || !w.strike || !w.ratio || !w.daysLeft) return null
+  // 優先用委買IV（造市商即時報價），無委買IV時降回成交價IV
+  const baseIV = w.ivBid ?? w.iv
+  if (!baseIV) return null
   const S0    = w.stockPrice || 0
   const K     = w.strike
   const T     = w.daysLeft / 365
@@ -558,7 +561,7 @@ const scenarioTable = computed(() => {
   const q     = w.dividendYield ? w.dividendYield / 100 : 0
   const ratio = w.ratio
   const isCall = w.type === 'call'
-  const ivCols = scenarioIVOffsets.map(d => +(w.iv + d).toFixed(1))
+  const ivCols = scenarioIVOffsets.map(d => +(baseIV + d).toFixed(1))
   const currentIVIdx = scenarioIVOffsets.indexOf(0)  // index 2
   const rows = scenarioRows.map(pct => {
     const S = +(S0 * (1 + pct / 100)).toFixed(2)
@@ -568,7 +571,7 @@ const scenarioTable = computed(() => {
     })
     return { pct, S, prices }
   })
-  return { ivCols, rows, S0, currentIVIdx }
+  return { ivCols, rows, S0, currentIVIdx, baseIV, ivSource: w.ivBid != null ? 'bid' : 'close' }
 })
 function wSortIcon(col) { return warrantSortCol.value === col ? (warrantSortDesc.value ? ' ▼' : ' ▲') : '' }
 
@@ -898,7 +901,9 @@ const limitSqueezeList3 = computed(() => {
     if (!passAntiFake(r)) return false
     const ref = volRef5d(r)
     if (!ref || r.volume / ref >= 0.7) return false
-    return true
+    // L3 需有基本鎖倉意願：委買比 > 1.0，或漲停收盤
+    if (r.limitBidVol) return r.limitBidVol / r.volume > 1.0
+    return r.closedLimitUp || false
   })
 })
 
@@ -931,9 +936,9 @@ const volIncreaseLimitList1 = computed(() => {
     const ref = volRef5d(r)
     if (!ref) return false
     const ratio = r.volume / ref
-    if (ratio < 1.5 || ratio >= 5) return false
-    // 僅限首板（limitDays 未設）或二板（limitDays=1）
-    if (r.limitDays != null && r.limitDays > 1) return false
+    if (ratio < 1.5 || ratio >= 8) return false
+    // 首板、二板或三板（limitDays ≤ 2）
+    if (r.limitDays != null && r.limitDays > 2) return false
     return r.limitBidVol / r.volume > 2
   })
 })
@@ -948,7 +953,7 @@ const volIncreaseLimitList2 = computed(() => {
     const ref = volRef5d(r)
     if (!ref) return false
     const ratio = r.volume / ref
-    if (ratio < 1.5 || ratio >= 5) return false
+    if (ratio < 1.5 || ratio >= 8) return false
     return r.limitBidVol / r.volume > 1.5
   })
 })
@@ -965,8 +970,10 @@ const volIncreaseLimitList3 = computed(() => {
     const ref = volRef5d(r)
     if (!ref) return false
     const ratio = r.volume / ref
-    if (ratio < 1.5 || ratio >= 5) return false
-    return true
+    if (ratio < 1.5 || ratio >= 8) return false
+    // L3 需有基本委買意願：委買比 > 0.8
+    if (r.limitBidVol) return r.limitBidVol / r.volume > 0.8
+    return false
   })
 })
 
@@ -1744,6 +1751,20 @@ function signShares(v) {
 function signColor(v) { return +v > 0 ? 'text-red-400' : +v < 0 ? 'text-green-400' : 'text-gray-400' }
 
 const changelog = [
+  {
+    date: '2026-05-20', tag: '修正',
+    items: [
+      '漲跌排行：修正盤中頻繁出現「交易所即時資料暫無回應」的問題——根本原因是每支股票同時送出上市(tse)和上櫃(otc)兩組請求，實際上每支股票只掛一個交易所，多餘的請求壓垮 TWSE MIS 導致 rate-limit；現改為 market_daily 新增 exchange 欄位記錄上市/上櫃，MIS 請求量減半；快取 TTL 同步從 12 秒調整至 30 秒，降低重複打 API 頻率',
+      '漲跌排行：優化量縮漲停觀察與量增漲停觀察篩選條件——量縮第三順位新增委買比 > 1.0 門檻（排除純量縮但無護盤意願的個股）；量增三個順位量比上限從 5x 放寬至 8x（避免漏掉大爆量但仍有換手跡象的個股）；量增第一順位連板限制從首板或二板放寬至首至三板；量增第三順位由「不限委買比」改為委買比 > 0.8（保留有基本護盤意願者）；說明文字同步更新',
+    ]
+  },
+  {
+    date: '2026-05-19', tag: '修正',
+    items: [
+      '權證查詢：新增「5日均IV」欄位，顯示最近5個交易日收盤IV平均值作為參考基準；今日IV高於均值3個百分點以上顯示紅色（IV偏高），低於3個百分點以上顯示綠色（IV偏低）；情境分析標題列同時顯示5日均IV供比較',
+      '權證情境分析：IV 改優先使用即時委買一價反推的「委買IV」（造市商目標波動率），無委買報價時降回成交價IV；標題列同時顯示 IV 來源（委買IV 以青色標示，成交IV 以黃色標示），解決情境分析 IV 與元大委買波動率落差過大的問題',
+    ]
+  },
   {
     date: '2026-05-19', tag: '新功能',
     items: [
@@ -4149,6 +4170,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               <th class="text-right px-3 py-2.5 font-medium cursor-pointer hover:text-gray-300 whitespace-nowrap hidden lg:table-cell" @click="warrantSort('leverage')">槓桿{{ wSortIcon('leverage') }}</th>
               <th class="text-right px-3 py-2.5 font-medium cursor-pointer hover:text-gray-300 whitespace-nowrap hidden lg:table-cell" @click="warrantSort('delta')">Delta{{ wSortIcon('delta') }}</th>
               <th class="text-right px-3 py-2.5 font-medium cursor-pointer hover:text-gray-300 whitespace-nowrap hidden xl:table-cell" @click="warrantSort('iv')">IV%{{ wSortIcon('iv') }}</th>
+              <th class="text-right px-3 py-2.5 font-medium cursor-pointer hover:text-gray-300 whitespace-nowrap hidden xl:table-cell" @click="warrantSort('ivAvg5d')" title="最近5個交易日收盤IV平均">5日均IV{{ wSortIcon('ivAvg5d') }}</th>
               <th class="px-3 py-2.5 font-medium whitespace-nowrap">工具</th>
             </tr>
           </thead>
@@ -4211,6 +4233,14 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <span v-if="row.iv != null" class="text-gray-400">{{ row.iv.toFixed(1) }}%</span>
                 <span v-else-if="row.ivStale" class="text-yellow-600 text-xs" title="昨收價與今日標的股價落差過大，IV 無解（請等今日成交價更新）">價格失效</span>
                 <span v-else class="text-gray-600">—</span>
+              </td>
+              <td class="px-3 py-2 text-right hidden xl:table-cell">
+                <template v-if="row.ivAvg5d != null">
+                  <span :class="row.iv != null && row.ivAvg5d != null ? (row.iv > row.ivAvg5d + 3 ? 'text-red-400' : row.iv < row.ivAvg5d - 3 ? 'text-green-400' : 'text-gray-400') : 'text-gray-400'">
+                    {{ row.ivAvg5d.toFixed(1) }}%
+                  </span>
+                </template>
+                <span v-else class="text-gray-600 text-xs">—</span>
               </td>
               <td class="px-3 py-2">
                 <div class="flex gap-1 justify-center">
@@ -4582,7 +4612,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
       <div class="bg-gray-900 border border-gray-800/60 rounded-xl overflow-hidden">
         <div class="px-4 py-3 border-b border-gray-800/40 flex items-center gap-2 flex-wrap">
           <span class="text-gray-400 font-semibold text-sm">△ 量縮漲停觀察　第三順位</span>
-          <span class="text-gray-600 text-xs">5日量比 &lt; 0.7　不限委買比</span>
+          <span class="text-gray-600 text-xs">5日量比 &lt; 0.7　且　委買比 &gt; 1.0</span>
           <span class="ml-auto text-xs text-gray-600">{{ limitSqueezeList3.length }} 支</span>
         </div>
         <table class="w-full text-sm">
@@ -4643,7 +4673,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
       <div class="bg-gray-900 border border-amber-500/40 rounded-xl overflow-hidden">
         <div class="px-4 py-3 border-b border-amber-500/30 flex items-center gap-2 flex-wrap">
           <span class="text-amber-300 font-semibold text-sm">★ 量增漲停觀察（主力換手）　第一順位</span>
-          <span class="text-gray-600 text-xs">5日量比 1.5～5x　且　委買比 &gt; 2　且　首板／二板</span>
+          <span class="text-gray-600 text-xs">5日量比 1.5～8x　且　委買比 &gt; 2　且　首至三板</span>
           <span v-if="moversDate" class="text-xs text-gray-600">（歷史資料）</span>
           <span class="ml-auto text-xs text-amber-400">{{ volIncreaseLimitList1.length }} 支</span>
         </div>
@@ -4705,7 +4735,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
       <div class="bg-gray-900 border border-amber-900/50 rounded-xl overflow-hidden">
         <div class="px-4 py-3 border-b border-amber-900/40 flex items-center gap-2 flex-wrap">
           <span class="text-amber-400 font-semibold text-sm">▲ 量增漲停觀察（主力換手）　第二順位</span>
-          <span class="text-gray-600 text-xs">5日量比 1.5～5x　且　委買比 &gt; 1.5</span>
+          <span class="text-gray-600 text-xs">5日量比 1.5～8x　且　委買比 &gt; 1.5</span>
           <span v-if="moversDate" class="text-xs text-gray-600">（歷史資料）</span>
           <span class="ml-auto text-xs text-amber-600">{{ volIncreaseLimitList2.length }} 支</span>
         </div>
@@ -4767,7 +4797,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
       <div class="bg-gray-900 border border-amber-900/30 rounded-xl overflow-hidden">
         <div class="px-4 py-3 border-b border-amber-900/20 flex items-center gap-2 flex-wrap">
           <span class="text-amber-600 font-semibold text-sm">△ 量增漲停觀察（主力換手）　第三順位</span>
-          <span class="text-gray-600 text-xs">5日量比 1.5～5x　不限委買比</span>
+          <span class="text-gray-600 text-xs">5日量比 1.5～8x　且　委買比 &gt; 0.8</span>
           <span class="ml-auto text-xs text-amber-800">{{ volIncreaseLimitList3.length }} 支</span>
         </div>
         <table class="w-full text-sm">
@@ -4856,18 +4886,18 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
           </div>
           <div class="flex items-center gap-2 col-span-full"><span class="text-blue-300 font-bold">★ 第一順位</span><span>5日量比 &lt; 0.5 且 漲停委買比 &gt; 1.7　→ 極度縮量＋強力護盤</span></div>
           <div class="flex items-center gap-2 col-span-full"><span class="text-blue-400">▲ 第二順位</span><span>5日量比 &lt; 0.7 且 漲停委買比 &gt; 1.5　→ 縮量＋明顯護盤（不與一重複）</span></div>
-          <div class="flex items-center gap-2 col-span-full"><span class="text-gray-400">△ 第三順位</span><span>5日量比 &lt; 0.7 不限委買比　→ 縮量觀察，委買資料不足時仍列入（不與一、二重複）</span></div>
+          <div class="flex items-center gap-2 col-span-full"><span class="text-gray-400">△ 第三順位</span><span>5日量比 &lt; 0.7 且 漲停委買比 &gt; 1.0　→ 縮量觀察，保留有護盤意願者（不與一、二重複）</span></div>
 
           <div class="font-semibold text-gray-500 col-span-full mt-2">量增漲停觀察區（主力換手）</div>
           <div class="text-gray-600 col-span-full text-xs mb-0.5">
-            共同前提：漲停（漲幅 ≥ 9.5%）＋ 5日量比 1.5～5x ＋ 成交量 ≥ 50張 ＋ 外盤量 &gt; 內盤量（無資料略過）<br>
-            量比上限 5x：超過5倍多為散戶追買或炒作，排除；1.5～5x 為主力積極換手的合理區間<br>
+            共同前提：漲停（漲幅 ≥ 9.5%）＋ 5日量比 1.5～8x ＋ 成交量 ≥ 50張 ＋ 外盤量 &gt; 內盤量（無資料略過）<br>
+            量比上限 8x：超過8倍多為散戶追買或炒作，排除；1.5～8x 為主力積極換手的合理區間<br>
             邏輯：量增說明主力在積極建倉或換手；委買比高說明漲停後仍有資金護盤意願<br>
-            連板分層：<b class="text-gray-400">首板（首次漲停）</b>量增最值得關注；<b class="text-gray-400">二板</b>仍可追蹤；三板以上已有溢價風險，退入第二以下順位
+            連板分層：<b class="text-gray-400">首板（首次漲停）</b>量增最值得關注；<b class="text-gray-400">二、三板</b>仍可追蹤；四板以上已有溢價風險，退入第二以下順位
           </div>
-          <div class="flex items-center gap-2 col-span-full"><span class="text-amber-300 font-bold">★ 第一順位</span><span>5日量比 1.5～5x 且 委買比 &gt; 2 且 首板或二板　→ 最佳換手訊號</span></div>
-          <div class="flex items-center gap-2 col-span-full"><span class="text-amber-400">▲ 第二順位</span><span>5日量比 1.5～5x 且 委買比 &gt; 1.5　→ 換手充分，含三板以上（不與一重複）</span></div>
-          <div class="flex items-center gap-2 col-span-full"><span class="text-amber-600">△ 第三順位</span><span>5日量比 1.5～5x 不限委買比　→ 量增觀察，委買資料不足時仍列入（不與一、二重複）</span></div>
+          <div class="flex items-center gap-2 col-span-full"><span class="text-amber-300 font-bold">★ 第一順位</span><span>5日量比 1.5～8x 且 委買比 &gt; 2 且 首至三板　→ 最佳換手訊號</span></div>
+          <div class="flex items-center gap-2 col-span-full"><span class="text-amber-400">▲ 第二順位</span><span>5日量比 1.5～8x 且 委買比 &gt; 1.5　→ 換手充分，含四板以上（不與一重複）</span></div>
+          <div class="flex items-center gap-2 col-span-full"><span class="text-amber-600">△ 第三順位</span><span>5日量比 1.5～8x 且 委買比 &gt; 0.8　→ 量增觀察，保留有護盤意願者（不與一、二重複）</span></div>
 
           <div class="font-semibold text-gray-500 col-span-full mt-2">委買可信度（假掛單過濾）</div>
           <div class="text-gray-600 col-span-full text-xs mb-0.5">
@@ -5530,7 +5560,10 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
             <span>標的現價 {{ scenarioWarrant?.stockPrice?.toFixed(2) }}</span>
             <span>履約價 {{ scenarioWarrant?.strike }}</span>
             <span>剩餘 {{ scenarioWarrant?.daysLeft }} 天</span>
-            <span>IV {{ scenarioWarrant?.iv?.toFixed(1) }}%</span>
+            <span v-if="scenarioTable?.ivSource === 'bid'" class="text-cyan-400" title="從即時委買一價反推，貼近造市商目標波動率">委買IV {{ scenarioTable.baseIV.toFixed(1) }}%</span>
+            <span v-else-if="scenarioWarrant?.iv" class="text-yellow-400" title="從最後成交價反推，可能與委買報價有落差">成交IV {{ scenarioWarrant.iv.toFixed(1) }}%</span>
+            <span v-if="scenarioTable?.ivSource === 'bid' && scenarioWarrant?.iv" class="text-gray-600 text-xs">（成交{{ scenarioWarrant.iv.toFixed(1) }}%）</span>
+            <span v-if="scenarioWarrant?.ivAvg5d != null" class="text-gray-500" title="最近5個交易日收盤IV平均">5日均 {{ scenarioWarrant.ivAvg5d.toFixed(1) }}%</span>
             <span v-if="scenarioWarrant?.dividendYield" class="text-green-500">殖利率 {{ scenarioWarrant.dividendYield }}%（已調整）</span>
             <button @click="scenarioVisible=false" class="text-gray-500 hover:text-white px-1">✕</button>
           </div>
@@ -5544,7 +5577,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <th class="px-4 py-2 text-left text-gray-400 font-medium whitespace-nowrap border border-gray-800 bg-gray-900">標的價格 / 隱含波動率</th>
                 <th v-for="iv in scenarioTable.ivCols" :key="iv"
                     class="px-4 py-2 text-center font-semibold border border-gray-800 bg-gray-900"
-                    :class="iv === scenarioWarrant.iv ? 'text-yellow-400' : 'text-gray-300'">
+                    :class="iv === scenarioTable.baseIV ? (scenarioTable.ivSource === 'bid' ? 'text-cyan-400' : 'text-yellow-400') : 'text-gray-300'">
                   {{ iv.toFixed(1) }}%
                 </th>
               </tr>
