@@ -2873,16 +2873,19 @@ async function syncMarketDailyOne(dateStr8) {
   } catch(e) { console.error(`[market_daily] ${tradeDate} T86 失敗:`, e.message) }
 
   const nowDateStr8 = new Date(Date.now()+8*3600000).toISOString().slice(0,10).replace(/-/g,'')
-  // Only delete on confirmed holiday: API responded cleanly with no data AND no TPEX data either
+  // priceRows is guaranteed non-empty here (checked above).
+  // Only mark as holiday if BOTH T86 confirmed empty AND the price APIs returned nothing.
+  // Having any price rows means it was a trading day — T86 may have had a temporary glitch,
+  // so we must NOT delete existing data based on T86 absence alone.
   const hasTpexPrices = priceRows.some(r => r.exchange === 'TPEX')
-  if (!t86HasData && t86ApiOk && !hasTpexPrices && dateStr8 !== nowDateStr8) {
-    console.log(`[market_daily] ${tradeDate} T86 無資料，判定為休市日，跳過寫入`)
+  const hasTwsePrices = priceRows.some(r => r.exchange !== 'TPEX')
+  if (!t86HasData && t86ApiOk && !hasTpexPrices && !hasTwsePrices && dateStr8 !== nowDateStr8) {
+    console.log(`[market_daily] ${tradeDate} T86 無資料且無行情，判定為休市日，跳過寫入`)
     await pool.query(`DELETE FROM market_daily WHERE trade_date=$1`, [tradeDate]).catch(()=>{})
     return 0
   }
-  // If T86 API failed but we have TPEX price data — it's a trading day, continue writing TPEX data
-  if (!t86HasData && !t86ApiOk && !hasTpexPrices && dateStr8 !== nowDateStr8) {
-    console.log(`[market_daily] ${tradeDate} T86 API 異常且無TPEX行情，跳過（保留現有資料）`)
+  if (!t86HasData && !t86ApiOk && !hasTpexPrices && !hasTwsePrices && dateStr8 !== nowDateStr8) {
+    console.log(`[market_daily] ${tradeDate} T86 API 異常且無任何行情，跳過（保留現有資料）`)
     return 0
   }
 
@@ -2985,6 +2988,62 @@ async function backfillMarketDaily(days = 20) {
     await new Promise(r => setTimeout(r, 700))
   }
   console.log('[market_daily] 回填完成')
+}
+
+async function backfillMarketDailyMargin(days = 30) {
+  // 補跑 market_daily 中 margin_bal 為 null 的交易日的融資融券資料
+  const n = s => +(String(s || '0').replace(/,/g, ''))
+  const { rows: missingDates } = await pool.query(`
+    SELECT DISTINCT trade_date::TEXT AS td
+    FROM market_daily
+    WHERE margin_bal IS NULL AND trade_date >= CURRENT_DATE - $1 AND trade_date <= CURRENT_DATE
+    ORDER BY td DESC
+  `, [days * 2])
+  if (!missingDates.length) { console.log('[backfill-margin] 無缺漏融資資料'); return 0 }
+  console.log(`[backfill-margin] 需補 ${missingDates.length} 個交易日的融資融券`)
+  let totalUpdated = 0
+  for (const { td } of missingDates) {
+    const dateStr8 = td.replace(/-/g, '')
+    const [y, m, d] = td.split('-')
+    const tpexD = `${+y - 1911}/${m}/${d}`
+    const marginMap = {}
+    try {
+      const twseM = await fetchUrl(
+        `https://www.twse.com.tw/rwd/zh/marginTrading/MI_MARGN?date=${dateStr8}&selectType=STOCK&response=json`
+      )
+      for (const row of twseM?.tables?.[1]?.data || []) {
+        const no = row[0]?.trim()
+        if (no) marginMap[no] = { margin: n(row[6]), short: n(row[12]) }
+      }
+    } catch(e) { console.error(`[backfill-margin] ${td} TWSE 失敗:`, e.message) }
+    try {
+      const tpexM = await fetchUrl(
+        `https://www.tpex.org.tw/web/stock/margin_trading/margin_balance/margin_bal_result.php?l=zh-tw&o=json&d=${tpexD}`
+      )
+      for (const row of tpexM?.tables?.[0]?.data || []) {
+        const no = row[0]?.trim()
+        if (no) marginMap[no] = { margin: n(row[6]) * 1000, short: n(row[14]) * 1000 }
+      }
+    } catch(e) { /* TPEX 選填 */ }
+    if (!Object.keys(marginMap).length) { console.log(`[backfill-margin] ${td} 無融資資料（休市或API失敗）`); continue }
+    const result = await pool.query(`
+      UPDATE market_daily SET
+        margin_bal = t.margin,
+        short_bal  = t.short
+      FROM (SELECT unnest($1::text[]) AS no, unnest($2::bigint[]) AS margin, unnest($3::bigint[]) AS short) t
+      WHERE market_daily.stock_no = t.no AND market_daily.trade_date = $4 AND market_daily.margin_bal IS NULL
+    `, [
+      Object.keys(marginMap),
+      Object.values(marginMap).map(v => v.margin),
+      Object.values(marginMap).map(v => v.short),
+      td,
+    ])
+    totalUpdated += result.rowCount || 0
+    console.log(`[backfill-margin] ${td} 補 ${result.rowCount} 筆`)
+    await new Promise(r => setTimeout(r, 400))
+  }
+  console.log(`[backfill-margin] 完成，共補 ${totalUpdated} 筆`)
+  return totalUpdated
 }
 
 async function backfillOHLCVFromStockDay(days = 30) {
@@ -3538,6 +3597,12 @@ app.post('/api/sync/backfill-ohlcv', async (req, res) => {
     .catch(e => console.error('[backfill-ohlcv] 失敗:', e.message))
 })
 
+app.post('/api/sync/backfill-margin', async (req, res) => {
+  const days = Math.min(parseInt(req.query.days) || 30, 90)
+  res.json({ ok: true, message: `融資融券補跑已在背景執行（近 ${days} 天）` })
+  backfillMarketDailyMargin(days).catch(e => console.error('[backfill-margin] 失敗:', e.message))
+})
+
 // 一鍵完整回填：先抓法人/融資資料，再修正 OHLCV，最後重算選股
 app.post('/api/sync/full-backfill', async (req, res) => {
   const days = Math.min(parseInt(req.query.days) || 60, 220)
@@ -3546,7 +3611,9 @@ app.post('/api/sync/full-backfill', async (req, res) => {
   ;(async () => {
     console.log(`[full-backfill] 開始：${days} 天`)
     await backfillMarketDaily(days)
-    console.log('[full-backfill] 法人/融資回填完成，開始修正 OHLCV...')
+    console.log('[full-backfill] 法人/融資回填完成，開始補跑缺漏融資融券...')
+    await backfillMarketDailyMargin(days)
+    console.log('[full-backfill] 融資融券補跑完成，開始修正 OHLCV...')
     const r = await backfillOHLCVFromStockDay(days)
     console.log(`[full-backfill] OHLCV 修正完成 ${r.updated} 筆，重算選股...`)
     await runScreener()
