@@ -5717,7 +5717,14 @@ app.get('/api/warrant/search', async (req, res) => {
 
 // ── 庫藏股買回 ──────────────────────────────────────────────
 const _buybackCache = { data: null, ts: 0 }
-const BUYBACK_CACHE_TTL = 2 * 60 * 60 * 1000  // 2 hours
+const _buybackKnownKeys = new Set()  // 已知公告 key，用於偵測新進入個股
+
+function getBuybackCacheTTL() {
+  // 台灣時間：盤中（09:00–13:30）30 分鐘，盤外 15 分鐘
+  const twMins = new Date(Date.now() + 8 * 3600000)
+  const m = twMins.getUTCHours() * 60 + twMins.getUTCMinutes()
+  return (m >= 540 && m < 810) ? 30 * 60 * 1000 : 15 * 60 * 1000
+}
 
 function toRocDate(d) {
   const roc = d.getFullYear() - 1911
@@ -5809,7 +5816,7 @@ app.get('/api/market/buyback', async (req, res) => {
   const months = Math.min(parseInt(req.query.months) || 6, 24)
   const now = Date.now()
 
-  if (_buybackCache.data && (now - _buybackCache.ts) < BUYBACK_CACHE_TTL) {
+  if (_buybackCache.data && (now - _buybackCache.ts) < getBuybackCacheTTL()) {
     return res.json(_buybackCache.data)
   }
 
@@ -5850,6 +5857,23 @@ app.get('/api/market/buyback', async (req, res) => {
     }
 
     const result = { rows, total: rows.length, d1, d2, updatedAt: new Date().toISOString() }
+
+    // 偵測新進入的庫藏股，發 Telegram 通知
+    const isFirstFetch = _buybackKnownKeys.size === 0
+    const newEntries = []
+    for (const r of rows) {
+      const key = `${r.stockNo}_${r.resolveDate}_${r.periodStart}`
+      if (!isFirstFetch && !_buybackKnownKeys.has(key)) newEntries.push(r)
+      _buybackKnownKeys.add(key)
+    }
+    if (newEntries.length > 0) {
+      const lines = newEntries.map(r => {
+        const price = r.priceInfo ? ` 現價 ${r.priceInfo.price}（${r.priceInfo.changePct >= 0 ? '+' : ''}${r.priceInfo.changePct}%）` : ''
+        return `▶ <b>${r.stockNo} ${r.stockName}</b>（${r.market}）${price}\n  決議日：${r.resolveDate}　預計買回：${r.plannedLots.toLocaleString()} 張\n  期間：${r.periodStart} ～ ${r.periodEnd}`
+      })
+      sendTelegram(`📢 <b>新庫藏股買回公告</b>（${newEntries.length} 筆）\n\n${lines.join('\n\n')}`)
+    }
+
     _buybackCache.data = result
     _buybackCache.ts = now
     res.json(result)
