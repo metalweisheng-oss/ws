@@ -6308,6 +6308,33 @@ cron.schedule('40 18 * * 1-5', async () => {
   catch(e) { console.error('[cron] 18:40 盤後分析失敗:', e.message) }
 }, { timezone: 'Asia/Taipei' })
 
+// ── StockAI 資料確保（每日 16:30）──────────────────────────
+// 背景：StockAI Railway 後端排程器在 16:00 計算 value_scores，
+// 但若當天有重新部署導致排程遺漏，此 cron 作為備援觸發。
+const STOCKAI_API_URL = process.env.STOCKAI_API || ''
+cron.schedule('30 16 * * 1-5', async () => {
+  if (!STOCKAI_API_URL) return
+  const today = new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10)
+  console.log(`[cron] 16:30 確認 StockAI value_scores ${today}`)
+  try {
+    const check = await fetch(`${STOCKAI_API_URL}/api/value/top?limit=1`)
+    const data = await check.json()
+    if (data.scoreDate === today) {
+      console.log('[cron] 16:30 StockAI 今日資料已存在，略過')
+      return
+    }
+    console.log(`[cron] 16:30 StockAI 資料落後（最新：${data.scoreDate}），觸發補算...`)
+    await fetch(`${STOCKAI_API_URL}/api/admin/sync/bwibbu`, { method: 'POST' })
+    const r = await fetch(`${STOCKAI_API_URL}/api/admin/value/compute`, { method: 'POST' })
+    const result = await r.json()
+    console.log(`[cron] 16:30 StockAI value 補算完成：${result.message}`)
+    sendTelegram(`✅ StockAI 今日（${today}）價值評分已補算完成（${result.count} 支）`)
+  } catch(e) {
+    console.error('[cron] 16:30 StockAI 補算失敗:', e.message)
+    sendTelegram(`⚠️ StockAI 今日（${today}）價值評分補算失敗：${e.message}`)
+  }
+}, { timezone: 'Asia/Taipei' })
+
 // ── 三維財務分析 (Yahoo Finance) ──────────────────────────
 const _financeCache = new Map()
 const FINANCE_TTL   = 4 * 3600 * 1000
