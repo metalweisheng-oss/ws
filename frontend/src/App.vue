@@ -829,8 +829,8 @@ function volRef5d(r) { return r.volMa5 || r.prevVol || null }
 // ③ 收盤前有委買 OR 漲停收盤（排除盤中撤單）
 function passAntiFake(r) {
   if (!r.limitBidVol) return true
-  if (r.bidSnapshotCount != null && r.bidSnapshotCount > 0) {
-    if (r.bidSnapshotCount < 2) return false
+  // 快照 < 2 時資料不足，無法判斷真假，放行並由可信度欄位標示「待觀察」
+  if (r.bidSnapshotCount != null && r.bidSnapshotCount >= 2) {
     if (r.bidVolSum != null) {
       const stability = (r.bidVolSum / r.bidSnapshotCount) / r.limitBidVol
       if (stability < 0.25) return false
@@ -844,6 +844,7 @@ function passAntiFake(r) {
 function bidCredibility(r) {
   if (!r.limitBidVol) return null
   if (r.bidSnapshotCount == null || r.bidSnapshotCount === 0) return 'unknown'
+  if (r.bidSnapshotCount < 2) return 'insufficient'
   const stability = r.bidVolSum ? (r.bidVolSum / r.bidSnapshotCount) / r.limitBidVol : 0
   const closeOk = r.closedLimitUp || (r.closeLimitBidVol != null && r.closeLimitBidVol > 0)
   if (r.bidSnapshotCount >= 3 && stability >= 0.5 && closeOk) return 'high'
@@ -1794,6 +1795,7 @@ const changelog = [
     date: '2026-05-20', tag: '修正',
     items: [
       '漲跌排行：修正盤中頻繁出現「交易所即時資料暫無回應」的問題——根本原因是每支股票同時送出上市(tse)和上櫃(otc)兩組請求，實際上每支股票只掛一個交易所，多餘的請求壓垮 TWSE MIS 導致 rate-limit；現改為 market_daily 新增 exchange 欄位記錄上市/上櫃，MIS 請求量減半；快取 TTL 同步從 12 秒調整至 30 秒，降低重複打 API 頻率',
+      '漲跌排行：修正委買假掛單過濾邏輯——原本僅有 1 次快照的個股會被 passAntiFake 直接排除，但盤中前段快照尚未累積時這樣會誤殺真實委買；現改為快照 < 2 時放行並以「待觀察」標示委買可信度，等第二次快照（約 30 分鐘後）再做正式判斷；說明文字同步更新',
       '漲跌排行：優化量縮漲停觀察與量增漲停觀察篩選條件——量縮第三順位條件調整為 5日量比 < 0.8 且委買比 > 0.8（放寬量比門檻以納入更多縮量個股，同時保留基本護盤意願過濾）；量增三個順位量比上限從 5x 放寬至 8x（避免漏掉大爆量但仍有換手跡象的個股）；量增第一順位連板限制放寬至首至三板（修正 limitDays > 3 判斷）；量增第二/三順位新增連板上限 ≤ 7；量增第三順位委買比 > 0.8；各順位新增排序：量縮按連板天數 DESC → 委買比 DESC，量增按 5 日量比 DESC → 委買比 DESC；說明文字同步更新',
     ]
   },
@@ -4571,7 +4573,8 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               <td class="px-3 py-2 text-right font-mono text-xs">
                 <span v-if="bidCredibility(r) === 'high'"   class="text-green-400">●高</span>
                 <span v-else-if="bidCredibility(r) === 'medium'" class="text-yellow-400">●中</span>
-                <span v-else-if="bidCredibility(r) === 'low'"    class="text-red-400">●低</span>
+                <span v-else-if="bidCredibility(r) === 'low'"         class="text-red-400">●低</span>
+                <span v-else-if="bidCredibility(r) === 'insufficient'" class="text-gray-500">●待觀察</span>
                 <span v-else class="text-gray-600">－</span>
               </td>
             </tr>
@@ -4639,7 +4642,8 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               <td class="px-3 py-2 text-right font-mono text-xs">
                 <span v-if="bidCredibility(r) === 'high'"   class="text-green-400">●高</span>
                 <span v-else-if="bidCredibility(r) === 'medium'" class="text-yellow-400">●中</span>
-                <span v-else-if="bidCredibility(r) === 'low'"    class="text-red-400">●低</span>
+                <span v-else-if="bidCredibility(r) === 'low'"         class="text-red-400">●低</span>
+                <span v-else-if="bidCredibility(r) === 'insufficient'" class="text-gray-500">●待觀察</span>
                 <span v-else class="text-gray-600">－</span>
               </td>
             </tr>
@@ -4700,7 +4704,8 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               <td class="px-3 py-2 text-right font-mono text-xs">
                 <span v-if="bidCredibility(r) === 'high'"   class="text-green-400">●高</span>
                 <span v-else-if="bidCredibility(r) === 'medium'" class="text-yellow-400">●中</span>
-                <span v-else-if="bidCredibility(r) === 'low'"    class="text-red-400">●低</span>
+                <span v-else-if="bidCredibility(r) === 'low'"         class="text-red-400">●低</span>
+                <span v-else-if="bidCredibility(r) === 'insufficient'" class="text-gray-500">●待觀察</span>
                 <span v-else class="text-gray-600">－</span>
               </td>
             </tr>
@@ -4762,7 +4767,8 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               <td class="px-3 py-2 text-right font-mono text-xs">
                 <span v-if="bidCredibility(r) === 'high'"   class="text-green-400">●高</span>
                 <span v-else-if="bidCredibility(r) === 'medium'" class="text-yellow-400">●中</span>
-                <span v-else-if="bidCredibility(r) === 'low'"    class="text-red-400">●低</span>
+                <span v-else-if="bidCredibility(r) === 'low'"         class="text-red-400">●低</span>
+                <span v-else-if="bidCredibility(r) === 'insufficient'" class="text-gray-500">●待觀察</span>
                 <span v-else class="text-gray-600">－</span>
               </td>
             </tr>
@@ -4824,7 +4830,8 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               <td class="px-3 py-2 text-right font-mono text-xs">
                 <span v-if="bidCredibility(r) === 'high'"   class="text-green-400">●高</span>
                 <span v-else-if="bidCredibility(r) === 'medium'" class="text-yellow-400">●中</span>
-                <span v-else-if="bidCredibility(r) === 'low'"    class="text-red-400">●低</span>
+                <span v-else-if="bidCredibility(r) === 'low'"         class="text-red-400">●低</span>
+                <span v-else-if="bidCredibility(r) === 'insufficient'" class="text-gray-500">●待觀察</span>
                 <span v-else class="text-gray-600">－</span>
               </td>
             </tr>
@@ -4885,7 +4892,8 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               <td class="px-3 py-2 text-right font-mono text-xs">
                 <span v-if="bidCredibility(r) === 'high'"   class="text-green-400">●高</span>
                 <span v-else-if="bidCredibility(r) === 'medium'" class="text-yellow-400">●中</span>
-                <span v-else-if="bidCredibility(r) === 'low'"    class="text-red-400">●低</span>
+                <span v-else-if="bidCredibility(r) === 'low'"         class="text-red-400">●低</span>
+                <span v-else-if="bidCredibility(r) === 'insufficient'" class="text-gray-500">●待觀察</span>
                 <span v-else class="text-gray-600">－</span>
               </td>
             </tr>
@@ -4945,7 +4953,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
           </div>
           <div class="flex items-start gap-2 col-span-full">
             <span class="text-green-400 font-bold whitespace-nowrap">① 快照持續性</span>
-            <span>委買需在 ≥ 2 次快照中出現（間距 30 分鐘）。僅出現一次即排除，因真實護盤方不敢讓委買消失超過半小時。</span>
+            <span>委買需在 ≥ 2 次快照中出現（間距 30 分鐘）。快照不足時不排除個股，改以「待觀察」標示，等第二次快照完成後才能正式判斷。</span>
           </div>
           <div class="flex items-start gap-2 col-span-full">
             <span class="text-green-400 font-bold whitespace-nowrap">② 委買穩定性</span>
@@ -4962,10 +4970,13 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
             <span class="text-yellow-400">●中</span><span>快照 ≥ 2 且穩定性 ≥ 0.25（收盤資料待確認）</span>
           </div>
           <div class="flex items-center gap-2 col-span-full">
-            <span class="text-red-400">●低</span><span>未通過過濾（不應出現在觀察區，若出現代表剛進入第一個快照周期）</span>
+            <span class="text-red-400">●低</span><span>快照 ≥ 2 但穩定性不足或收盤委買已撤（疑似假掛單）</span>
           </div>
           <div class="flex items-center gap-2 col-span-full">
-            <span class="text-gray-600">－</span><span>無快照資料（歷史資料、或今日首次入選尚未完成第二次快照）</span>
+            <span class="text-gray-500">●待觀察</span><span>僅有 1 次快照，資料不足以判斷真假，等待第二次快照（約 30 分鐘後）</span>
+          </div>
+          <div class="flex items-center gap-2 col-span-full">
+            <span class="text-gray-600">－</span><span>無快照資料（歷史資料，或委買量為 0）</span>
           </div>
         </div>
       </div>
