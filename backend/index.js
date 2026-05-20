@@ -3820,7 +3820,11 @@ function _passAntiFake(r) {
       if (stability < 0.25) return false
     }
   }
-  if (r.closeLimitBidVol != null && !r.closedLimitUp && r.closeLimitBidVol === 0) return false
+  if (r.closeLimitBidVol != null && !r.closedLimitUp && r.limitBidVol > 0) {
+    if (r.closeLimitBidVol === 0) return false
+    // 盤尾留存率 < 30% → 疑似盤尾撤單
+    if (r.closeLimitBidVol / r.limitBidVol < 0.3) return false
+  }
   return true
 }
 
