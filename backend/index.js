@@ -2702,6 +2702,8 @@ app.get('/api/debug/screener-check', async (req, res) => {
     await pool.query(`ALTER TABLE daily_limit_bid ADD COLUMN IF NOT EXISTS bid_snapshot_count INTEGER DEFAULT 0`).catch(()=>{})
     await pool.query(`ALTER TABLE daily_limit_bid ADD COLUMN IF NOT EXISTS bid_vol_sum BIGINT DEFAULT 0`).catch(()=>{})
     await pool.query(`ALTER TABLE daily_limit_bid ADD COLUMN IF NOT EXISTS close_limit_bid_vol BIGINT`).catch(()=>{})
+    await pool.query(`ALTER TABLE daily_limit_bid ADD COLUMN IF NOT EXISTS bid_vol_min BIGINT`).catch(()=>{})
+    await pool.query(`ALTER TABLE daily_limit_bid ADD COLUMN IF NOT EXISTS bid_vol_first BIGINT`).catch(()=>{})
     await pool.query(`
       CREATE TABLE IF NOT EXISTS daily_limit_bid (
         stock_no      VARCHAR(10),
@@ -3825,6 +3827,8 @@ function _passAntiFake(r) {
     // 盤尾留存率 < 30% → 疑似盤尾撤單
     if (r.closeLimitBidVol / r.limitBidVol < 0.3) return false
   }
+  // 曾短暫歸零：最低值 < 最大值 10% → 疑似假掛（先掛後撤再掛）
+  if (r.bidVolMin != null && r.limitBidVol > 0 && r.bidVolMin / r.limitBidVol < 0.1) return false
   return true
 }
 
@@ -4370,23 +4374,27 @@ async function saveCloseSnapshot(dateStr, isClose = true) {
   for (const [stockNo, tradeDate, vol] of bidRecords) {
     if (isClose) {
       await pool.query(`
-        INSERT INTO daily_limit_bid (stock_no, trade_date, limit_bid_vol, closed_limit_up, close_limit_bid_vol, bid_snapshot_count, bid_vol_sum)
-        VALUES ($1, $2, $3, TRUE, $3, 1, $3)
+        INSERT INTO daily_limit_bid (stock_no, trade_date, limit_bid_vol, closed_limit_up, close_limit_bid_vol, bid_snapshot_count, bid_vol_sum, bid_vol_min, bid_vol_first)
+        VALUES ($1, $2, $3, TRUE, $3, 1, $3, $3, $3)
         ON CONFLICT (stock_no, trade_date) DO UPDATE SET
           limit_bid_vol        = GREATEST(EXCLUDED.limit_bid_vol, daily_limit_bid.limit_bid_vol),
           closed_limit_up      = TRUE,
           close_limit_bid_vol  = $3,
           bid_snapshot_count   = COALESCE(daily_limit_bid.bid_snapshot_count, 0) + 1,
-          bid_vol_sum          = COALESCE(daily_limit_bid.bid_vol_sum, 0) + $3
+          bid_vol_sum          = COALESCE(daily_limit_bid.bid_vol_sum, 0) + $3,
+          bid_vol_min          = LEAST(COALESCE(daily_limit_bid.bid_vol_min, $3), $3),
+          bid_vol_first        = COALESCE(daily_limit_bid.bid_vol_first, $3)
       `, [stockNo, tradeDate, vol])
     } else {
       await pool.query(`
-        INSERT INTO daily_limit_bid (stock_no, trade_date, limit_bid_vol, bid_snapshot_count, bid_vol_sum)
-        VALUES ($1, $2, $3, 1, $3)
+        INSERT INTO daily_limit_bid (stock_no, trade_date, limit_bid_vol, bid_snapshot_count, bid_vol_sum, bid_vol_min, bid_vol_first)
+        VALUES ($1, $2, $3, 1, $3, $3, $3)
         ON CONFLICT (stock_no, trade_date) DO UPDATE SET
           limit_bid_vol      = GREATEST(EXCLUDED.limit_bid_vol, daily_limit_bid.limit_bid_vol),
           bid_snapshot_count = COALESCE(daily_limit_bid.bid_snapshot_count, 0) + 1,
-          bid_vol_sum        = COALESCE(daily_limit_bid.bid_vol_sum, 0) + $3
+          bid_vol_sum        = COALESCE(daily_limit_bid.bid_vol_sum, 0) + $3,
+          bid_vol_min        = LEAST(COALESCE(daily_limit_bid.bid_vol_min, $3), $3),
+          bid_vol_first      = COALESCE(daily_limit_bid.bid_vol_first, $3)
       `, [stockNo, tradeDate, vol])
     }
   }
@@ -4731,7 +4739,8 @@ app.get('/api/market/movers', async (req, res) => {
                ROUND((t.close - p.prev_close)::numeric, 2) AS change,
                m.ma3, m.prev_ma3, m.vol_ma3, m.prev_vol, m.prev_open, m.prev_vol_ma3, m.vol_ma5,
                dlb.limit_bid_vol, dlb.closed_limit_up,
-               dlb.bid_snapshot_count, dlb.bid_vol_sum, dlb.close_limit_bid_vol
+               dlb.bid_snapshot_count, dlb.bid_vol_sum, dlb.close_limit_bid_vol,
+               dlb.bid_vol_min, dlb.bid_vol_first
         FROM today t
         JOIN prev p ON p.stock_no = t.stock_no
         LEFT JOIN ma m ON m.stock_no = t.stock_no
@@ -4764,6 +4773,8 @@ app.get('/api/market/movers', async (req, res) => {
           bidSnapshotCount:  r.bid_snapshot_count   != null ? parseInt(r.bid_snapshot_count)   : null,
           bidVolSum:         r.bid_vol_sum          != null ? parseInt(r.bid_vol_sum)          : null,
           closeLimitBidVol:  r.close_limit_bid_vol  != null ? parseInt(r.close_limit_bid_vol)  : null,
+          bidVolMin:         r.bid_vol_min          != null ? parseInt(r.bid_vol_min)          : null,
+          bidVolFirst:       r.bid_vol_first        != null ? parseInt(r.bid_vol_first)        : null,
         }
       })
 
@@ -4849,7 +4860,7 @@ app.get('/api/market/movers', async (req, res) => {
   try {
     const [{ rows: stockRows }, { rows: dlbRows }, { rows: maRows }] = await Promise.all([
       pool.query(`SELECT DISTINCT ON (stock_no) stock_no, stock_name, exchange FROM market_daily ORDER BY stock_no, trade_date DESC`),
-      pool.query(`SELECT stock_no, limit_bid_vol, bid_snapshot_count, bid_vol_sum, close_limit_bid_vol FROM daily_limit_bid WHERE trade_date = CURRENT_DATE`).catch(() => ({ rows: [] })),
+      pool.query(`SELECT stock_no, limit_bid_vol, bid_snapshot_count, bid_vol_sum, close_limit_bid_vol, bid_vol_min, bid_vol_first FROM daily_limit_bid WHERE trade_date = CURRENT_DATE`).catch(() => ({ rows: [] })),
       pool.query(`
         WITH ranked AS (
           SELECT stock_no, open_p::numeric, close::numeric, volume::numeric,
@@ -4878,10 +4889,12 @@ app.get('/api/market/movers', async (req, res) => {
 
     const dlbMap = {}
     for (const r of dlbRows) dlbMap[r.stock_no] = {
-      limitBidVol:      r.limit_bid_vol      != null ? parseInt(r.limit_bid_vol)      : null,
-      bidSnapshotCount: r.bid_snapshot_count != null ? parseInt(r.bid_snapshot_count) : null,
-      bidVolSum:        r.bid_vol_sum        != null ? parseInt(r.bid_vol_sum)        : null,
-      closeLimitBidVol: r.close_limit_bid_vol != null ? parseInt(r.close_limit_bid_vol) : null,
+      limitBidVol:      r.limit_bid_vol        != null ? parseInt(r.limit_bid_vol)        : null,
+      bidSnapshotCount: r.bid_snapshot_count   != null ? parseInt(r.bid_snapshot_count)   : null,
+      bidVolSum:        r.bid_vol_sum          != null ? parseInt(r.bid_vol_sum)          : null,
+      closeLimitBidVol: r.close_limit_bid_vol  != null ? parseInt(r.close_limit_bid_vol)  : null,
+      bidVolMin:        r.bid_vol_min          != null ? parseInt(r.bid_vol_min)          : null,
+      bidVolFirst:      r.bid_vol_first        != null ? parseInt(r.bid_vol_first)        : null,
     }
 
     const maMap = {}
@@ -4964,6 +4977,8 @@ app.get('/api/market/movers', async (req, res) => {
           bidSnapshotCount: dlbMap[item.c]?.bidSnapshotCount ?? null,
           bidVolSum:        dlbMap[item.c]?.bidVolSum        ?? null,
           closeLimitBidVol: dlbMap[item.c]?.closeLimitBidVol ?? null,
+          bidVolMin:        dlbMap[item.c]?.bidVolMin        ?? null,
+          bidVolFirst:      dlbMap[item.c]?.bidVolFirst      ?? null,
           earlyLimitUp: changePct >= 9.5 && item.t && item.t >= '09:00:00' && item.t < '10:00:00' ? true : undefined,
         })
       }
@@ -5138,7 +5153,9 @@ app.post('/api/sync/backfill-limit-snapshots', async (req, res) => {
           COALESCE(dlb.closed_limit_up, false) AS closed_limit_up,
           dlb.bid_snapshot_count,
           dlb.bid_vol_sum,
-          dlb.close_limit_bid_vol
+          dlb.close_limit_bid_vol,
+          dlb.bid_vol_min,
+          dlb.bid_vol_first
         FROM ma m
         JOIN market_daily md ON md.stock_no = m.stock_no AND md.trade_date = m.trade_date
         LEFT JOIN daily_limit_bid dlb ON dlb.stock_no = m.stock_no AND dlb.trade_date = m.trade_date
@@ -5159,6 +5176,8 @@ app.post('/api/sync/backfill-limit-snapshots', async (req, res) => {
         bidSnapshotCount: r.bid_snapshot_count,
         bidVolSum: r.bid_vol_sum ? Number(r.bid_vol_sum) : null,
         closeLimitBidVol: r.close_limit_bid_vol ? Number(r.close_limit_bid_vol) : null,
+        bidVolMin: r.bid_vol_min ? Number(r.bid_vol_min) : null,
+        bidVolFirst: r.bid_vol_first ? Number(r.bid_vol_first) : null,
         innerVol: null, outerVol: null, limitDays: null, earlyLimitUp: false,
       }))
 

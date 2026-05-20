@@ -842,6 +842,8 @@ function passAntiFake(r) {
     // 盤尾留存率 < 30% → 疑似盤尾撤單
     if (r.closeLimitBidVol / r.limitBidVol < 0.3) return false
   }
+  // 曾短暫歸零：最低值 < 最大值 10% → 疑似假掛（先掛後撤再掛）
+  if (r.bidVolMin != null && r.limitBidVol > 0 && r.bidVolMin / r.limitBidVol < 0.1) return false
   return true
 }
 
@@ -851,16 +853,47 @@ function bidRetention(r) {
   return (r.closeLimitBidVol / r.limitBidVol) * 100
 }
 
-// 可信度等級 (用於顯示)
+// 委買可信度綜合評分 0–100（改善 5）
+// 快照 < 2 時回傳 null（樣本不足，顯示「待觀察」）
+function bidCredibilityScore(r) {
+  if (!r.limitBidVol) return null
+  if (r.bidSnapshotCount == null || r.bidSnapshotCount < 2) return null
+  let score = 50
+
+  // 盤尾留存率：最重要的指標（±30）
+  const retention = bidRetention(r)
+  if (retention !== null) {
+    if (retention >= 70) score += 30
+    else if (retention >= 40) score += 10
+    else score -= 30
+  }
+
+  // 平均 / 最大穩定性（±20）
+  if (r.bidVolSum) {
+    const stability = (r.bidVolSum / r.bidSnapshotCount) / r.limitBidVol
+    if (stability >= 0.6) score += 20
+    else if (stability >= 0.35) score += 5
+    else score -= 20
+  }
+
+  // 委買趨勢：尾盤 > 首盤 = 承接意願在增加（+15）
+  if (r.bidVolFirst != null && r.closeLimitBidVol != null && r.closeLimitBidVol > r.bidVolFirst) score += 15
+
+  // 曾短暫歸零：最低值 < 最大值 10%（-20）
+  if (r.bidVolMin != null && r.bidVolMin / r.limitBidVol < 0.1) score -= 20
+
+  return Math.max(0, Math.min(100, score))
+}
+
+// 可信度等級 (用於 passAntiFake 評分門檻參考)
 function bidCredibility(r) {
   if (!r.limitBidVol) return null
   if (r.bidSnapshotCount == null || r.bidSnapshotCount === 0) return 'unknown'
   if (r.bidSnapshotCount < 2) return 'insufficient'
-  const stability = r.bidVolSum ? (r.bidVolSum / r.bidSnapshotCount) / r.limitBidVol : 0
-  const retention = bidRetention(r)
-  const closeOk = r.closedLimitUp || (r.closeLimitBidVol != null && r.closeLimitBidVol > 0)
-  if (r.bidSnapshotCount >= 3 && stability >= 0.5 && closeOk && (retention === null || retention >= 50)) return 'high'
-  if (r.bidSnapshotCount >= 2 && stability >= 0.25 && (retention === null || retention >= 30)) return 'medium'
+  const score = bidCredibilityScore(r)
+  if (score === null) return 'insufficient'
+  if (score >= 65) return 'high'
+  if (score >= 40) return 'medium'
   return 'low'
 }
 
@@ -1814,6 +1847,7 @@ const changelog = [
       '漲跌排行：修正委買假掛單過濾邏輯——原本僅有 1 次快照的個股會被 passAntiFake 直接排除，但盤中前段快照尚未累積時這樣會誤殺真實委買；現改為快照 < 2 時放行並以「待觀察」標示委買可信度，等第二次快照（約 30 分鐘後）再做正式判斷；說明文字同步更新',
       '漲跌排行：優化量縮漲停觀察與量增漲停觀察篩選條件——量縮第三順位條件調整為 5日量比 < 0.8 且委買比 > 0.8（放寬量比門檻以納入更多縮量個股，同時保留基本護盤意願過濾）；量增三個順位量比上限從 5x 放寬至 8x（避免漏掉大爆量但仍有換手跡象的個股）；量增第一順位連板限制放寬至首至三板（修正 limitDays > 3 判斷）；量增第二/三順位新增連板上限 ≤ 7；量增第三順位委買比 > 0.8；各順位新增排序：量縮按連板天數 DESC → 委買比 DESC，量增按 5 日量比 DESC → 委買比 DESC；說明文字同步更新',
       '漲跌排行：強化 passAntiFake 盤尾撤單過濾——新增第四層條件：盤尾委買留存率（close_limit_bid_vol / limit_bid_vol）< 30% 時視為疑似盤尾撤單並排除；各觀察順位「委買可信度」欄位同步顯示尾盤留存率（尾 XX%），≥70% 綠色、40–69% 黃色、< 40% 紅色；bidCredibility 評分納入 retention 門檻（高可信需 ≥ 50%、中可信需 ≥ 30%）；說明文字同步更新',
+      '漲跌排行：新增委買最低值追蹤（bid_vol_min）與首次委買量追蹤（bid_vol_first）——每次快照更新時同步記錄當日最低委買量與首筆委買量；passAntiFake 新增第五層：最低委買 < 最大委買 10% 時排除（先掛後撤再掛的假掛模式）；新增 bidCredibilityScore 函數（0–100 綜合評分），整合盤尾留存率（±30）、穩定性（±20）、趨勢方向（+15）、最低值保護（-20）四個維度；各觀察區「委買可信度」欄位改為顯示數字評分，≥65 綠色（高可信）、40–64 黃色（中可信）、< 40 紅色（低可信）；說明文字同步更新',
     ]
   },
   {
@@ -4532,6 +4566,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <tr><td class="pr-4 py-0.5 text-gray-300">快照 ≥ 2 且 平均/最大委買比 &lt; 0.25</td><td>排除（歷史委買皆小，疑假掛）</td></tr>
                 <tr><td class="pr-4 py-0.5 text-gray-300">收盤前且委買量 = 0 且尚未漲停</td><td>排除（買盤已撤）</td></tr>
                 <tr><td class="pr-4 py-0.5 text-gray-300">尾盤留存率 &lt; 30%（close / max）</td><td>排除（盤尾大量撤單，疑假掛）</td></tr>
+                <tr><td class="pr-4 py-0.5 text-gray-300">最低委買 &lt; 最大委買 10%</td><td>排除（曾短暫歸零，先掛後撤再掛的假掛模式）</td></tr>
               </tbody>
             </table>
           </div>
@@ -4710,11 +4745,11 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               </td>
               <td class="px-3 py-2 text-right font-mono text-xs">
                 <div>
-                  <span v-if="bidCredibility(r) === 'high'"        class="text-green-400">●高</span>
-                  <span v-else-if="bidCredibility(r) === 'medium'" class="text-yellow-400">●中</span>
-                  <span v-else-if="bidCredibility(r) === 'low'"    class="text-red-400">●低</span>
-                  <span v-else-if="bidCredibility(r) === 'insufficient'" class="text-gray-500">●待觀察</span>
-                  <span v-else class="text-gray-600">－</span>
+                  <template v-if="bidCredibilityScore(r) !== null">
+                    <span :class="bidCredibilityScore(r) >= 65 ? 'text-green-400 font-bold' : bidCredibilityScore(r) >= 40 ? 'text-yellow-400' : 'text-red-400'">{{ bidCredibilityScore(r) }}</span><span class="text-gray-600">分</span>
+                  </template>
+                  <span v-else-if="!r.limitBidVol" class="text-gray-600">－</span>
+                  <span v-else class="text-gray-500">待觀察</span>
                 </div>
                 <div v-if="bidRetention(r) !== null" class="text-xs mt-0.5"
                      :class="bidRetention(r) >= 70 ? 'text-green-600' : bidRetention(r) >= 40 ? 'text-yellow-700' : 'text-red-700'">
@@ -4785,11 +4820,11 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               </td>
               <td class="px-3 py-2 text-right font-mono text-xs">
                 <div>
-                  <span v-if="bidCredibility(r) === 'high'"        class="text-green-400">●高</span>
-                  <span v-else-if="bidCredibility(r) === 'medium'" class="text-yellow-400">●中</span>
-                  <span v-else-if="bidCredibility(r) === 'low'"    class="text-red-400">●低</span>
-                  <span v-else-if="bidCredibility(r) === 'insufficient'" class="text-gray-500">●待觀察</span>
-                  <span v-else class="text-gray-600">－</span>
+                  <template v-if="bidCredibilityScore(r) !== null">
+                    <span :class="bidCredibilityScore(r) >= 65 ? 'text-green-400 font-bold' : bidCredibilityScore(r) >= 40 ? 'text-yellow-400' : 'text-red-400'">{{ bidCredibilityScore(r) }}</span><span class="text-gray-600">分</span>
+                  </template>
+                  <span v-else-if="!r.limitBidVol" class="text-gray-600">－</span>
+                  <span v-else class="text-gray-500">待觀察</span>
                 </div>
                 <div v-if="bidRetention(r) !== null" class="text-xs mt-0.5"
                      :class="bidRetention(r) >= 70 ? 'text-green-600' : bidRetention(r) >= 40 ? 'text-yellow-700' : 'text-red-700'">
@@ -4853,11 +4888,11 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               </td>
               <td class="px-3 py-2 text-right font-mono text-xs">
                 <div>
-                  <span v-if="bidCredibility(r) === 'high'"        class="text-green-400">●高</span>
-                  <span v-else-if="bidCredibility(r) === 'medium'" class="text-yellow-400">●中</span>
-                  <span v-else-if="bidCredibility(r) === 'low'"    class="text-red-400">●低</span>
-                  <span v-else-if="bidCredibility(r) === 'insufficient'" class="text-gray-500">●待觀察</span>
-                  <span v-else class="text-gray-600">－</span>
+                  <template v-if="bidCredibilityScore(r) !== null">
+                    <span :class="bidCredibilityScore(r) >= 65 ? 'text-green-400 font-bold' : bidCredibilityScore(r) >= 40 ? 'text-yellow-400' : 'text-red-400'">{{ bidCredibilityScore(r) }}</span><span class="text-gray-600">分</span>
+                  </template>
+                  <span v-else-if="!r.limitBidVol" class="text-gray-600">－</span>
+                  <span v-else class="text-gray-500">待觀察</span>
                 </div>
                 <div v-if="bidRetention(r) !== null" class="text-xs mt-0.5"
                      :class="bidRetention(r) >= 70 ? 'text-green-600' : bidRetention(r) >= 40 ? 'text-yellow-700' : 'text-red-700'">
@@ -4922,11 +4957,11 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               </td>
               <td class="px-3 py-2 text-right font-mono text-xs">
                 <div>
-                  <span v-if="bidCredibility(r) === 'high'"        class="text-green-400">●高</span>
-                  <span v-else-if="bidCredibility(r) === 'medium'" class="text-yellow-400">●中</span>
-                  <span v-else-if="bidCredibility(r) === 'low'"    class="text-red-400">●低</span>
-                  <span v-else-if="bidCredibility(r) === 'insufficient'" class="text-gray-500">●待觀察</span>
-                  <span v-else class="text-gray-600">－</span>
+                  <template v-if="bidCredibilityScore(r) !== null">
+                    <span :class="bidCredibilityScore(r) >= 65 ? 'text-green-400 font-bold' : bidCredibilityScore(r) >= 40 ? 'text-yellow-400' : 'text-red-400'">{{ bidCredibilityScore(r) }}</span><span class="text-gray-600">分</span>
+                  </template>
+                  <span v-else-if="!r.limitBidVol" class="text-gray-600">－</span>
+                  <span v-else class="text-gray-500">待觀察</span>
                 </div>
                 <div v-if="bidRetention(r) !== null" class="text-xs mt-0.5"
                      :class="bidRetention(r) >= 70 ? 'text-green-600' : bidRetention(r) >= 40 ? 'text-yellow-700' : 'text-red-700'">
@@ -4991,11 +5026,11 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               </td>
               <td class="px-3 py-2 text-right font-mono text-xs">
                 <div>
-                  <span v-if="bidCredibility(r) === 'high'"        class="text-green-400">●高</span>
-                  <span v-else-if="bidCredibility(r) === 'medium'" class="text-yellow-400">●中</span>
-                  <span v-else-if="bidCredibility(r) === 'low'"    class="text-red-400">●低</span>
-                  <span v-else-if="bidCredibility(r) === 'insufficient'" class="text-gray-500">●待觀察</span>
-                  <span v-else class="text-gray-600">－</span>
+                  <template v-if="bidCredibilityScore(r) !== null">
+                    <span :class="bidCredibilityScore(r) >= 65 ? 'text-green-400 font-bold' : bidCredibilityScore(r) >= 40 ? 'text-yellow-400' : 'text-red-400'">{{ bidCredibilityScore(r) }}</span><span class="text-gray-600">分</span>
+                  </template>
+                  <span v-else-if="!r.limitBidVol" class="text-gray-600">－</span>
+                  <span v-else class="text-gray-500">待觀察</span>
                 </div>
                 <div v-if="bidRetention(r) !== null" class="text-xs mt-0.5"
                      :class="bidRetention(r) >= 70 ? 'text-green-600' : bidRetention(r) >= 40 ? 'text-yellow-700' : 'text-red-700'">
@@ -5059,11 +5094,11 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               </td>
               <td class="px-3 py-2 text-right font-mono text-xs">
                 <div>
-                  <span v-if="bidCredibility(r) === 'high'"        class="text-green-400">●高</span>
-                  <span v-else-if="bidCredibility(r) === 'medium'" class="text-yellow-400">●中</span>
-                  <span v-else-if="bidCredibility(r) === 'low'"    class="text-red-400">●低</span>
-                  <span v-else-if="bidCredibility(r) === 'insufficient'" class="text-gray-500">●待觀察</span>
-                  <span v-else class="text-gray-600">－</span>
+                  <template v-if="bidCredibilityScore(r) !== null">
+                    <span :class="bidCredibilityScore(r) >= 65 ? 'text-green-400 font-bold' : bidCredibilityScore(r) >= 40 ? 'text-yellow-400' : 'text-red-400'">{{ bidCredibilityScore(r) }}</span><span class="text-gray-600">分</span>
+                  </template>
+                  <span v-else-if="!r.limitBidVol" class="text-gray-600">－</span>
+                  <span v-else class="text-gray-500">待觀察</span>
                 </div>
                 <div v-if="bidRetention(r) !== null" class="text-xs mt-0.5"
                      :class="bidRetention(r) >= 70 ? 'text-green-600' : bidRetention(r) >= 40 ? 'text-yellow-700' : 'text-red-700'">
