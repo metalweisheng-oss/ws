@@ -831,7 +831,7 @@ function passAntiFake(r) {
   if (!r.limitBidVol) return true
   // 快照 < 2 時資料不足，無法判斷真假，放行並由可信度欄位標示「待觀察」
   if (r.bidSnapshotCount != null && r.bidSnapshotCount >= 2) {
-    if (r.bidVolSum != null) {
+    if (r.bidVolSum != null && r.bidVolSum > 0) {
       const stability = (r.bidVolSum / r.bidSnapshotCount) / r.limitBidVol
       if (stability < 0.25) return false
     }

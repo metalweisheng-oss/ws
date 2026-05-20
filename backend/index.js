@@ -3727,9 +3727,9 @@ function _passAntiSpoof(r) {
 function _volRef5d(r) { return r.volMa5 || r.prevVol || null }
 function _passAntiFake(r) {
   if (!r.limitBidVol) return true
-  if (r.bidSnapshotCount != null && r.bidSnapshotCount > 0) {
-    if (r.bidSnapshotCount < 2) return false
-    if (r.bidVolSum != null) {
+  // 快照 < 2 時資料不足，放行並由可信度欄位標示「待觀察」
+  if (r.bidSnapshotCount != null && r.bidSnapshotCount >= 2) {
+    if (r.bidVolSum != null && r.bidVolSum > 0) {
       const stability = (r.bidVolSum / r.bidSnapshotCount) / r.limitBidVol
       if (stability < 0.25) return false
     }
@@ -3746,8 +3746,8 @@ function buildSurgeListsFromGainers(gainers) {
     if (!r.limitBidVol) return false
     const ref = _volRef5d(r); if (!ref) return false
     const ratio = r.volume / ref
-    if (ratio < 1.5 || ratio >= 5) return false
-    if (r.limitDays != null && r.limitDays > 1) return false
+    if (ratio < 1.5 || ratio >= 8) return false
+    if (r.limitDays != null && r.limitDays > 3) return false
     return r.limitBidVol / r.volume > 2
   })
   const set1 = new Set(list1.map(r => r.stockNo))
@@ -3756,15 +3756,19 @@ function buildSurgeListsFromGainers(gainers) {
     if (!r.limitBidVol) return false
     const ref = _volRef5d(r); if (!ref) return false
     const ratio = r.volume / ref
-    if (ratio < 1.5 || ratio >= 5) return false
+    if (ratio < 1.5 || ratio >= 8) return false
+    if (r.limitDays != null && r.limitDays > 7) return false
     return r.limitBidVol / r.volume > 1.5
   })
   const set12 = new Set([...list1, ...list2].map(r => r.stockNo))
   const list3 = base.filter(r => {
     if (set12.has(r.stockNo)) return false
+    if (!r.limitBidVol) return false
     const ref = _volRef5d(r); if (!ref) return false
     const ratio = r.volume / ref
-    return ratio >= 1.5 && ratio < 5
+    if (ratio < 1.5 || ratio >= 8) return false
+    if (r.limitDays != null && r.limitDays > 7) return false
+    return r.limitBidVol / r.volume > 0.8
   })
   return { list1, list2, list3 }
 }
@@ -3788,8 +3792,9 @@ function buildSqueezeListsFromGainers(gainers) {
   const set12 = new Set([...list1, ...list2].map(r => r.stockNo))
   const list3 = base.filter(r => {
     if (set12.has(r.stockNo)) return false
-    const ref = _volRef5d(r); if (!ref || r.volume / ref >= 0.7) return false
-    return true
+    const ref = _volRef5d(r); if (!ref || r.volume / ref >= 0.8) return false
+    if (r.limitBidVol) return r.limitBidVol / r.volume > 0.8
+    return r.closedLimitUp || false
   })
   return { list1, list2, list3 }
 }
