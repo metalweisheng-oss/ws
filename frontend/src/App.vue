@@ -1795,7 +1795,7 @@ const changelog = [
     date: '2026-05-20', tag: '修正',
     items: [
       '漲時看勢跌時看質：修正頁面空白問題——根本原因為 Next.js/Vercel 預設設定 X-Frame-Options: SAMEORIGIN，阻止跨域 iframe 嵌入；已在 next.config.ts 加入 ALLOWALL 與 frame-ancestors * header；同步修正每次推送前端變更會導致 Railway 後端重啟的問題（新增 watchPatterns 限制只有後端目錄變更才觸發重新部署）；改善 StockAI 啟動補跑邏輯，改為偵測今日 daily_prices 存在但 value_scores 缺失時自動補算，不再依賴固定時間判斷；新增 my-app 後端每日 16:30 備援觸發，若 StockAI 價值評分當日缺失則自動補算並發送 Telegram 通知',
-      '三大法人：修正歷史資料日期缺失與融資融券空值問題——根本原因為 syncMarketDailyOne 的假日偵測邏輯誤將 T86 暫時空回但有行情資料的交易日判定為休市並刪除整天資料；修正為同時確認無上市與無上櫃行情時才判定休市，有任何行情資料的日期不再誤刪；新增 backfillMarketDailyMargin 函數，可針對 margin_bal 為 null 的日期獨立補跑融資融券，並將其整合進 full-backfill 流程',
+      '三大法人：修正歷史資料日期缺失與融資融券空值問題——根本原因一：syncMarketDailyOne 的假日偵測邏輯誤將 T86 暫時空回但有行情資料的交易日判定為休市並刪除整天資料，修正為同時確認無上市與無上櫃行情時才判定休市；根本原因二：TWSE STOCK_DAY_ALL 不支援歷史日期查詢，歷史補跑時 TWSE 行情 0 檔導致上市股票不被寫入，修正為當 STOCK_DAY_ALL 回傳非目標日期時，改從 T86 法人資料補建 TWSE 股票列（OHLCV 暫為 null）再由 backfillOHLCVFromStockDay 補齊；backfill-market API 同步加入 OHLCV 補跑步驟；新增 backfillMarketDailyMargin，針對 margin_bal 為 null 的日期補跑融資融券',
       '漲跌排行：修正盤中頻繁出現「交易所即時資料暫無回應」的問題——根本原因是每支股票同時送出上市(tse)和上櫃(otc)兩組請求，實際上每支股票只掛一個交易所，多餘的請求壓垮 TWSE MIS 導致 rate-limit；現改為 market_daily 新增 exchange 欄位記錄上市/上櫃，MIS 請求量減半；快取 TTL 同步從 12 秒調整至 30 秒，降低重複打 API 頻率',
       '庫藏股：快取更新頻率從固定 2 小時改為動態——盤中（09:00–13:30）30 分鐘、盤外 15 分鐘，讓公司申報後更快出現；新增 Telegram 通知，當 MOPS 出現尚未見過的庫藏股公告時，自動推播股票代號、名稱、現價漲跌幅、買回張數與執行期間',
       '漲跌排行：修正即時資料路徑缺少 closedLimitUp 欄位的問題——後端即時 MIS 資料原本未設定 closedLimitUp，導致委買被完全吸收（板上無掛單）的漲停股在盤中無法進入量縮 L1/L2；現改為即時資料 changePct ≥ 9.9% 時自動標記 closedLimitUp=true，同時前後端的 buildSqueezeListsFromGainers 已同步此邏輯',

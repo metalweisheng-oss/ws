@@ -2807,7 +2807,10 @@ async function syncMarketDailyOne(dateStr8) {
         } catch {}
       }
     } else if (data?.stat === 'OK' && returnedDate !== dateStr8) {
-      console.log(`[market_daily] ${tradeDate} STOCK_DAY_ALL 回傳日期 ${returnedDate}，非目標日期，跳過 OHLCV`)
+      // STOCK_DAY_ALL 只回傳最新交易日，歷史補跑時無法取得 OHLCV。
+      // 改從 T86 法人資料（稍後抓取）補建 TWSE 股票列（OHLCV 暫設 null），
+      // 之後 backfillOHLCVFromStockDay 再補收盤價。
+      console.log(`[market_daily] ${tradeDate} STOCK_DAY_ALL 回傳日期 ${returnedDate}，非目標日期，改從 T86 補建 TWSE 股票列`)
     }
     console.log(`[market_daily] ${tradeDate} TWSE行情 ${priceRows.length} 檔`)
   } catch(e) { console.error(`[market_daily] ${tradeDate} TWSE行情失敗:`, e.message) }
@@ -2887,6 +2890,19 @@ async function syncMarketDailyOne(dateStr8) {
   if (!t86HasData && !t86ApiOk && !hasTpexPrices && !hasTwsePrices && dateStr8 !== nowDateStr8) {
     console.log(`[market_daily] ${tradeDate} T86 API 異常且無任何行情，跳過（保留現有資料）`)
     return 0
+  }
+
+  // 歷史補跑：若 TWSE 行情 0 檔（STOCK_DAY_ALL 不支援歷史），用 T86 股票清單補建 TWSE 列
+  // OHLCV 暫設 null，之後 backfillOHLCVFromStockDay 補收盤價
+  if (!hasTwsePrices && t86HasData && dateStr8 !== nowDateStr8) {
+    const twsePriceNos = new Set(priceRows.map(r => r.stockNo))
+    for (const no of Object.keys(instMap)) {
+      if (!twsePriceNos.has(no) && isValidStockCode(no)) {
+        priceRows.push({ stockNo: no, stockName: no, vol: null,
+          open: null, high: null, low: null, close: null, exchange: 'TWSE' })
+      }
+    }
+    console.log(`[market_daily] ${tradeDate} 從 T86 補建 TWSE 股票列，共 ${priceRows.length} 檔（OHLCV 待補）`)
   }
 
   // ── TPEX 三大法人 ──────────────────────────────────────
@@ -3580,9 +3596,12 @@ app.get('/api/sync/test-ohlcv', async (req, res) => {
 app.post('/api/sync/backfill-market', async (req, res) => {
   const days = Math.min(parseInt(req.query.days) || 20, 250)
   res.json({ ok: true, message: `市場日線回填已開始（${days} 個交易日）` })
-  backfillMarketDaily(days)
-    .then(() => runScreener())
-    .catch(e => console.error('[backfill-market] 失敗:', e.message))
+  ;(async () => {
+    await backfillMarketDaily(days)
+    // 歷史補跑時 TWSE 行情由 T86 補建（OHLCV 暫為 null），需再跑 OHLCV 回填
+    await backfillOHLCVFromStockDay(days)
+    await runScreener()
+  })().catch(e => console.error('[backfill-market] 失敗:', e.message))
 })
 
 app.post('/api/sync/backfill-ohlcv', async (req, res) => {
