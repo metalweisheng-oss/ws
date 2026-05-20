@@ -4479,6 +4479,126 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
           <span class="text-blue-400">📨</span>
           <span>每個交易日 <span class="text-gray-300 font-medium">09:30 起每 30 分鐘</span>（09:30、10:00、10:30…13:30）自動傳送量縮 + 量增漲停觀察名單至 Telegram（週一至週五）</span>
         </div>
+
+        <!-- 選股邏輯說明 -->
+        <div class="border-t border-gray-800 pt-2 space-y-2">
+          <div class="text-gray-500 font-medium mb-1">📋 量縮 / 量增漲停觀察 — 選股邏輯</div>
+
+          <!-- 共同前置條件 -->
+          <div>
+            <div class="text-gray-500 mb-1">共同前置條件（量縮 + 量增皆須符合）</div>
+            <table class="w-full text-xs border-collapse">
+              <thead>
+                <tr class="text-gray-600">
+                  <th class="text-left pr-4 pb-0.5 font-normal">條件</th>
+                  <th class="text-left pb-0.5 font-normal">說明</th>
+                </tr>
+              </thead>
+              <tbody class="text-gray-400">
+                <tr><td class="pr-4 py-0.5 text-gray-300">漲幅 ≥ 9.5%</td><td>排除未達漲停邊緣的個股</td></tr>
+                <tr><td class="pr-4 py-0.5 text-gray-300">成交量 ≥ 50 張</td><td>排除極低流動性標的</td></tr>
+                <tr><td class="pr-4 py-0.5 text-gray-300">內盤量 ≤ 外盤量</td><td>排除明顯空方主導賣壓</td></tr>
+                <tr><td class="pr-4 py-0.5 text-gray-300">passAntiFake 通過</td><td>委買真實性過濾（見下方說明）</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- passAntiFake 說明 -->
+          <div>
+            <div class="text-gray-500 mb-1">passAntiFake — 委買假掛單過濾（三層）</div>
+            <table class="w-full text-xs border-collapse">
+              <thead>
+                <tr class="text-gray-600">
+                  <th class="text-left pr-4 pb-0.5 font-normal">條件</th>
+                  <th class="text-left pb-0.5 font-normal">判斷</th>
+                </tr>
+              </thead>
+              <tbody class="text-gray-400">
+                <tr><td class="pr-4 py-0.5 text-gray-300">無委買紀錄</td><td>直接通過</td></tr>
+                <tr><td class="pr-4 py-0.5 text-gray-300">快照次數 &lt; 2</td><td>標示「待觀察」放行，尚無足夠樣本判斷</td></tr>
+                <tr><td class="pr-4 py-0.5 text-gray-300">快照 ≥ 2 且 平均/最大委買比 &lt; 0.25</td><td>排除（歷史委買皆小，疑假掛）</td></tr>
+                <tr><td class="pr-4 py-0.5 text-gray-300">收盤前且委買量 = 0 且尚未漲停</td><td>排除（買盤已撤）</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- 量縮觀察邏輯 -->
+          <div>
+            <div class="text-gray-500 mb-1">量縮漲停觀察（★ L1 / ▲ L2 / △ L3）</div>
+            <table class="w-full text-xs border-collapse">
+              <thead>
+                <tr class="text-gray-600">
+                  <th class="text-left pr-3 pb-0.5 font-normal">順位</th>
+                  <th class="text-left pr-3 pb-0.5 font-normal">5日量比</th>
+                  <th class="text-left pr-3 pb-0.5 font-normal">漲停委買比</th>
+                  <th class="text-left pb-0.5 font-normal">說明</th>
+                </tr>
+              </thead>
+              <tbody class="text-gray-400">
+                <tr>
+                  <td class="pr-3 py-0.5 text-yellow-400 font-bold">★ L1</td>
+                  <td class="pr-3 py-0.5 text-gray-300">&lt; 0.5x</td>
+                  <td class="pr-3 py-0.5 text-gray-300">&gt; 1.7</td>
+                  <td>大縮量漲停＋強護盤，籌碼最集中</td>
+                </tr>
+                <tr>
+                  <td class="pr-3 py-0.5 text-orange-400 font-bold">▲ L2</td>
+                  <td class="pr-3 py-0.5 text-gray-300">&lt; 0.7x</td>
+                  <td class="pr-3 py-0.5 text-gray-300">&gt; 1.5</td>
+                  <td>縮量漲停＋明顯護盤</td>
+                </tr>
+                <tr>
+                  <td class="pr-3 py-0.5 text-gray-400 font-bold">△ L3</td>
+                  <td class="pr-3 py-0.5 text-gray-300">&lt; 0.8x</td>
+                  <td class="pr-3 py-0.5 text-gray-300">&gt; 0.8</td>
+                  <td>輕縮量漲停＋基本護盤意願</td>
+                </tr>
+              </tbody>
+            </table>
+            <div class="text-gray-600 mt-0.5">排序：連板天數 <span class="text-gray-500">↓</span> → 漲停委買比 <span class="text-gray-500">↓</span></div>
+          </div>
+
+          <!-- 量增觀察邏輯 -->
+          <div>
+            <div class="text-gray-500 mb-1">量增漲停觀察（★ L1 / ▲ L2 / △ L3）</div>
+            <table class="w-full text-xs border-collapse">
+              <thead>
+                <tr class="text-gray-600">
+                  <th class="text-left pr-3 pb-0.5 font-normal">順位</th>
+                  <th class="text-left pr-3 pb-0.5 font-normal">量比範圍</th>
+                  <th class="text-left pr-3 pb-0.5 font-normal">連板限制</th>
+                  <th class="text-left pr-3 pb-0.5 font-normal">漲停委買比</th>
+                  <th class="text-left pb-0.5 font-normal">說明</th>
+                </tr>
+              </thead>
+              <tbody class="text-gray-400">
+                <tr>
+                  <td class="pr-3 py-0.5 text-yellow-400 font-bold">★ L1</td>
+                  <td class="pr-3 py-0.5 text-gray-300">1.5 ～ 8x</td>
+                  <td class="pr-3 py-0.5 text-gray-300">≤ 3 板</td>
+                  <td class="pr-3 py-0.5 text-gray-300">&gt; 2</td>
+                  <td>首至三板主力爆量進場，強力護盤</td>
+                </tr>
+                <tr>
+                  <td class="pr-3 py-0.5 text-orange-400 font-bold">▲ L2</td>
+                  <td class="pr-3 py-0.5 text-gray-300">1.5 ～ 8x</td>
+                  <td class="pr-3 py-0.5 text-gray-300">≤ 7 板</td>
+                  <td class="pr-3 py-0.5 text-gray-300">&gt; 1.5</td>
+                  <td>七板內換手爆量＋明顯護盤</td>
+                </tr>
+                <tr>
+                  <td class="pr-3 py-0.5 text-gray-400 font-bold">△ L3</td>
+                  <td class="pr-3 py-0.5 text-gray-300">1.5 ～ 8x</td>
+                  <td class="pr-3 py-0.5 text-gray-300">≤ 7 板</td>
+                  <td class="pr-3 py-0.5 text-gray-300">&gt; 0.8</td>
+                  <td>爆量漲停＋基本護盤意願，觀察換手</td>
+                </tr>
+              </tbody>
+            </table>
+            <div class="text-gray-600 mt-0.5">量比上限 8x：超過 8x 通常為消息炒作或軋空，換手目的不明確，不納入觀察</div>
+            <div class="text-gray-600 mt-0.5">排序：5日量比 <span class="text-gray-500">↓</span> → 漲停委買比 <span class="text-gray-500">↓</span></div>
+          </div>
+        </div>
       </div>
 
       <!-- 觀察名單時段快照下拉 -->
