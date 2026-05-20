@@ -874,6 +874,12 @@ const limitSqueezeList1 = computed(() => {
     if (!ref || r.volume / ref >= 0.5) return false
     if (r.limitBidVol) return r.limitBidVol / r.volume > 1.7
     return r.closedLimitUp || false
+  }).sort((a, b) => {
+    const dDiff = (b.limitDays ?? 0) - (a.limitDays ?? 0)
+    if (dDiff !== 0) return dDiff
+    const aR = a.limitBidVol && a.volume ? a.limitBidVol / a.volume : 0
+    const bR = b.limitBidVol && b.volume ? b.limitBidVol / b.volume : 0
+    return bR - aR
   })
 })
 const limitSqueezeList2 = computed(() => {
@@ -887,6 +893,12 @@ const limitSqueezeList2 = computed(() => {
     if (!ref || r.volume / ref >= 0.7) return false
     if (r.limitBidVol) return r.limitBidVol / r.volume > 1.5
     return r.closedLimitUp || false
+  }).sort((a, b) => {
+    const dDiff = (b.limitDays ?? 0) - (a.limitDays ?? 0)
+    if (dDiff !== 0) return dDiff
+    const aR = a.limitBidVol && a.volume ? a.limitBidVol / a.volume : 0
+    const bR = b.limitBidVol && b.volume ? b.limitBidVol / b.volume : 0
+    return bR - aR
   })
 })
 const limitSqueezeList3 = computed(() => {
@@ -904,6 +916,12 @@ const limitSqueezeList3 = computed(() => {
     // L3 需有基本鎖倉意願：委買比 > 1.0，或漲停收盤
     if (r.limitBidVol) return r.limitBidVol / r.volume > 1.0
     return r.closedLimitUp || false
+  }).sort((a, b) => {
+    const dDiff = (b.limitDays ?? 0) - (a.limitDays ?? 0)
+    if (dDiff !== 0) return dDiff
+    const aR = a.limitBidVol && a.volume ? a.limitBidVol / a.volume : 0
+    const bR = b.limitBidVol && b.volume ? b.limitBidVol / b.volume : 0
+    return bR - aR
   })
 })
 
@@ -937,9 +955,15 @@ const volIncreaseLimitList1 = computed(() => {
     if (!ref) return false
     const ratio = r.volume / ref
     if (ratio < 1.5 || ratio >= 8) return false
-    // 首板、二板或三板（limitDays ≤ 2）
-    if (r.limitDays != null && r.limitDays > 2) return false
+    // 首板、二板或三板（limitDays ≤ 3）
+    if (r.limitDays != null && r.limitDays > 3) return false
     return r.limitBidVol / r.volume > 2
+  }).sort((a, b) => {
+    const refFn = r => r.volMa5 || r.prevVol || 1
+    const aV = a.volume / refFn(a), bV = b.volume / refFn(b)
+    if (Math.abs(bV - aV) > 0.1) return bV - aV
+    const aR = a.limitBidVol / a.volume, bR = b.limitBidVol / b.volume
+    return bR - aR
   })
 })
 const volIncreaseLimitList2 = computed(() => {
@@ -954,7 +978,14 @@ const volIncreaseLimitList2 = computed(() => {
     if (!ref) return false
     const ratio = r.volume / ref
     if (ratio < 1.5 || ratio >= 8) return false
+    if (r.limitDays != null && r.limitDays > 7) return false
     return r.limitBidVol / r.volume > 1.5
+  }).sort((a, b) => {
+    const refFn = r => r.volMa5 || r.prevVol || 1
+    const aV = a.volume / refFn(a), bV = b.volume / refFn(b)
+    if (Math.abs(bV - aV) > 0.1) return bV - aV
+    const aR = a.limitBidVol / a.volume, bR = b.limitBidVol / b.volume
+    return bR - aR
   })
 })
 const volIncreaseLimitList3 = computed(() => {
@@ -971,9 +1002,17 @@ const volIncreaseLimitList3 = computed(() => {
     if (!ref) return false
     const ratio = r.volume / ref
     if (ratio < 1.5 || ratio >= 8) return false
+    if (r.limitDays != null && r.limitDays > 7) return false
     // L3 需有基本委買意願：委買比 > 0.8
     if (r.limitBidVol) return r.limitBidVol / r.volume > 0.8
     return false
+  }).sort((a, b) => {
+    const refFn = r => r.volMa5 || r.prevVol || 1
+    const aV = a.volume / refFn(a), bV = b.volume / refFn(b)
+    if (Math.abs(bV - aV) > 0.1) return bV - aV
+    const aR = a.limitBidVol && a.volume ? a.limitBidVol / a.volume : 0
+    const bR = b.limitBidVol && b.volume ? b.limitBidVol / b.volume : 0
+    return bR - aR
   })
 })
 
@@ -1755,7 +1794,7 @@ const changelog = [
     date: '2026-05-20', tag: '修正',
     items: [
       '漲跌排行：修正盤中頻繁出現「交易所即時資料暫無回應」的問題——根本原因是每支股票同時送出上市(tse)和上櫃(otc)兩組請求，實際上每支股票只掛一個交易所，多餘的請求壓垮 TWSE MIS 導致 rate-limit；現改為 market_daily 新增 exchange 欄位記錄上市/上櫃，MIS 請求量減半；快取 TTL 同步從 12 秒調整至 30 秒，降低重複打 API 頻率',
-      '漲跌排行：優化量縮漲停觀察與量增漲停觀察篩選條件——量縮第三順位新增委買比 > 1.0 門檻（排除純量縮但無護盤意願的個股）；量增三個順位量比上限從 5x 放寬至 8x（避免漏掉大爆量但仍有換手跡象的個股）；量增第一順位連板限制從首板或二板放寬至首至三板；量增第三順位由「不限委買比」改為委買比 > 0.8（保留有基本護盤意願者）；說明文字同步更新',
+      '漲跌排行：優化量縮漲停觀察與量增漲停觀察篩選條件——量縮第三順位新增委買比 > 1.0 門檻（排除純量縮但無護盤意願的個股）；量增三個順位量比上限從 5x 放寬至 8x（避免漏掉大爆量但仍有換手跡象的個股）；量增第一順位連板限制從首板或二板放寬至首至三板（修正 limitDays 判斷，改為 > 3 才排除）；量增第一順位同時修正連板門檻 bug（> 2 實為首/二板，改為 > 3 才正確允許三板）；量增第二/三順位新增連板上限 ≤ 7（排除過度延伸的高溢價連板）；量增第三順位由「不限委買比」改為委買比 > 0.8；各順位新增排序：量縮按連板天數 DESC → 委買比 DESC，量增按 5 日量比 DESC → 委買比 DESC；說明文字同步更新',
     ]
   },
   {
@@ -4884,9 +4923,9 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
             量比基準：<b class="text-gray-400">5日均量</b>（前5個交易日平均成交量）；無5日資料時退用昨日量<br>
             邏輯：量縮 → 籌碼集中、市場惜售；委買比高 → 仍有大量資金排隊，隔日續漲機率高
           </div>
-          <div class="flex items-center gap-2 col-span-full"><span class="text-blue-300 font-bold">★ 第一順位</span><span>5日量比 &lt; 0.5 且 漲停委買比 &gt; 1.7　→ 極度縮量＋強力護盤</span></div>
-          <div class="flex items-center gap-2 col-span-full"><span class="text-blue-400">▲ 第二順位</span><span>5日量比 &lt; 0.7 且 漲停委買比 &gt; 1.5　→ 縮量＋明顯護盤（不與一重複）</span></div>
-          <div class="flex items-center gap-2 col-span-full"><span class="text-gray-400">△ 第三順位</span><span>5日量比 &lt; 0.7 且 漲停委買比 &gt; 1.0　→ 縮量觀察，保留有護盤意願者（不與一、二重複）</span></div>
+          <div class="flex items-center gap-2 col-span-full"><span class="text-blue-300 font-bold">★ 第一順位</span><span>5日量比 &lt; 0.5 且 漲停委買比 &gt; 1.7　→ 極度縮量＋強力護盤；同順位按連板 DESC 排列</span></div>
+          <div class="flex items-center gap-2 col-span-full"><span class="text-blue-400">▲ 第二順位</span><span>5日量比 &lt; 0.7 且 漲停委買比 &gt; 1.5　→ 縮量＋明顯護盤（不與一重複）；同順位按連板 DESC 排列</span></div>
+          <div class="flex items-center gap-2 col-span-full"><span class="text-gray-400">△ 第三順位</span><span>5日量比 &lt; 0.7 且 漲停委買比 &gt; 1.0　→ 縮量觀察（不與一、二重複）；同順位按連板 DESC 排列</span></div>
 
           <div class="font-semibold text-gray-500 col-span-full mt-2">量增漲停觀察區（主力換手）</div>
           <div class="text-gray-600 col-span-full text-xs mb-0.5">
@@ -4895,9 +4934,9 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
             邏輯：量增說明主力在積極建倉或換手；委買比高說明漲停後仍有資金護盤意願<br>
             連板分層：<b class="text-gray-400">首板（首次漲停）</b>量增最值得關注；<b class="text-gray-400">二、三板</b>仍可追蹤；四板以上已有溢價風險，退入第二以下順位
           </div>
-          <div class="flex items-center gap-2 col-span-full"><span class="text-amber-300 font-bold">★ 第一順位</span><span>5日量比 1.5～8x 且 委買比 &gt; 2 且 首至三板　→ 最佳換手訊號</span></div>
-          <div class="flex items-center gap-2 col-span-full"><span class="text-amber-400">▲ 第二順位</span><span>5日量比 1.5～8x 且 委買比 &gt; 1.5　→ 換手充分，含四板以上（不與一重複）</span></div>
-          <div class="flex items-center gap-2 col-span-full"><span class="text-amber-600">△ 第三順位</span><span>5日量比 1.5～8x 且 委買比 &gt; 0.8　→ 量增觀察，保留有護盤意願者（不與一、二重複）</span></div>
+          <div class="flex items-center gap-2 col-span-full"><span class="text-amber-300 font-bold">★ 第一順位</span><span>5日量比 1.5～8x 且 委買比 &gt; 2 且 首至三板　→ 最佳換手訊號；同順位按量比 DESC 排列</span></div>
+          <div class="flex items-center gap-2 col-span-full"><span class="text-amber-400">▲ 第二順位</span><span>5日量比 1.5～8x 且 委買比 &gt; 1.5 且連板 ≤ 7　→ 換手充分（不與一重複）；同順位按量比 DESC 排列</span></div>
+          <div class="flex items-center gap-2 col-span-full"><span class="text-amber-600">△ 第三順位</span><span>5日量比 1.5～8x 且 委買比 &gt; 0.8 且連板 ≤ 7　→ 量增觀察（不與一、二重複）；同順位按量比 DESC 排列</span></div>
 
           <div class="font-semibold text-gray-500 col-span-full mt-2">委買可信度（假掛單過濾）</div>
           <div class="text-gray-600 col-span-full text-xs mb-0.5">
