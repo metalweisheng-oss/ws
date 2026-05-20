@@ -912,9 +912,9 @@ const limitSqueezeList3 = computed(() => {
     if (!passAntiSpoof(r)) return false
     if (!passAntiFake(r)) return false
     const ref = volRef5d(r)
-    if (!ref || r.volume / ref >= 0.7) return false
-    // L3 需有基本鎖倉意願：委買比 > 1.0，或漲停收盤
-    if (r.limitBidVol) return r.limitBidVol / r.volume > 1.0
+    if (!ref || r.volume / ref >= 0.8) return false
+    // L3 需有基本鎖倉意願：委買比 > 0.8，或漲停收盤
+    if (r.limitBidVol) return r.limitBidVol / r.volume > 0.8
     return r.closedLimitUp || false
   }).sort((a, b) => {
     const dDiff = (b.limitDays ?? 0) - (a.limitDays ?? 0)
@@ -1794,7 +1794,7 @@ const changelog = [
     date: '2026-05-20', tag: '修正',
     items: [
       '漲跌排行：修正盤中頻繁出現「交易所即時資料暫無回應」的問題——根本原因是每支股票同時送出上市(tse)和上櫃(otc)兩組請求，實際上每支股票只掛一個交易所，多餘的請求壓垮 TWSE MIS 導致 rate-limit；現改為 market_daily 新增 exchange 欄位記錄上市/上櫃，MIS 請求量減半；快取 TTL 同步從 12 秒調整至 30 秒，降低重複打 API 頻率',
-      '漲跌排行：優化量縮漲停觀察與量增漲停觀察篩選條件——量縮第三順位新增委買比 > 1.0 門檻（排除純量縮但無護盤意願的個股）；量增三個順位量比上限從 5x 放寬至 8x（避免漏掉大爆量但仍有換手跡象的個股）；量增第一順位連板限制從首板或二板放寬至首至三板（修正 limitDays 判斷，改為 > 3 才排除）；量增第一順位同時修正連板門檻 bug（> 2 實為首/二板，改為 > 3 才正確允許三板）；量增第二/三順位新增連板上限 ≤ 7（排除過度延伸的高溢價連板）；量增第三順位由「不限委買比」改為委買比 > 0.8；各順位新增排序：量縮按連板天數 DESC → 委買比 DESC，量增按 5 日量比 DESC → 委買比 DESC；說明文字同步更新',
+      '漲跌排行：優化量縮漲停觀察與量增漲停觀察篩選條件——量縮第三順位條件調整為 5日量比 < 0.8 且委買比 > 0.8（放寬量比門檻以納入更多縮量個股，同時保留基本護盤意願過濾）；量增三個順位量比上限從 5x 放寬至 8x（避免漏掉大爆量但仍有換手跡象的個股）；量增第一順位連板限制放寬至首至三板（修正 limitDays > 3 判斷）；量增第二/三順位新增連板上限 ≤ 7；量增第三順位委買比 > 0.8；各順位新增排序：量縮按連板天數 DESC → 委買比 DESC，量增按 5 日量比 DESC → 委買比 DESC；說明文字同步更新',
     ]
   },
   {
@@ -4651,7 +4651,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
       <div class="bg-gray-900 border border-gray-800/60 rounded-xl overflow-hidden">
         <div class="px-4 py-3 border-b border-gray-800/40 flex items-center gap-2 flex-wrap">
           <span class="text-gray-400 font-semibold text-sm">△ 量縮漲停觀察　第三順位</span>
-          <span class="text-gray-600 text-xs">5日量比 &lt; 0.7　且　委買比 &gt; 1.0</span>
+          <span class="text-gray-600 text-xs">5日量比 &lt; 0.8　且　委買比 &gt; 0.8</span>
           <span class="ml-auto text-xs text-gray-600">{{ limitSqueezeList3.length }} 支</span>
         </div>
         <table class="w-full text-sm">
@@ -4925,7 +4925,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
           </div>
           <div class="flex items-center gap-2 col-span-full"><span class="text-blue-300 font-bold">★ 第一順位</span><span>5日量比 &lt; 0.5 且 漲停委買比 &gt; 1.7　→ 極度縮量＋強力護盤；同順位按連板 DESC 排列</span></div>
           <div class="flex items-center gap-2 col-span-full"><span class="text-blue-400">▲ 第二順位</span><span>5日量比 &lt; 0.7 且 漲停委買比 &gt; 1.5　→ 縮量＋明顯護盤（不與一重複）；同順位按連板 DESC 排列</span></div>
-          <div class="flex items-center gap-2 col-span-full"><span class="text-gray-400">△ 第三順位</span><span>5日量比 &lt; 0.7 且 漲停委買比 &gt; 1.0　→ 縮量觀察（不與一、二重複）；同順位按連板 DESC 排列</span></div>
+          <div class="flex items-center gap-2 col-span-full"><span class="text-gray-400">△ 第三順位</span><span>5日量比 &lt; 0.8 且 漲停委買比 &gt; 0.8　→ 縮量觀察（不與一、二重複）；同順位按連板 DESC 排列</span></div>
 
           <div class="font-semibold text-gray-500 col-span-full mt-2">量增漲停觀察區（主力換手）</div>
           <div class="text-gray-600 col-span-full text-xs mb-0.5">
