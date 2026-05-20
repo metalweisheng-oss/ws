@@ -4863,6 +4863,7 @@ app.get('/api/market/movers', async (req, res) => {
           turnover: +(z * vol / 1e5).toFixed(2),
           limitBidVol,
           innerVol, outerVol,
+          closedLimitUp: changePct >= 9.9,
           ma3:        maMap[item.c]?.ma3       ?? null,
           prevMa3:    maMap[item.c]?.prevMa3   ?? null,
           volMa3:     maMap[item.c]?.volMa3    ?? null,
