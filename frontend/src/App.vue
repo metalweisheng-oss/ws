@@ -4774,7 +4774,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
       <div class="bg-gray-900 border border-amber-900/50 rounded-xl overflow-hidden">
         <div class="px-4 py-3 border-b border-amber-900/40 flex items-center gap-2 flex-wrap">
           <span class="text-amber-400 font-semibold text-sm">▲ 量增漲停觀察（主力換手）　第二順位</span>
-          <span class="text-gray-600 text-xs">5日量比 1.5～8x　且　委買比 &gt; 1.5</span>
+          <span class="text-gray-600 text-xs">5日量比 1.5～8x　且　委買比 &gt; 1.5　且　連板 ≤ 7</span>
           <span v-if="moversDate" class="text-xs text-gray-600">（歷史資料）</span>
           <span class="ml-auto text-xs text-amber-600">{{ volIncreaseLimitList2.length }} 支</span>
         </div>
@@ -4836,7 +4836,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
       <div class="bg-gray-900 border border-amber-900/30 rounded-xl overflow-hidden">
         <div class="px-4 py-3 border-b border-amber-900/20 flex items-center gap-2 flex-wrap">
           <span class="text-amber-600 font-semibold text-sm">△ 量增漲停觀察（主力換手）　第三順位</span>
-          <span class="text-gray-600 text-xs">5日量比 1.5～8x　且　委買比 &gt; 0.8</span>
+          <span class="text-gray-600 text-xs">5日量比 1.5～8x　且　委買比 &gt; 0.8　且　連板 ≤ 7</span>
           <span class="ml-auto text-xs text-amber-800">{{ volIncreaseLimitList3.length }} 支</span>
         </div>
         <table class="w-full text-sm">
@@ -4932,7 +4932,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
             共同前提：漲停（漲幅 ≥ 9.5%）＋ 5日量比 1.5～8x ＋ 成交量 ≥ 50張 ＋ 外盤量 &gt; 內盤量（無資料略過）<br>
             量比上限 8x：超過8倍多為散戶追買或炒作，排除；1.5～8x 為主力積極換手的合理區間<br>
             邏輯：量增說明主力在積極建倉或換手；委買比高說明漲停後仍有資金護盤意願<br>
-            連板分層：<b class="text-gray-400">首板（首次漲停）</b>量增最值得關注；<b class="text-gray-400">二、三板</b>仍可追蹤；四板以上已有溢價風險，退入第二以下順位
+            連板分層：<b class="text-gray-400">首板（首次漲停）</b>量增最值得關注；<b class="text-gray-400">二、三板</b>仍可追蹤；四板以上退入第二以下順位；第二/三順位另設連板上限 ≤ 7（第八板以上多為過度延伸，排除）
           </div>
           <div class="flex items-center gap-2 col-span-full"><span class="text-amber-300 font-bold">★ 第一順位</span><span>5日量比 1.5～8x 且 委買比 &gt; 2 且 首至三板　→ 最佳換手訊號；同順位按量比 DESC 排列</span></div>
           <div class="flex items-center gap-2 col-span-full"><span class="text-amber-400">▲ 第二順位</span><span>5日量比 1.5～8x 且 委買比 &gt; 1.5 且連板 ≤ 7　→ 換手充分（不與一重複）；同順位按量比 DESC 排列</span></div>
