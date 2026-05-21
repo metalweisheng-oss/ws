@@ -5194,6 +5194,52 @@ app.post('/api/sync/backfill-limit-snapshots', async (req, res) => {
   }
 })
 
+// 回填 bid_vol_min / bid_vol_first：從 limit_watch_snapshots 重算並更新 daily_limit_bid
+app.post('/api/sync/backfill-bid-min-first', async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      WITH snapshot_bids AS (
+        SELECT
+          lws.trade_date,
+          lws.snapshot_time,
+          (g->>'stockNo')              AS stock_no,
+          (g->>'limitBidVol')::bigint  AS bid_vol
+        FROM limit_watch_snapshots lws,
+             jsonb_array_elements(lws.gainers) g
+        WHERE (g->>'limitBidVol') IS NOT NULL
+          AND (g->>'limitBidVol')::bigint > 0
+      ),
+      agg AS (
+        SELECT
+          trade_date,
+          stock_no,
+          MIN(bid_vol) AS bid_vol_min
+        FROM snapshot_bids
+        GROUP BY trade_date, stock_no
+      ),
+      first_bids AS (
+        SELECT DISTINCT ON (trade_date, stock_no)
+          trade_date, stock_no, bid_vol AS bid_vol_first
+        FROM snapshot_bids
+        ORDER BY trade_date, stock_no, snapshot_time ASC
+      )
+      UPDATE daily_limit_bid dlb
+      SET
+        bid_vol_min   = agg.bid_vol_min,
+        bid_vol_first = fb.bid_vol_first
+      FROM agg
+      JOIN first_bids fb USING (trade_date, stock_no)
+      WHERE dlb.trade_date = agg.trade_date
+        AND dlb.stock_no   = agg.stock_no
+      RETURNING dlb.trade_date, dlb.stock_no
+    `)
+    res.json({ ok: true, updated: rows.length, message: `已回填 ${rows.length} 筆 bid_vol_min / bid_vol_first` })
+  } catch(e) {
+    console.error('[backfill-bid-min-first]', e.message)
+    res.status(500).json({ error: e.message })
+  }
+})
+
 // 個股即時報價
 app.get('/api/fubon/quote', async (req, res) => {
   const symbol = (req.query.symbol || '2330').trim()
@@ -5365,7 +5411,7 @@ function _refreshWarrantCache() {
     fetchUrl('https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap37_O').catch(() => []),
   ]).then(([basicRaw, companyRaw, divRaw, otcBasicRaw]) => {
     _warrantApiCache.basic = basicRaw
-    _warrantApiCache.otcBasic = otcBasicRaw
+    if (Array.isArray(otcBasicRaw) && otcBasicRaw.length > 0) _warrantApiCache.otcBasic = otcBasicRaw
     _warrantApiCache.company = companyRaw
     const divYield = {}
     for (const row of Array.isArray(divRaw) ? divRaw : []) {
@@ -5405,7 +5451,7 @@ async function getWarrantBaseData() {
     fetchUrl('https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap37_O').catch(() => []),
   ])
   _warrantApiCache.basic = basicRaw
-  _warrantApiCache.otcBasic = otcBasicRaw
+  if (Array.isArray(otcBasicRaw) && otcBasicRaw.length > 0) _warrantApiCache.otcBasic = otcBasicRaw
   _warrantApiCache.company = companyRaw
   const divYield = {}
   for (const row of Array.isArray(divRaw) ? divRaw : []) {
@@ -5637,7 +5683,7 @@ app.get('/api/warrant/search', async (req, res) => {
       }
     }
 
-    if (!resolvedCode) return res.json({ rows: [], stockName: '', stockCode: '', total: 0 })
+    if (!resolvedCode) return res.json({ rows: [], stockName: '', stockCode: '', total: 0, reason: 'not_found' })
     const stockName = resolvedName
     const resolvedStockNo = resolvedCode
 
@@ -5654,7 +5700,15 @@ app.get('/api/warrant/search', async (req, res) => {
     const warrants = allWarrantData.filter(r =>
       r['標的證券/指數'] === stockName && r['最後交易日'] >= todayRoc
     )
-    if (warrants.length > 0) exchange = warrants[0]._exchange
+    if (warrants.length === 0) {
+      // 找到股票但無有效權證（全部到期，或 TPEX 快取暫時為空）
+      const allExpired = allWarrantData.filter(r => r['標的證券/指數'] === stockName)
+      const latestExpiry = allExpired.length
+        ? allExpired.reduce((m, r) => r['最後交易日'] > m ? r['最後交易日'] : m, '')
+        : null
+      return res.json({ rows: [], stockName, stockCode: resolvedStockNo, total: 0, reason: 'no_active_warrants', latestExpiry })
+    }
+    exchange = warrants[0]._exchange
 
     // 先按 type 過濾，再查 MIS，減少不必要的網路請求
     const filteredWarrants = type === 'all' ? warrants : warrants.filter(r => {
@@ -6000,12 +6054,37 @@ function rocToIso(rocStr) {
   return `${parseInt(y) + 1911}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`
 }
 
+function rocCompactToIso(rocStr) {
+  const s = rocStr.trim()
+  return `${parseInt(s.slice(0, 3)) + 1911}-${s.slice(3, 5)}-${s.slice(5, 7)}`
+}
+
 function parseDisposalPeriod(str) {
   const parts = str.split(/[～~]/)
   if (parts.length !== 2) return null
-  try {
-    return { start: rocToIso(parts[0].trim()), end: rocToIso(parts[1].trim()) }
-  } catch { return null }
+  try { return { start: rocToIso(parts[0].trim()), end: rocToIso(parts[1].trim()) } }
+  catch { return null }
+}
+
+function parseDisposalPeriodCompact(str) {
+  const parts = str.split(/[～~]/)
+  if (parts.length !== 2) return null
+  try { return { start: rocCompactToIso(parts[0].trim()), end: rocCompactToIso(parts[1].trim()) } }
+  catch { return null }
+}
+
+function parseMatchInterval(text) {
+  // Extract matching interval in minutes from disposal condition text
+  // Handles Chinese (五/十/十五/二十/六十) and Arabic numerals
+  const m = (text || '').match(/每\s*(\d+|五|十五|十|二十五|二十|六十)\s*分鐘/)
+  if (!m) return null
+  const kanji = { '五': 5, '十': 10, '十五': 15, '二十': 20, '二十五': 25, '六十': 60 }
+  return kanji[m[1]] ?? parseInt(m[1]) ?? null
+}
+
+function isStockCode(code) {
+  // 4-digit = regular stock; 6-digit starting with 9 = DR (depository receipt)
+  return /^\d{4}$/.test(code) || /^9\d{5}$/.test(code)
 }
 
 app.get('/api/market/disposal', async (req, res) => {
@@ -6014,46 +6093,177 @@ app.get('/api/market/disposal', async (req, res) => {
     return res.json(_disposalCache.data)
   }
   try {
-    const resp = await fetch(
-      'https://www.twse.com.tw/rwd/zh/announcement/punish?response=json&b=2001&e=0&f=D',
-      { headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://www.twse.com.tw/zh/announcement/punish.html' } }
-    )
-    const json = await resp.json()
-    const today = new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10)
+    const taiwanNow = new Date(Date.now() + 8 * 3600000)
+    const today = taiwanNow.toISOString().slice(0, 10)
+    const startDate = new Date(taiwanNow)
+    startDate.setDate(startDate.getDate() - 7)
+    const startStr = startDate.toISOString().slice(0,10).replace(/-/g,'')
+    const endStr = today.replace(/-/g,'')
 
-    const rows = (json.data || []).map(row => {
-      const [, announceDate, stockNo, stockName, count, condition, periodStr, measure] = row
-      const period = parseDisposalPeriod((periodStr || '').replace(/\s/g, ''))
-      const isActive = period ? today >= period.start && today <= period.end : false
-      const isFuture = period ? today < period.start : false
-      let daysLeft = null
-      if (period && today <= period.end) {
-        daysLeft = Math.ceil((new Date(period.end) - new Date(today)) / 86400000)
-      }
-      const condShort = (condition || '').replace('連續三個營業日達本中心作業要點第四條第一項第一款', '特殊條件').trim()
-      return {
-        stockNo: (stockNo || '').trim(),
-        stockName: (stockName || '').trim(),
-        announceDate: (announceDate || '').trim(),
-        count: typeof count === 'number' ? count : parseInt(count) || 1,
-        condition: condShort,
-        periodStr: (periodStr || '').replace(/\s/g, ''),
-        start: period?.start,
-        end: period?.end,
-        measure: (measure || '').trim(),
-        isActive,
-        isFuture,
-        daysLeft,
-      }
-    }).filter(r => r.stockNo)
+    const [twseResp, tpexResp, twseNoticeResp, tpexWarnResp, tpexWarnNoteResp] = await Promise.allSettled([
+      fetch('https://www.twse.com.tw/rwd/zh/announcement/punish?response=json&b=2001&e=0&f=D',
+        { headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://www.twse.com.tw/zh/announcement/punish.html' } }
+      ).then(r => r.json()),
+      fetch('https://www.tpex.org.tw/openapi/v1/tpex_disposal_information',
+        { headers: { 'User-Agent': 'Mozilla/5.0' } }
+      ).then(r => r.json()),
+      fetch(`https://www.twse.com.tw/rwd/zh/announcement/notice?response=json&startDate=${startStr}&endDate=${endStr}&querytype=1&selectType=`,
+        { headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://www.twse.com.tw/zh/announcement/notice.html' } }
+      ).then(r => r.json()),
+      fetch('https://www.tpex.org.tw/openapi/v1/tpex_trading_warning_information',
+        { headers: { 'User-Agent': 'Mozilla/5.0' } }
+      ).then(r => r.json()),
+      fetch('https://www.tpex.org.tw/openapi/v1/tpex_trading_warning_note',
+        { headers: { 'User-Agent': 'Mozilla/5.0' } }
+      ).then(r => r.json()),
+    ])
 
+    // ── 處置股 ──────────────────────────────────────────────────────────
+    const tpexRaw = (tpexResp.status === 'fulfilled' && Array.isArray(tpexResp.value)) ? tpexResp.value : []
+
+    // 計算每支上櫃股票的歷史處置次數
+    const tpexCountMap = {}
+    for (const r of tpexRaw) {
+      const no = (r.SecuritiesCompanyCode || '').trim()
+      if (isStockCode(no)) tpexCountMap[no] = (tpexCountMap[no] || 0) + 1
+    }
+
+    // TWSE 上市（只保留股票，解析撮合頻率）
+    const twseRows = twseResp.status === 'fulfilled'
+      ? (twseResp.value.data || [])
+          .filter(row => isStockCode((row[2] || '').trim()))
+          .map(row => {
+            const [, announceDate, stockNo, stockName, count, condition, periodStr, measure, fullText] = row
+            const period = parseDisposalPeriod((periodStr || '').replace(/\s/g, ''))
+            const isActive = period ? today >= period.start && today <= period.end : false
+            const isFuture = period ? today < period.start : false
+            let daysLeft = null
+            if (period && today <= period.end) daysLeft = Math.ceil((new Date(period.end) - new Date(today)) / 86400000)
+            const condShort = (condition || '').replace(/連續三個營業日達本[^，。]+/, '連續三營業日達標').trim()
+            const matchInterval = parseMatchInterval(fullText || measure || '')
+            return {
+              stockNo: (stockNo || '').trim(), stockName: (stockName || '').trim(),
+              announceDate: (announceDate || '').trim(), exchange: 'tse',
+              count: typeof count === 'number' ? count : parseInt(count) || 1,
+              condition: condShort, periodStr: (periodStr || '').replace(/\s/g, ''),
+              start: period?.start, end: period?.end,
+              measure: (measure || '').trim(), matchInterval,
+              isActive, isFuture, daysLeft,
+            }
+          })
+      : []
+
+    // TPEX 上櫃（只保留股票，解析撮合頻率，計算累計次數）
+    const tpexRows = tpexRaw
+      .filter(r => isStockCode((r.SecuritiesCompanyCode || '').trim()))
+      .map(r => {
+        const period = parseDisposalPeriodCompact((r.DispositionPeriod || '').replace(/\s/g, ''))
+        const isActive = period ? today >= period.start && today <= period.end : false
+        const isFuture = period ? today < period.start : false
+        let daysLeft = null
+        if (period && today <= period.end) daysLeft = Math.ceil((new Date(period.end) - new Date(today)) / 86400000)
+        const ad = (r.Date || '').trim()
+        const announceDate = ad.length === 7 ? rocCompactToIso(ad) : ad
+        const stockNo = (r.SecuritiesCompanyCode || '').trim()
+        const count = tpexCountMap[stockNo] || 1
+        const matchInterval = parseMatchInterval(r.DisposalCondition || '')
+        const isRepeat = (r.DisposalCondition || '').includes('最近30個營業日內曾發布處置')
+        const measure = isRepeat ? `第${count}次處置` : '第一次處置'
+        return {
+          stockNo, stockName: (r.CompanyName || '').trim(),
+          announceDate, exchange: 'otc',
+          count,
+          condition: (r.DispositionReasons || '').trim(),
+          periodStr: (r.DispositionPeriod || '').trim(),
+          start: period?.start, end: period?.end,
+          measure, matchInterval,
+          isActive, isFuture, daysLeft,
+        }
+      })
+
+    // 合併去重（TWSE 優先）
+    const seen = new Set()
+    const rows = []
+    for (const r of [...twseRows, ...tpexRows]) {
+      const key = `${r.stockNo}_${r.start}_${r.end}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      rows.push(r)
+    }
     rows.sort((a, b) => {
       if (a.isActive !== b.isActive) return (b.isActive ? 1 : 0) - (a.isActive ? 1 : 0)
       if (a.end && b.end) return a.end < b.end ? 1 : a.end > b.end ? -1 : 0
       return 0
     })
 
-    const result = { rows, total: rows.length, activeCount: rows.filter(r => r.isActive).length, fetchedAt: new Date().toISOString() }
+    // ── 注意股 ──────────────────────────────────────────────────────────
+    const disposalSet = new Set(rows.filter(r => r.isActive).map(r => r.stockNo))
+
+    // TWSE 注意交易資訊
+    const twseNoticeMap = {}  // stockNo → { count, reason, date, closePrice }
+    if (twseNoticeResp.status === 'fulfilled') {
+      for (const row of twseNoticeResp.value.data || []) {
+        const stockNo = (row[1] || '').trim()
+        if (!isStockCode(stockNo) || disposalSet.has(stockNo)) continue
+        const existing = twseNoticeMap[stockNo]
+        const dateStr = (row[5] || '').trim()  // 115.05.21
+        const isoDate = dateStr ? dateStr.replace(/^(\d+)\.(\d+)\.(\d+)$/, (_, y, m, d) =>
+          `${parseInt(y)+1911}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`) : ''
+        if (!existing || isoDate > existing.date) {
+          twseNoticeMap[stockNo] = {
+            stockNo, stockName: (row[2] || '').trim(), exchange: 'tse',
+            date: isoDate,
+            count: typeof row[3] === 'number' ? row[3] : parseInt(row[3]) || 1,
+            reason: (row[4] || '').replace(/<[^>]+>/g, '').replace(/﹝[^﹞]+﹞/g, '').trim().slice(0, 60),
+            closePrice: (row[6] || '').trim(),
+          }
+        }
+      }
+    }
+
+    // TPEX 注意交易資訊
+    const tpexNoticeMap = {}
+    if (tpexWarnResp.status === 'fulfilled' && Array.isArray(tpexWarnResp.value)) {
+      for (const r of tpexWarnResp.value) {
+        const stockNo = (r.SecuritiesCompanyCode || '').trim()
+        if (!isStockCode(stockNo) || disposalSet.has(stockNo)) continue
+        const ad = (r.Date || '').trim()
+        const isoDate = ad.length === 7 ? rocCompactToIso(ad) : ad
+        const existing = tpexNoticeMap[stockNo]
+        if (!existing || isoDate > existing.date) {
+          tpexNoticeMap[stockNo] = {
+            stockNo, stockName: (r.CompanyName || '').trim(), exchange: 'otc',
+            date: isoDate, count: 1,
+            reason: (r.TradingInformation || '').replace(/\([^)]+\)/g, '').trim().slice(0, 60),
+            closePrice: (r.ClosePrice || '').trim(),
+          }
+        }
+      }
+    }
+
+    // TPEX 連續注意（補強 count）
+    if (tpexWarnNoteResp.status === 'fulfilled' && Array.isArray(tpexWarnNoteResp.value)) {
+      for (const r of tpexWarnNoteResp.value) {
+        const stockNo = (r.SecuritiesCompanyCode || '').trim()
+        const m = (r.AccumulationSituation || '').match(/連續([二三四五六七八九十\d]+)次/)
+        const consecutive = m ? (({ '二':2,'三':3,'四':4,'五':5,'六':6,'七':7,'八':8,'九':9,'十':10 })[m[1]] || parseInt(m[1]) || 2) : 2
+        if (tpexNoticeMap[stockNo]) tpexNoticeMap[stockNo].count = consecutive
+      }
+    }
+
+    // 合併注意股，最近日期優先，去重
+    const attentionMap = { ...twseNoticeMap }
+    for (const [no, r] of Object.entries(tpexNoticeMap)) {
+      if (!attentionMap[no] || r.date > attentionMap[no].date) attentionMap[no] = r
+    }
+    const attention = Object.values(attentionMap)
+      .sort((a, b) => b.count - a.count || b.date.localeCompare(a.date))
+
+    const result = {
+      rows, attention,
+      total: rows.length, activeCount: rows.filter(r => r.isActive).length,
+      fetchedAt: new Date().toISOString()
+    }
     _disposalCache.data = result
     _disposalCache.ts = now
     res.json(result)

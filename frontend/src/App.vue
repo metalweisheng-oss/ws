@@ -368,7 +368,14 @@ async function searchWarrant() {
     const r = await fetch(`${API}/api/warrant/search?stockNo=${encodeURIComponent(warrantStockNo.value.trim())}&type=${warrantType.value}`)
     const d = await r.json()
     if (d.error) throw new Error(d.error)
-    if (!d.rows.length) throw new Error(`查無「${warrantStockNo.value}」的有效權證，請確認代號或名稱`)
+    if (!d.rows.length) {
+      if (d.reason === 'not_found') throw new Error(`查無股票代號「${warrantStockNo.value}」，請確認代號或名稱`)
+      if (d.reason === 'no_active_warrants') {
+        const expMsg = d.latestExpiry ? `（最近到期：${d.latestExpiry.replace(/^(\d{3})(\d{2})(\d{2})$/, (_, y, m, dd) => `${+y+1911}/${m}/${dd}`)}）` : ''
+        throw new Error(`${d.stockName}(${d.stockCode}) 目前無有效權證${expMsg}`)
+      }
+      throw new Error(`查無「${warrantStockNo.value}」的有效權證`)
+    }
     warrantRows.value      = d.rows
     warrantStockName.value = d.stockName || warrantStockNo.value
     warrantStockCode.value = d.stockCode || ''
@@ -850,7 +857,7 @@ function passAntiFake(r) {
 // 盤尾委買留存率：close / max，null 表示無資料
 function bidRetention(r) {
   if (!r.limitBidVol || r.closeLimitBidVol == null) return null
-  return (r.closeLimitBidVol / r.limitBidVol) * 100
+  return Math.min(100, (r.closeLimitBidVol / r.limitBidVol) * 100)
 }
 
 // 委買可信度綜合評分 0–100（改善 5）
@@ -1105,11 +1112,12 @@ function closeQuote() {
 }
 
 // ── 處置股 ──────────────────────────────────────────
-const disposalRows    = ref([])
-const disposalLoading = ref(false)
-const disposalError   = ref('')
-const disposalUpdated = ref('')
-const disposalSearch  = ref('')
+const disposalRows      = ref([])
+const disposalAttention = ref([])
+const disposalLoading   = ref(false)
+const disposalError     = ref('')
+const disposalUpdated   = ref('')
+const disposalSearch    = ref('')
 async function fetchDisposal() {
   if (disposalLoading.value) return
   disposalLoading.value = true
@@ -1118,8 +1126,9 @@ async function fetchDisposal() {
     const r = await fetch(`${API}/api/market/disposal`)
     const d = await r.json()
     if (d.error) throw new Error(d.error)
-    disposalRows.value    = d.rows    || []
-    disposalUpdated.value = d.fetchedAt ? new Date(d.fetchedAt).toLocaleTimeString('zh-TW') : ''
+    disposalRows.value      = d.rows       || []
+    disposalAttention.value = d.attention  || []
+    disposalUpdated.value   = d.fetchedAt ? new Date(d.fetchedAt).toLocaleTimeString('zh-TW') : ''
   } catch(e) {
     disposalError.value = e.message
   } finally {
@@ -1131,6 +1140,12 @@ const disposalFiltered = computed(() => {
   if (!kw) return disposalRows.value
   return disposalRows.value.filter(r => r.stockNo.includes(kw) || r.stockName.includes(kw))
 })
+const attentionFiltered = computed(() => {
+  const kw = disposalSearch.value.trim()
+  if (!kw) return disposalAttention.value
+  return disposalAttention.value.filter(r => r.stockNo.includes(kw) || r.stockName.includes(kw))
+})
+const activeDisposalSet = computed(() => new Set(disposalRows.value.filter(r => r.isActive).map(r => r.stockNo)))
 
 // ── 三維財務分析 ─────────────────────────────────────
 const finStockNo        = ref('')
@@ -1837,6 +1852,17 @@ function signColor(v) { return +v > 0 ? 'text-red-400' : +v < 0 ? 'text-green-40
 
 const changelog = [
   {
+    date: '2026-05-22', tag: '修正',
+    items: [
+      '處置股：新增 TPEX 上櫃處置股資料來源（`tpex_disposal_information`），與原 TWSE 上市資料合併顯示，解決上櫃股（如 6173 信昌電）無法出現在處置股清單的問題；同時過濾非股票證券（權證、CB），改為只保留 4 碼個股',
+      '處置股：各股票名稱旁新增「上市」/「上櫃」交易所標籤（藍色/綠色）；措施欄新增撮合頻率顯示（每 N 分鐘），自動從處置條件文字解析；TPEX 個股累計處置次數改由歷史資料計算，不再固定顯示 1 次',
+      '處置股：新增「注意交易資訊」區塊，合併 TWSE 與 TPEX 最近 7 日注意股，過濾已處置個股後顯示；累計次數 ≥ 3 標示「⚠ 近處置」警示',
+      '漲跌排行：處置中個股名稱後方自動顯示橙色「處」標籤；App 啟動時自動背景載入處置股資料，不需先切換至處置股分頁',
+      '權證查詢：修正 TPEX API 暫時失敗時快取被覆蓋為空陣列的問題，改為只在成功取得資料時才更新快取，避免上櫃股權證一時消失；錯誤訊息改為區分「找不到股票代號」與「找到股票但無有效權證（全部到期）」兩種情況',
+      'Railway CLI：設定 RAILWAY_TOKEN 環境變數至 ~/.zshrc，免除每月需重新登入的問題',
+    ]
+  },
+  {
     date: '2026-05-20', tag: '修正',
     items: [
       '漲時看勢跌時看質：修正頁面空白問題——根本原因為 Next.js/Vercel 預設設定 X-Frame-Options: SAMEORIGIN，阻止跨域 iframe 嵌入；已在 next.config.ts 加入 ALLOWALL 與 frame-ancestors * header；同步修正每次推送前端變更會導致 Railway 後端重啟的問題（新增 watchPatterns 限制只有後端目錄變更才觸發重新部署）；改善 StockAI 啟動補跑邏輯，改為偵測今日 daily_prices 存在但 value_scores 缺失時自動補算，不再依賴固定時間判斷；新增 my-app 後端每日 16:30 備援觸發，若 StockAI 價值評分當日缺失則自動補算並發送 Telegram 通知',
@@ -2089,6 +2115,7 @@ const changelog = [
 
 onMounted(() => {
   startAll()
+  fetchDisposal()
   if (navbarRef.value) {
     navbarBottom.value = navbarRef.value.getBoundingClientRect().bottom
   }
@@ -5241,6 +5268,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                   <div class="flex items-center gap-1">
                     <span class="text-white font-medium hover:text-purple-400 transition cursor-pointer" @click="goToWarrant(r.stockNo)">{{ r.stockName }}</span>
                     <span v-if="r.earlyLimitUp" class="text-yellow-300 text-xs" title="開盤一小時內漲停">⚡</span>
+                    <span v-if="activeDisposalSet.has(r.stockNo)" class="text-xs bg-orange-900/60 text-orange-300 px-1 py-0.5 rounded font-semibold" title="處置股">處</span>
                     <span v-if="warrantCoveredSet.has(r.stockNo)"
                       class="text-xs bg-purple-900/60 text-purple-300 px-1 py-0.5 rounded cursor-pointer hover:bg-purple-800/80 transition"
                       title="有券商發行權證，點此查詢" @click.stop="goToWarrant(r.stockNo)">有證</span>
@@ -5306,6 +5334,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <td class="px-3 py-2">
                   <div class="flex items-center gap-1">
                     <span class="text-white font-medium hover:text-purple-400 transition cursor-pointer" @click="goToWarrant(r.stockNo)">{{ r.stockName }}</span>
+                    <span v-if="activeDisposalSet.has(r.stockNo)" class="text-xs bg-orange-900/60 text-orange-300 px-1 py-0.5 rounded font-semibold" title="處置股">處</span>
                     <span v-if="warrantCoveredSet.has(r.stockNo)"
                       class="text-xs bg-purple-900/60 text-purple-300 px-1 py-0.5 rounded cursor-pointer hover:bg-purple-800/80 transition"
                       title="有券商發行權證，點此查詢" @click.stop="goToWarrant(r.stockNo)">有證</span>
@@ -5729,9 +5758,12 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
     <div v-if="tab === 'disposal'" class="max-w-5xl mx-auto px-4 py-6 space-y-4">
       <div class="flex items-center gap-3 flex-wrap">
         <h2 class="text-lg font-semibold text-white">處置股</h2>
-        <span class="text-xs text-gray-500">TWSE 公布處置有價證券 · 每 30 分鐘快取</span>
+        <span class="text-xs text-gray-500">TWSE/TPEX 上市櫃處置股 · 每 30 分鐘快取</span>
         <span v-if="disposalRows.length" class="text-xs px-2 py-0.5 rounded bg-orange-900/40 text-orange-300 font-semibold">
           處置中 {{ disposalRows.filter(r => r.isActive).length }} 筆
+        </span>
+        <span v-if="disposalAttention.length" class="text-xs px-2 py-0.5 rounded bg-yellow-900/40 text-yellow-300 font-semibold">
+          注意 {{ disposalAttention.length }} 筆
         </span>
         <div class="ml-auto flex items-center gap-2">
           <input v-model="disposalSearch" placeholder="搜尋代碼/名稱" class="px-2 py-1 text-xs rounded bg-gray-800 border border-gray-700 text-gray-300 placeholder-gray-600 w-32 focus:outline-none focus:border-gray-500" />
@@ -5744,15 +5776,15 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
       <div v-if="disposalUpdated" class="text-xs text-gray-600">資料時間：{{ disposalUpdated }}</div>
       <div v-if="disposalError" class="bg-red-900/30 border border-red-800 rounded-xl px-4 py-3 text-sm text-red-400">{{ disposalError }}</div>
       <div v-if="disposalLoading && !disposalRows.length" class="text-center py-20 text-gray-500 text-sm">載入中，請稍候...</div>
-
       <div v-if="!disposalLoading && !disposalRows.length && !disposalError" class="text-center py-20 text-gray-600 text-sm">尚無資料，請點「刷新」</div>
 
+      <!-- 處置股表格 -->
       <div v-if="disposalFiltered.length" class="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
         <table class="w-full text-sm">
           <thead>
             <tr class="border-b border-gray-800 bg-gray-950 text-xs text-gray-500 font-normal">
               <th class="px-3 py-2 text-left">代號／名稱</th>
-              <th class="px-3 py-2 text-center">措施</th>
+              <th class="px-3 py-2 text-center">措施／撮合</th>
               <th class="px-3 py-2 text-center">累計</th>
               <th class="px-3 py-2 text-left">處置條件</th>
               <th class="px-3 py-2 text-center">公布日期</th>
@@ -5765,8 +5797,12 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 class="border-b border-gray-800/50 transition hover:bg-gray-800/30"
                 :class="!r.isActive ? 'opacity-40' : ''">
               <td class="px-3 py-2">
-                <div class="flex items-center gap-1">
+                <div class="flex items-center gap-1 flex-wrap">
                   <span class="text-white font-medium cursor-pointer hover:text-purple-400 transition" @click="goToWarrant(r.stockNo)">{{ r.stockName }}</span>
+                  <span class="text-xs px-1 py-0.5 rounded font-mono"
+                    :class="r.exchange === 'tse' ? 'bg-blue-900/40 text-blue-400' : 'bg-emerald-900/40 text-emerald-400'">
+                    {{ r.exchange === 'tse' ? '上市' : '上櫃' }}
+                  </span>
                   <span v-if="warrantCoveredSet.has(r.stockNo)" class="text-xs bg-purple-900/60 text-purple-300 px-1 py-0.5 rounded cursor-pointer hover:bg-purple-800/80 transition" @click.stop="goToWarrant(r.stockNo)" title="有券商發行權證">有證</span>
                 </div>
                 <div class="text-xs text-blue-400 hover:text-blue-300 cursor-pointer underline decoration-dotted" @click.stop="openQuote(r.stockNo)">{{ r.stockNo }}</div>
@@ -5774,8 +5810,9 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               <td class="px-3 py-2 text-center">
                 <span class="text-xs px-1.5 py-0.5 rounded font-semibold"
                   :class="r.measure === '第一次處置' ? 'bg-yellow-900/50 text-yellow-300' : 'bg-red-900/50 text-red-300'">
-                  {{ r.measure }}
+                  {{ r.measure || '處置' }}
                 </span>
+                <div v-if="r.matchInterval" class="text-xs text-gray-500 mt-0.5">每{{ r.matchInterval }}分鐘</div>
               </td>
               <td class="px-3 py-2 text-center">
                 <span class="text-xs font-mono" :class="r.count >= 3 ? 'text-red-400 font-bold' : r.count === 2 ? 'text-orange-400' : 'text-gray-400'">
@@ -5794,11 +5831,54 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
         </table>
       </div>
 
+      <!-- 注意股表格 -->
+      <div v-if="attentionFiltered.length" class="space-y-2">
+        <h3 class="text-sm font-semibold text-yellow-400">注意交易資訊（近期觸發，尚未處置）</h3>
+        <div class="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="border-b border-gray-800 bg-gray-950 text-xs text-gray-500 font-normal">
+                <th class="px-3 py-2 text-left">代號／名稱</th>
+                <th class="px-3 py-2 text-center">累計次數</th>
+                <th class="px-3 py-2 text-center">收盤價</th>
+                <th class="px-3 py-2 text-left">觸發原因</th>
+                <th class="px-3 py-2 text-center">公布日期</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="r in attentionFiltered" :key="r.stockNo + r.date"
+                  class="border-b border-gray-800/50 transition hover:bg-gray-800/30">
+                <td class="px-3 py-2">
+                  <div class="flex items-center gap-1 flex-wrap">
+                    <span class="text-white font-medium cursor-pointer hover:text-purple-400 transition" @click="goToWarrant(r.stockNo)">{{ r.stockName }}</span>
+                    <span class="text-xs px-1 py-0.5 rounded font-mono"
+                      :class="r.exchange === 'tse' ? 'bg-blue-900/40 text-blue-400' : 'bg-emerald-900/40 text-emerald-400'">
+                      {{ r.exchange === 'tse' ? '上市' : '上櫃' }}
+                    </span>
+                  </div>
+                  <div class="text-xs text-blue-400 hover:text-blue-300 cursor-pointer underline decoration-dotted" @click.stop="openQuote(r.stockNo)">{{ r.stockNo }}</div>
+                </td>
+                <td class="px-3 py-2 text-center">
+                  <span class="text-xs font-mono font-bold"
+                    :class="r.count >= 3 ? 'text-red-400' : r.count === 2 ? 'text-orange-400' : 'text-yellow-400'">
+                    {{ r.count }}次
+                  </span>
+                  <div v-if="r.count >= 3" class="text-xs text-red-500 mt-0.5">⚠ 近處置</div>
+                </td>
+                <td class="px-3 py-2 text-center text-xs font-mono text-gray-300">{{ r.closePrice || '—' }}</td>
+                <td class="px-3 py-2 text-xs text-gray-400">{{ r.reason }}</td>
+                <td class="px-3 py-2 text-center text-xs text-gray-500 font-mono">{{ r.date }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       <div class="text-xs text-gray-700 grid grid-cols-1 sm:grid-cols-2 gap-1">
         <span><span class="text-yellow-300">黃色</span> 第一次處置　<span class="text-red-300">紅色</span> 再次處置</span>
         <span><span class="text-green-400">綠色</span> 剩餘 &gt;7天　<span class="text-orange-400">橙色</span> ≤7天　<span class="text-red-400">紅色</span> ≤3天</span>
-        <span>措施：以人工撮合（約每5分鐘一次）＋超過限額需繳保證金</span>
-        <span>資料來源：TWSE 公告處置有價證券（上市股票）</span>
+        <span><span class="text-blue-400">上市</span> TWSE　<span class="text-emerald-400">上櫃</span> TPEX　措施欄顯示撮合頻率</span>
+        <span>注意股累計≥3次（橙/紅）表示即將被處置</span>
       </div>
     </div>
 
