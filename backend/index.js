@@ -5955,20 +5955,24 @@ async function fetchMopsBuyback(typek, d1, d2) {
     }
     if (cells.length >= 11 && cells[1] && /^\d{4,6}$/.test(cells[1])) {
       const sharesRaw = parseInt((cells[6] || '0').replace(/,/g, '')) || 0
+      const execSharesRaw = parseInt((cells[12] || '0').replace(/,/g, '')) || 0
       result.push({
-        market:      typek === 'sii' ? '上市' : '上櫃',
-        stockNo:     cells[1],
-        stockName:   cells[2],
-        resolveDate: cells[3],
-        purpose:     cells[4],
+        market:        typek === 'sii' ? '上市' : '上櫃',
+        stockNo:       cells[1],
+        stockName:     cells[2],
+        resolveDate:   cells[3],
+        purpose:       cells[4],
         plannedShares: sharesRaw,
         plannedLots:   Math.round(sharesRaw / 1000),
-        minPrice:    cells[7],
-        maxPrice:    cells[8],
-        periodStart: cells[9],
-        periodEnd:   cells[10],
-        completed:   cells[11] === 'Y',
-        executedPct: cells[15] || '',
+        minPrice:      cells[7],
+        maxPrice:      cells[8],
+        periodStart:   cells[9],
+        periodEnd:     cells[10],
+        completed:     cells[11] === 'Y',
+        executedShares: execSharesRaw,
+        executedLots:   Math.round(execSharesRaw / 1000),
+        executedAmount: cells[13] || '',
+        executedPct:    cells[15] || '',
       })
     }
   }
@@ -5976,7 +5980,7 @@ async function fetchMopsBuyback(typek, d1, d2) {
 }
 
 app.get('/api/market/buyback', async (req, res) => {
-  const months = Math.min(parseInt(req.query.months) || 6, 24)
+  const months = Math.min(parseInt(req.query.months) || 7, 24)
   const now = Date.now()
 
   if (_buybackCache.data && (now - _buybackCache.ts) < getBuybackCacheTTL()) {

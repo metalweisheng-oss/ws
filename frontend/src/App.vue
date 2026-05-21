@@ -2041,6 +2041,7 @@ const changelog = [
       '強勢族群：修正 Railway 重啟後資料停滯不更新的問題，並加入 15:50 重試排程',
       '部署：修正 Railway 上 Python 找不到的問題（補上 Dockerfile + requirements.txt）',
       '部署：修正富邦憑證在 Railway 環境無法載入的問題（改由環境變數 Base64 解碼）',
+      '庫藏股：新增「買回進度」欄位，顯示已買回張數、執行比例（%），並附進度條；資料來源為 MOPS t35sc09 申報欄位（cells[12] 已買回股數 / cells[15] 執行比例）；查詢範圍從近 6 個月改為近 7 個月，避免月底決議的公告因日期邊界被漏掉（如 2543 皇昌 114/11/13 決議）',
       '庫藏股：修正股價 API URL 過長問題（改為每批 50 檔分批送出）',
       '權證查詢：南亞科等深度 OTM 權證 IV 計算結果空白問題——改用 Newton-Raphson + bisection 混合法，修正舊版在 vega ≈ 0 時發散的問題',
       '權證查詢：加入 Merton 連續股息調整（<code class="text-gray-300 bg-gray-800 px-1 rounded">S_adj = S·e^(−qT)</code>），改善高殖利率標的（如台積電）的 IV / Delta 準確度',
@@ -5439,6 +5440,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               <th class="px-3 py-2 text-center">預定買回區間</th>
               <th class="px-3 py-2 text-center">買回價格區間（元）</th>
               <th class="px-3 py-2 text-right">預定買回張數</th>
+              <th class="px-3 py-2 text-center">買回進度</th>
               <th class="px-3 py-2 text-center">目的</th>
               <th class="px-3 py-2 text-center">狀態</th>
             </tr>
@@ -5491,6 +5493,21 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               <td class="px-3 py-2 text-right font-mono text-purple-300">
                 {{ r.plannedLots.toLocaleString() }}
               </td>
+              <td class="px-3 py-2 text-center min-w-[110px]">
+                <template v-if="r.executedLots > 0 || r.executedPct">
+                  <div class="text-xs text-gray-300 mb-1">
+                    {{ r.executedLots.toLocaleString() }} 張
+                    <span v-if="r.executedPct" class="text-yellow-400 ml-1">{{ r.executedPct }}%</span>
+                  </div>
+                  <div class="w-full bg-gray-700 rounded-full h-1.5">
+                    <div class="h-1.5 rounded-full"
+                      :class="r.completed ? 'bg-gray-400' : 'bg-emerald-500'"
+                      :style="{ width: Math.min(+(r.executedPct) || (r.plannedLots > 0 ? r.executedLots / r.plannedLots * 100 : 0), 100) + '%' }">
+                    </div>
+                  </div>
+                </template>
+                <span v-else class="text-gray-700">—</span>
+              </td>
               <td class="px-3 py-2 text-center text-gray-400 text-xs">
                 {{ buybackPurposeLabel(r.purpose) }}
               </td>
@@ -5506,7 +5523,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
       </div>
 
       <div class="text-right text-xs text-gray-700">
-        資料範圍：近 6 個月董事會決議 · 上市 + 上櫃 · MOPS t35sc09 · 每 2 小時快取
+        資料範圍：近 7 個月董事會決議 · 上市 + 上櫃 · MOPS t35sc09 · 每 2 小時快取
       </div>
     </div>
 
