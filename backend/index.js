@@ -4346,7 +4346,11 @@ async function saveCloseSnapshot(dateStr, isClose = true) {
     const slice = stockRows.slice(i, i + BATCH_SIZE)
     batches.push(slice.flatMap(r => [`tse_${r.stock_no}.tw`, `otc_${r.stock_no}.tw`]))
   }
-  const results = await Promise.all(batches.map(b => fetchMisRaw(b).catch(() => null)))
+  const results = await Promise.all(batches.map(async b => {
+    const r = await fetchMisRaw(b).catch(() => null)
+    if (r?.msgArray?.length) return r
+    return fetchMisRaw(b, 15000).catch(() => null)
+  }))
   const bidRecords = []
   const limitUpList = []
   const seen = new Set()
@@ -4879,8 +4883,6 @@ app.get('/api/market/movers', async (req, res) => {
         FROM ranked
         WHERE rn <= 5
         GROUP BY stock_no
-        HAVING COUNT(CASE WHEN rn <= 3 THEN 1 END) = 3
-           AND COUNT(CASE WHEN rn BETWEEN 3 AND 5 THEN 1 END) = 3
       `)
     ])
 
@@ -4907,80 +4909,197 @@ app.get('/api/market/movers', async (req, res) => {
       volMa5:    r.vol_ma5   != null ? Math.round(parseInt(r.vol_ma5)   / 1000) : null,
     }
 
-    const BATCH_SIZE = 60
-    const CONCURRENCY = 5
-    const batches = []
-    for (let i = 0; i < stockRows.length; i += BATCH_SIZE) {
-      const slice = stockRows.slice(i, i + BATCH_SIZE)
-      // 有 exchange 資訊時只送對的交易所，否則雙送（相容舊資料）
-      batches.push(slice.flatMap(r => {
-        if (r.exchange === 'TWSE') return [`tse_${r.stock_no}.tw`]
-        if (r.exchange === 'TPEX') return [`otc_${r.stock_no}.tw`]
-        return [`tse_${r.stock_no}.tw`, `otc_${r.stock_no}.tw`]  // 舊資料 fallback
-      }))
-    }
-
-    // 限制並發數避免 TWSE rate-limit
-    const results = []
-    for (let i = 0; i < batches.length; i += CONCURRENCY) {
-      const chunk = batches.slice(i, i + CONCURRENCY)
-      const chunkResults = await Promise.all(chunk.map(b => fetchMisRaw(b).catch(() => null)))
-      results.push(...chunkResults)
-    }
-
+    // ── 主要：富邦全市場快照（TSE+OTC 一次拿完，~2s）
+    // ── Fallback：TWSE MIS 批次查詢（原有邏輯）
     const movers = []
     const seen = new Set()
-    for (const mis of results) {
-      for (const item of mis?.msgArray || []) {
-        if (seen.has(item.c)) continue
-        seen.add(item.c)
-        const z = item.z && item.z !== '-' ? parseFloat(item.z) : null
-        const y = item.y && item.y !== '-' ? parseFloat(item.y) : null
-        if (z == null || y == null || y === 0) continue
-        const vol = parseInt(item.v) || 0
-        if (vol === 0) continue
-        const changePct = +((z - y) / y * 100).toFixed(2)
-        // 漲停委買量：即時 MIS 委買五檔；若 MIS 無資料則 fallback 到 DB 快照累積最大值
-        let limitBidVol = null
-        const limitPrice = item.u && item.u !== '-' ? parseFloat(item.u) : null
-        if (limitPrice && item.b && item.g) {
-          const bidPs = item.b.split('_')
-          const bidQs = item.g.split('_')
-          let total = 0
-          for (let i = 0; i < bidPs.length; i++) {
-            if (Math.abs(parseFloat(bidPs[i]) - limitPrice) < 0.01) {
-              total += parseInt(bidQs[i]) || 0
-            }
-          }
-          if (total > 0) limitBidVol = total
-        }
-        if (limitBidVol == null) limitBidVol = dlbMap[item.c]?.limitBidVol ?? null
-        const innerVol = item.it && item.it !== '-' ? parseInt(item.it) : null
-        const outerVol = item.ot && item.ot !== '-' ? parseInt(item.ot) : null
-        movers.push({
-          stockNo: item.c,
-          stockName: nameMap[item.c] || item.n || item.c,
-          price: z, prevClose: y,
-          change: +(z - y).toFixed(2),
-          changePct, volume: vol,
-          turnover: +(z * vol / 1e5).toFixed(2),
-          limitBidVol,
-          innerVol, outerVol,
-          closedLimitUp: changePct >= 9.9,
-          ma3:        maMap[item.c]?.ma3       ?? null,
-          prevMa3:    maMap[item.c]?.prevMa3   ?? null,
-          volMa3:     maMap[item.c]?.volMa3    ?? null,
-          prevVol:    maMap[item.c]?.prevVol   ?? null,
-          prevOpen:   maMap[item.c]?.prevOpen  ?? null,
-          prevVolMa3:       maMap[item.c]?.prevVolMa3       ?? null,
-          volMa5:           maMap[item.c]?.volMa5           ?? null,
-          bidSnapshotCount: dlbMap[item.c]?.bidSnapshotCount ?? null,
-          bidVolSum:        dlbMap[item.c]?.bidVolSum        ?? null,
-          closeLimitBidVol: dlbMap[item.c]?.closeLimitBidVol ?? null,
-          bidVolMin:        dlbMap[item.c]?.bidVolMin        ?? null,
-          bidVolFirst:      dlbMap[item.c]?.bidVolFirst      ?? null,
-          earlyLimitUp: changePct >= 9.5 && item.t && item.t >= '09:00:00' && item.t < '10:00:00' ? true : undefined,
+    const twNow = new Date(Date.now() + 8 * 3600000)
+    const isEarlySession = twNow.getUTCHours() === 9 && twNow.getUTCMinutes() < 60
+
+    let fubonOk = false
+    try {
+      const fubonRaw = await new Promise((resolve, reject) => {
+        const py = spawn('python3', ['-m', 'fubon.marketdata', 'snapshot_all_with_quotes'], {
+          cwd: __dirname, env: { ...process.env }
         })
+        const out = []
+        const timer = setTimeout(() => { py.kill(); reject(new Error('fubon timeout')) }, 35000)
+        py.stdout.on('data', d => out.push(d.toString()))
+        py.stderr.on('data', d => console.error('[fubon]', d.toString().trim()))
+        py.on('error', e => { clearTimeout(timer); reject(e) })
+        py.on('close', code => {
+          clearTimeout(timer)
+          code === 0 ? resolve(out.join('')) : reject(new Error(`fubon exit ${code}`))
+        })
+      })
+      const fubonData = JSON.parse(fubonRaw)
+      const exchangeMap = {}
+      for (const s of fubonData.TSE || []) exchangeMap[s.symbol] = 'tse'
+      for (const s of fubonData.OTC || []) exchangeMap[s.symbol] = 'otc'
+
+      for (const [, list] of [['tse', fubonData.TSE || []], ['otc', fubonData.OTC || []]]) {
+        for (const item of list) {
+          if (seen.has(item.symbol)) continue
+          seen.add(item.symbol)
+          const z = item.closePrice
+          const y = item.change != null
+            ? +(item.closePrice - item.change).toFixed(2)
+            : item.changePercent != null ? +(z / (1 + item.changePercent / 100)).toFixed(2) : null
+          if (!z || !y || y === 0) continue
+          const vol = item.tradeVolume || 0
+          const changePct = item.changePercent != null ? +item.changePercent.toFixed(2) : +((z - y) / y * 100).toFixed(2)
+          if (vol === 0 && Math.abs(changePct) < 9.5) continue
+          movers.push({
+            stockNo:   item.symbol,
+            stockName: nameMap[item.symbol] || item.name,
+            price: z, prevClose: y,
+            change: +(z - y).toFixed(2),
+            changePct, volume: vol,
+            turnover: +(z * vol / 1e5).toFixed(2),
+            limitBidVol:      dlbMap[item.symbol]?.limitBidVol      ?? null,
+            limitBidPeak:     dlbMap[item.symbol]?.limitBidVol      ?? null,
+            innerVol: null, outerVol: null,
+            closedLimitUp: changePct >= 9.9,
+            ma3:              maMap[item.symbol]?.ma3              ?? null,
+            prevMa3:          maMap[item.symbol]?.prevMa3          ?? null,
+            volMa3:           maMap[item.symbol]?.volMa3           ?? null,
+            prevVol:          maMap[item.symbol]?.prevVol          ?? null,
+            prevOpen:         maMap[item.symbol]?.prevOpen         ?? null,
+            prevVolMa3:       maMap[item.symbol]?.prevVolMa3       ?? null,
+            volMa5:           maMap[item.symbol]?.volMa5           ?? null,
+            bidSnapshotCount: dlbMap[item.symbol]?.bidSnapshotCount ?? null,
+            bidVolSum:        dlbMap[item.symbol]?.bidVolSum        ?? null,
+            closeLimitBidVol: dlbMap[item.symbol]?.closeLimitBidVol ?? null,
+            bidVolMin:        dlbMap[item.symbol]?.bidVolMin        ?? null,
+            bidVolFirst:      dlbMap[item.symbol]?.bidVolFirst      ?? null,
+            earlyLimitUp: changePct >= 9.5 && isEarlySession ? true : undefined,
+          })
+        }
+      }
+
+      // 漲停股委買量：直接用 Fubon orderbook（Python 已並行查好），fallback 才用 MIS
+      const orderbooks = fubonData.orderbooks || {}
+      const misNeeded = []
+      for (const m of movers) {
+        if (m.changePct < 9.5) continue
+        const ob = orderbooks[m.stockNo]
+        if (ob?.bids?.length > 0) {
+          // bestBid 應在漲停板價（= closePrice），確認價格吻合再採用
+          const bestBid = ob.bids[0]
+          m.limitBidVol = Math.abs(bestBid.price - m.price) < 1 ? bestBid.size : 0
+          m.innerVol = ob.total?.tradeVolumeAtBid ?? null
+          m.outerVol = ob.total?.tradeVolumeAtAsk ?? null
+        } else {
+          misNeeded.push(m.stockNo)  // Fubon 未能取到此股 orderbook，改用 MIS
+        }
+      }
+      // MIS fallback（極少發生：Fubon orderbook 查詢失敗時）
+      if (misNeeded.length > 0) {
+        console.warn(`[movers] ${misNeeded.length} 支漲停股 Fubon orderbook 缺失，fallback MIS`)
+        const moversMap = Object.fromEntries(movers.map(m => [m.stockNo, m]))
+        const limitBatches = []
+        for (let i = 0; i < misNeeded.length; i += 60)
+          limitBatches.push(misNeeded.slice(i, i + 60).map(no => `${exchangeMap[no] || 'tse'}_${no}.tw`))
+        const misResults = await Promise.all(limitBatches.map(async b => {
+          const r = await fetchMisRaw(b).catch(() => null)
+          if (r?.msgArray?.length) return r
+          return fetchMisRaw(b, 15000).catch(() => null)
+        }))
+        for (const mis of misResults) {
+          for (const item of mis?.msgArray || []) {
+            const m = moversMap[item.c]
+            if (!m) continue
+            const lp = item.u && item.u !== '-' ? parseFloat(item.u) : null
+            if (lp && item.b && item.g) {
+              const bps = item.b.split('_'), bqs = item.g.split('_')
+              let tot = 0
+              for (let i = 0; i < bps.length; i++)
+                if (Math.abs(parseFloat(bps[i]) - lp) < 0.01) tot += parseInt(bqs[i]) || 0
+              m.limitBidVol = tot
+            }
+            const iv = item.it && item.it !== '-' ? parseInt(item.it) : null
+            const ov = item.ot && item.ot !== '-' ? parseInt(item.ot) : null
+            if (iv !== null) m.innerVol = iv
+            if (ov !== null) m.outerVol = ov
+          }
+        }
+      }
+      fubonOk = true
+    } catch(e) {
+      console.warn('[movers] Fubon 失敗，fallback 到 MIS:', e.message)
+    }
+
+    // ── MIS fallback（Fubon 失敗時）──────────────────────────
+    if (!fubonOk) {
+      const BATCH_SIZE = 60
+      const CONCURRENCY = 5
+      const batches = []
+      for (let i = 0; i < stockRows.length; i += BATCH_SIZE) {
+        const slice = stockRows.slice(i, i + BATCH_SIZE)
+        batches.push(slice.flatMap(r => {
+          if (r.exchange === 'TWSE') return [`tse_${r.stock_no}.tw`]
+          if (r.exchange === 'TPEX') return [`otc_${r.stock_no}.tw`]
+          return [`tse_${r.stock_no}.tw`, `otc_${r.stock_no}.tw`]
+        }))
+      }
+      const results = []
+      for (let i = 0; i < batches.length; i += CONCURRENCY) {
+        const chunk = batches.slice(i, i + CONCURRENCY)
+        const chunkResults = await Promise.all(chunk.map(async b => {
+          const r = await fetchMisRaw(b).catch(() => null)
+          if (r?.msgArray?.length) return r
+          return fetchMisRaw(b, 15000).catch(() => null)
+        }))
+        results.push(...chunkResults)
+      }
+      for (const mis of results) {
+        for (const item of mis?.msgArray || []) {
+          if (seen.has(item.c)) continue
+          seen.add(item.c)
+          const z = item.z && item.z !== '-' ? parseFloat(item.z) : null
+          const y = item.y && item.y !== '-' ? parseFloat(item.y) : null
+          if (z == null || y == null || y === 0) continue
+          const vol = parseInt(item.v) || 0
+          const changePct = +((z - y) / y * 100).toFixed(2)
+          if (vol === 0 && Math.abs(changePct) < 9.5) continue
+          let limitBidVol = null
+          const limitPrice = item.u && item.u !== '-' ? parseFloat(item.u) : null
+          if (limitPrice && item.b && item.g) {
+            const bidPs = item.b.split('_'), bidQs = item.g.split('_')
+            let total = 0
+            for (let i = 0; i < bidPs.length; i++)
+              if (Math.abs(parseFloat(bidPs[i]) - limitPrice) < 0.01) total += parseInt(bidQs[i]) || 0
+            if (total > 0) limitBidVol = total
+          }
+          if (limitBidVol == null) limitBidVol = dlbMap[item.c]?.limitBidVol ?? null
+          const innerVol = item.it && item.it !== '-' ? parseInt(item.it) : null
+          const outerVol = item.ot && item.ot !== '-' ? parseInt(item.ot) : null
+          movers.push({
+            stockNo: item.c,
+            stockName: nameMap[item.c] || item.n || item.c,
+            price: z, prevClose: y,
+            change: +(z - y).toFixed(2),
+            changePct, volume: vol,
+            turnover: +(z * vol / 1e5).toFixed(2),
+            limitBidVol,
+            limitBidPeak: dlbMap[item.c]?.limitBidVol ?? null,
+            innerVol, outerVol,
+            closedLimitUp: changePct >= 9.9,
+            ma3:              maMap[item.c]?.ma3              ?? null,
+            prevMa3:          maMap[item.c]?.prevMa3          ?? null,
+            volMa3:           maMap[item.c]?.volMa3           ?? null,
+            prevVol:          maMap[item.c]?.prevVol          ?? null,
+            prevOpen:         maMap[item.c]?.prevOpen         ?? null,
+            prevVolMa3:       maMap[item.c]?.prevVolMa3       ?? null,
+            volMa5:           maMap[item.c]?.volMa5           ?? null,
+            bidSnapshotCount: dlbMap[item.c]?.bidSnapshotCount ?? null,
+            bidVolSum:        dlbMap[item.c]?.bidVolSum        ?? null,
+            closeLimitBidVol: dlbMap[item.c]?.closeLimitBidVol ?? null,
+            bidVolMin:        dlbMap[item.c]?.bidVolMin        ?? null,
+            bidVolFirst:      dlbMap[item.c]?.bidVolFirst      ?? null,
+            earlyLimitUp: changePct >= 9.5 && item.t && item.t >= '09:00:00' && item.t < '10:00:00' ? true : undefined,
+          })
+        }
       }
     }
 

@@ -3,21 +3,23 @@
 用法:
   python3 -m fubon.marketdata quote 2330
   python3 -m fubon.marketdata snapshot TSE
+  python3 -m fubon.marketdata snapshot_all
+  python3 -m fubon.marketdata snapshot_all_with_quotes
   python3 -m fubon.marketdata history 2330 2026-01-01 2026-04-30
   python3 -m fubon.marketdata watch 2330 2317 2454
 """
 import sys
 import json
 import time
+from concurrent.futures import ThreadPoolExecutor
 from fubon_neo.sdk import Mode
 from .sdk_client import get_sdk
 
 
 def get_quote(symbol: str) -> dict:
-    """個股即時報價"""
+    """個股即時報價（含五檔委買委賣）"""
     sdk = get_sdk()
-    result = sdk.marketdata.rest_client.stock.intraday.quote(symbol=symbol)
-    return result.get("data", {})
+    return sdk.marketdata.rest_client.stock.intraday.quote(symbol=symbol)
 
 
 def get_snapshot(market: str = "TSE") -> list:
@@ -117,6 +119,32 @@ if __name__ == "__main__":
         print(f"取得 {len(stocks)} 筆 ({market})")
         for s in stocks[:10]:
             print(f"  {s.get('symbol')} {s.get('name')}: {s.get('closePrice')} ({s.get('changePercent')}%)")
+
+    elif cmd == "snapshot_all":
+        tse = get_snapshot("TSE")
+        otc = get_snapshot("OTC")
+        print(json.dumps({"TSE": tse, "OTC": otc}, ensure_ascii=False))
+
+    elif cmd == "snapshot_all_with_quotes":
+        tse = get_snapshot("TSE")
+        otc = get_snapshot("OTC")
+        # 找出漲停股（changePercent >= 9.5），補查五檔委買
+        limit_up = [
+            s["symbol"] for s in tse + otc
+            if (s.get("changePercent") or 0) >= 9.3  # 略低於 9.5 避免邊界四捨五入漏抓
+        ]
+        orderbooks = {}
+        if limit_up:
+            def _fetch(sym):
+                try:
+                    return sym, get_quote(sym)
+                except Exception:
+                    return sym, None
+            with ThreadPoolExecutor(max_workers=10) as pool:
+                for sym, data in pool.map(_fetch, limit_up):
+                    if data:
+                        orderbooks[sym] = data
+        print(json.dumps({"TSE": tse, "OTC": otc, "orderbooks": orderbooks}, ensure_ascii=False))
 
     elif cmd == "history":
         symbol    = sys.argv[2] if len(sys.argv) > 2 else "2330"

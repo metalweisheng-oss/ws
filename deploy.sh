@@ -9,11 +9,7 @@ git add -A
 git commit -m "Update $(date '+%Y-%m-%d %H:%M')" 2>/dev/null || echo "（沒有新的程式碼變更）"
 git push origin main
 
-# 2. 部署後端到 Railway
-echo "🖥️  部署後端到 Railway..."
-cd backend
-railway up --detach --service pleasing-exploration
-cd ..
+# 2. 後端由 Railway GitHub 整合自動部署（push 到 GitHub 後自動觸發）
 
 # 3. Build 前端
 echo "🔨 Build 前端..."

@@ -582,53 +582,6 @@ const scenarioTable = computed(() => {
 })
 function wSortIcon(col) { return warrantSortCol.value === col ? (warrantSortDesc.value ? ' ▼' : ' ▲') : '' }
 
-// ── 雙模選股 ───────────────────────────────────────────
-const swData    = ref(null)
-const swLoading = ref(false)
-const swError   = ref('')
-const swMode    = ref('momentum')   // 'momentum' | 'value'
-
-async function fetchStrongWeak() {
-  swLoading.value = true
-  swError.value   = ''
-  try {
-    const r = await fetch(`${API}/api/strong-weak-stocks`)
-    const d = await r.json()
-    if (d.error) throw new Error(d.code === 'NOT_CONFIGURED' ? 'StockAI 模組尚未上線' : d.error)
-    swData.value = d
-    // 根據市場狀態預設分頁
-    const state = d.regime?.state
-    swMode.value = state === 'bear' ? 'value' : 'momentum'
-  } catch(e) { swError.value = e.message }
-  finally { swLoading.value = false }
-}
-
-function swStateLabel(s) {
-  return { bull: '牛市 · 動能模式', sideways: '震盪 · 均衡模式', bear: '熊市 · 價值模式' }[s] ?? '—'
-}
-function swStateBg(s) {
-  return { bull: 'bg-green-900/40 text-green-400 border-green-700', sideways: 'bg-yellow-900/40 text-yellow-400 border-yellow-700', bear: 'bg-red-900/40 text-red-400 border-red-700' }[s] ?? ''
-}
-function swScoreColor(v) {
-  if (v >= 70) return 'text-green-400'
-  if (v >= 45) return 'text-yellow-400'
-  return 'text-red-400'
-}
-function swScoreBg(v) {
-  if (v >= 70) return 'bg-green-500'
-  if (v >= 45) return 'bg-yellow-500'
-  return 'bg-red-500'
-}
-function valScoreColor(v) {
-  if (v >= 70) return 'text-blue-400'
-  if (v >= 45) return 'text-sky-400'
-  return 'text-gray-500'
-}
-function valScoreBg(v) {
-  if (v >= 70) return 'bg-blue-500'
-  if (v >= 45) return 'bg-sky-600'
-  return 'bg-gray-600'
-}
 
 // ── 漲跌排行 ─────────────────────────────────────────
 const moversGainers   = ref([])
@@ -666,9 +619,10 @@ async function fetchLimitSnapshots() {
     for (const s of d.snapshots || []) { map[s.time] = s.gainers; times.push(s.time) }
     limitSnapshotMap.value = map
     limitSnapshotTimes.value = times
-    // 預設選最新時段；若目前選的已不存在也切到最新
+    // 歷史日期模式：自動選最新快照（若目前選的已不存在也切到最新）
     // 但若最新快照資料量遠少於前一筆（MIS 收盤後資料不完整），改選前一筆
-    if (!limitSnapshotTime.value || !map[limitSnapshotTime.value]) {
+    // 今日即時模式：預設維持 ''（live data），不自動切換至快照，避免顯示 30 分鐘前的舊資料
+    if (moversDate.value && (!limitSnapshotTime.value || !map[limitSnapshotTime.value])) {
       let bestTime = times.length ? times[times.length - 1] : ''
       if (times.length >= 2) {
         const latestCount = (map[times[times.length - 1]] || []).length
@@ -852,6 +806,16 @@ function passAntiFake(r) {
   // 曾短暫歸零：最低值 < 最大值 10% → 疑似假掛（先掛後撤再掛）
   if (r.bidVolMin != null && r.limitBidVol > 0 && r.bidVolMin / r.limitBidVol < 0.1) return false
   return true
+}
+
+// 委買大量撤單備註：即時值 vs 今日DB峰值
+function bidWithdrawNote(r) {
+  if (!r.limitBidPeak || r.limitBidPeak <= 0) return null
+  if (r.limitBidVol === 0) return '全撤'
+  if (r.limitBidVol != null && r.limitBidVol < r.limitBidPeak * 0.5) {
+    return `撤${Math.round((1 - r.limitBidVol / r.limitBidPeak) * 100)}%`
+  }
+  return null
 }
 
 // 盤尾委買留存率：close / max，null 表示無資料
@@ -1851,6 +1815,24 @@ function signShares(v) {
 function signColor(v) { return +v > 0 ? 'text-red-400' : +v < 0 ? 'text-green-400' : 'text-gray-400' }
 
 const changelog = [
+  {
+    date: '2026-05-24', tag: '修正',
+    items: [
+      '漲跌排行：修正早盤鎖漲停個股遺漏的根本問題——原本後端對成交量 = 0 的個股一律過濾；開盤初期若某股買盤龐大無賣單（開盤即鎖漲停），Fubon API 回傳 tradeVolume = 0，導致這些最強勢個股反而完全消失；現改為 vol = 0 且漲跌幅 < 9.5% 才跳過，漲停個股即使量 = 0 也會正確列入；同時修正 Fubon change 欄位為 null 時改用 changePercent 反推昨收，避免額外遺漏',
+      '漲跌排行：修正漲停委買量在撤單後顯示錯誤的問題——原本 MIS 查到委買為 0（撤單）時會 fallback 顯示 DB 歷史最大值，造成誤判委買仍在；現改為直接採用 MIS 即時值（0 代表已撤單），僅在查不到漲停板價時才 fallback',
+      '漲跌排行：新增撤單備註——委買量較今日 DB 峰值縮減逾 50% 時，委買量欄位旁自動顯示橙色 ⚠撤XX% 警示；若委買已全數撤出則顯示 ⚠全撤；涵蓋主排行表格與六個觀察順位',
+      '漲跌排行：修正新上市股及歷史不足個股的一日量比、五日均量顯示空白問題——原本 SQL HAVING 條件要求最近 5 個交易日都必須有資料，新上市股因 DB 歷史不足被完全排除；現移除 HAVING，改讓個別欄位自然回傳 null，前端已有 null 顯示 - 的 fallback',
+      '漲跌排行：漲停委買量改由富邦 API 取得——原本需對 TWSE MIS 發送獨立批次請求；現改為在富邦 snapshot_all Python 行程內，用 ThreadPoolExecutor(10) 並行呼叫漲停股 intraday.quote 取得完整五檔 bids 陣列，以 bestBid.size 為即時委買量；innerVol / outerVol（內外盤）亦同步更新為 tradeVolumeAtBid/Ask；TWSE MIS 僅保留為極少數 Fubon orderbook 缺失時的 fallback',
+    ]
+  },
+  {
+    date: '2026-05-23', tag: '修正',
+    items: [
+      '漲跌排行：修正盤中漲停個股榜單顯示不完全的問題——根本原因一：TWSE MIS 查詢分批進行時，若某批因 rate-limit 或 timeout 失敗，原先直接 null 跳過；現改為失敗後補重試一次（延長 timeout 至 15 秒），避免靜默遺漏一整批個股；saveCloseSnapshot 同步修正',
+      '漲跌排行：修正盤中漲停個股榜單顯示不完全的問題——根本原因二：fetchLimitSnapshots 在 page load 時自動將觀察名單切至 30 分鐘前的 DB 快照，導致 9:00–9:30 新進漲停股不顯示；今日即時模式改為預設維持 live data，快照下拉選單保留供用戶手動查看歷史時段',
+      '漲跌排行：改用富邦 API 全市場快照取代 TWSE MIS 批次查詢——原本需 25+ 批 MIS（10–20 秒），改為 snapshot_all（TSE+OTC 單一 Python 行程，~2 秒）；漲停股另補查 MIS 取得漲停委買量與內外盤；富邦失敗時自動 fallback 回原 MIS 批次邏輯',
+    ]
+  },
   {
     date: '2026-05-22', tag: '修正',
     items: [
@@ -4767,6 +4749,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <template v-if="r.limitBidVol">{{ r.limitBidVol.toLocaleString() }}</template>
                 <span v-else-if="r.closedLimitUp" class="text-orange-400 text-xs">漲停收</span>
                 <template v-else>-</template>
+                <span v-if="bidWithdrawNote(r)" class="ml-1 text-orange-400 font-bold text-xs">⚠{{bidWithdrawNote(r)}}</span>
               </td>
               <td class="px-3 py-2 text-right font-mono text-xs text-yellow-400">
                 {{ r.limitDays ? r.limitDays + '天' : '-' }}
@@ -4842,6 +4825,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <template v-if="r.limitBidVol">{{ r.limitBidVol.toLocaleString() }}</template>
                 <span v-else-if="r.closedLimitUp" class="text-orange-400 text-xs">漲停收</span>
                 <template v-else>-</template>
+                <span v-if="bidWithdrawNote(r)" class="ml-1 text-orange-400 font-bold text-xs">⚠{{bidWithdrawNote(r)}}</span>
               </td>
               <td class="px-3 py-2 text-right font-mono text-xs text-yellow-400">
                 {{ r.limitDays ? r.limitDays + '天' : '-' }}
@@ -4910,7 +4894,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               <td class="px-3 py-2 text-right font-mono text-xs" :class="volRatio5dClass(r)">
                 {{ r.volMa5 ? (r.volume / r.volMa5).toFixed(2) : r.prevVol ? (r.volume / r.prevVol).toFixed(2) : '-' }}
               </td>
-              <td class="px-3 py-2 text-right font-mono text-xs text-gray-500">{{ r.limitBidVol?.toLocaleString() ?? '-' }}</td>
+              <td class="px-3 py-2 text-right font-mono text-xs text-gray-500">{{ r.limitBidVol?.toLocaleString() ?? '-' }}<span v-if="bidWithdrawNote(r)" class="ml-1 text-orange-400 font-bold">⚠{{bidWithdrawNote(r)}}</span></td>
               <td class="px-3 py-2 text-right font-mono text-xs text-yellow-400">
                 {{ r.limitDays ? r.limitDays + '天' : '-' }}
               </td>
@@ -4979,7 +4963,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               <td class="px-3 py-2 text-right font-mono text-xs" :class="volRatio5dClass(r)">
                 {{ r.volMa5 ? (r.volume / r.volMa5).toFixed(2) : r.prevVol ? (r.volume / r.prevVol).toFixed(2) : '-' }}
               </td>
-              <td class="px-3 py-2 text-right font-mono text-xs text-amber-300">{{ r.limitBidVol?.toLocaleString() ?? '-' }}</td>
+              <td class="px-3 py-2 text-right font-mono text-xs text-amber-300">{{ r.limitBidVol?.toLocaleString() ?? '-' }}<span v-if="bidWithdrawNote(r)" class="ml-1 text-orange-400 font-bold">⚠{{bidWithdrawNote(r)}}</span></td>
               <td class="px-3 py-2 text-right font-mono text-xs text-yellow-400">
                 {{ r.limitDays ? r.limitDays + '天' : '-' }}
               </td>
@@ -5048,7 +5032,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               <td class="px-3 py-2 text-right font-mono text-xs" :class="volRatio5dClass(r)">
                 {{ r.volMa5 ? (r.volume / r.volMa5).toFixed(2) : r.prevVol ? (r.volume / r.prevVol).toFixed(2) : '-' }}
               </td>
-              <td class="px-3 py-2 text-right font-mono text-xs text-amber-400">{{ r.limitBidVol?.toLocaleString() ?? '-' }}</td>
+              <td class="px-3 py-2 text-right font-mono text-xs text-amber-400">{{ r.limitBidVol?.toLocaleString() ?? '-' }}<span v-if="bidWithdrawNote(r)" class="ml-1 text-orange-400 font-bold">⚠{{bidWithdrawNote(r)}}</span></td>
               <td class="px-3 py-2 text-right font-mono text-xs text-yellow-400">
                 {{ r.limitDays ? r.limitDays + '天' : '-' }}
               </td>
@@ -5116,7 +5100,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
               <td class="px-3 py-2 text-right font-mono text-xs" :class="volRatio5dClass(r)">
                 {{ r.volMa5 ? (r.volume / r.volMa5).toFixed(2) : r.prevVol ? (r.volume / r.prevVol).toFixed(2) : '-' }}
               </td>
-              <td class="px-3 py-2 text-right font-mono text-xs text-gray-500">{{ r.limitBidVol?.toLocaleString() ?? '-' }}</td>
+              <td class="px-3 py-2 text-right font-mono text-xs text-gray-500">{{ r.limitBidVol?.toLocaleString() ?? '-' }}<span v-if="bidWithdrawNote(r)" class="ml-1 text-orange-400 font-bold">⚠{{bidWithdrawNote(r)}}</span></td>
               <td class="px-3 py-2 text-right font-mono text-xs text-yellow-400">
                 {{ r.limitDays ? r.limitDays + '天' : '-' }}
               </td>
@@ -5285,7 +5269,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <td class="px-3 py-2 text-right text-gray-500 font-mono text-xs">{{ r.prevVol != null ? r.prevVol.toLocaleString() : '-' }}</td>
                 <td class="px-3 py-2 text-right font-mono text-xs"
                     :class="r.volume >= 100000 ? 'text-rose-400 font-bold' : r.limitBidVol && r.limitBidVol / r.volume > 1.6 ? 'text-red-300' : 'text-gray-400'">
-                  {{ r.volume.toLocaleString() }}<span v-if="r.limitBidVol" :class="r.limitBidVol / r.volume > 1.6 ? 'text-green-400' : 'text-gray-500'"> ({{ r.limitBidVol.toLocaleString() }})</span>
+                  {{ r.volume.toLocaleString() }}<span v-if="r.limitBidVol" :class="r.limitBidVol / r.volume > 1.6 ? 'text-green-400' : 'text-gray-500'"> ({{ r.limitBidVol.toLocaleString() }})</span><span v-if="bidWithdrawNote(r)" class="text-orange-400 font-bold text-xs"> ⚠{{bidWithdrawNote(r)}}</span>
                 </td>
                 <td class="px-3 py-2 text-right font-mono text-xs text-gray-300">
                   {{ r.turnover != null ? r.turnover.toFixed(1) : '-' }}
@@ -5351,7 +5335,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
                 <td class="px-3 py-2 text-right text-gray-500 font-mono text-xs">{{ r.prevVol != null ? r.prevVol.toLocaleString() : '-' }}</td>
                 <td class="px-3 py-2 text-right font-mono text-xs"
                     :class="r.volume >= 100000 ? 'text-rose-400 font-bold' : r.limitBidVol && r.limitBidVol / r.volume > 1.6 ? 'text-red-300' : 'text-gray-400'">
-                  {{ r.volume.toLocaleString() }}<span v-if="r.limitBidVol" :class="r.limitBidVol / r.volume > 1.6 ? 'text-green-400' : 'text-gray-500'"> ({{ r.limitBidVol.toLocaleString() }})</span>
+                  {{ r.volume.toLocaleString() }}<span v-if="r.limitBidVol" :class="r.limitBidVol / r.volume > 1.6 ? 'text-green-400' : 'text-gray-500'"> ({{ r.limitBidVol.toLocaleString() }})</span><span v-if="bidWithdrawNote(r)" class="text-orange-400 font-bold text-xs"> ⚠{{bidWithdrawNote(r)}}</span>
                 </td>
                 <td class="px-3 py-2 text-right font-mono text-xs text-gray-300">
                   {{ r.turnover != null ? r.turnover.toFixed(1) : '-' }}
@@ -6243,187 +6227,6 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
       class="w-full h-full border-0"
       allow="fullscreen"
     />
-
-    <template v-if="false">
-      <!-- 市場狀態橫幅（舊版保留，不渲染）-->
-      <div class="rounded-xl border p-4 flex items-center justify-between flex-wrap gap-3"
-           :class="swStateBg(swData.regime?.state)">
-        <div class="flex items-center gap-3">
-          <span class="text-lg font-bold">{{ swStateLabel(swData.regime?.state) }}</span>
-          <span class="text-sm opacity-70">{{ swData.regime?.tradeDate }}</span>
-        </div>
-        <div class="flex gap-5 text-sm">
-          <span>趨勢強度 <span class="font-bold tabular-nums">{{ swData.regime?.trendStrength > 0 ? '+' : '' }}{{ swData.regime?.trendStrength }}</span></span>
-          <span>資金熱度 <span class="font-bold tabular-nums">{{ swData.regime?.capitalHeat }}</span></span>
-          <span>風險分數 <span class="font-bold tabular-nums">{{ swData.regime?.riskScore }}</span></span>
-        </div>
-      </div>
-
-      <!-- 雙模分頁 -->
-      <div class="flex gap-1 border-b border-gray-700">
-        <button @click="swMode='momentum'"
-          :class="swMode==='momentum'
-            ? 'text-green-400 border-b-2 border-green-500'
-            : 'text-gray-500 border-b-2 border-transparent hover:text-gray-300'"
-          class="px-4 py-2 text-sm font-medium -mb-px transition-colors">
-          動能模式
-          <span v-if="swData.regime?.state === 'bull'"
-            class="ml-1.5 px-1.5 py-0.5 rounded-full text-[10px] bg-green-900/50 text-green-400 border border-green-700/40">啟用</span>
-        </button>
-        <button @click="swMode='value'"
-          :class="swMode==='value'
-            ? 'text-blue-400 border-b-2 border-blue-500'
-            : 'text-gray-500 border-b-2 border-transparent hover:text-gray-300'"
-          class="px-4 py-2 text-sm font-medium -mb-px transition-colors">
-          價值模式
-          <span v-if="swData.regime?.state === 'bear'"
-            class="ml-1.5 px-1.5 py-0.5 rounded-full text-[10px] bg-blue-900/50 text-blue-400 border border-blue-700/40">啟用</span>
-        </button>
-      </div>
-
-      <!-- ── 動能排行表 ── -->
-      <div v-if="swMode === 'momentum'" class="rounded-xl border border-gray-700 bg-gray-900/60 overflow-hidden">
-        <div class="px-4 py-3 border-b border-gray-700 flex items-center justify-between">
-          <span class="text-sm font-semibold text-white">動能排行 Top 50</span>
-          <span class="text-xs text-gray-500">{{ swData.momentum?.scoreDate }} · {{ swData.momentum?.total }} 支</span>
-        </div>
-        <div class="overflow-x-auto">
-          <table class="w-full text-sm">
-            <thead class="bg-gray-800/50">
-              <tr class="text-xs text-gray-500">
-                <th class="px-3 py-2 text-left w-8">#</th>
-                <th class="px-3 py-2 text-left">股票</th>
-                <th class="px-3 py-2 text-left">綜合分</th>
-                <th class="px-3 py-2 text-left">趨勢</th>
-                <th class="px-3 py-2 text-left">籌碼</th>
-                <th class="px-3 py-2 text-left hidden md:table-cell">標籤</th>
-                <th class="px-3 py-2 text-right">收盤</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-gray-800">
-              <tr v-for="(s, i) in (swData.momentum?.items ?? [])" :key="s.stockNo"
-                  class="hover:bg-white/[0.02]">
-                <td class="px-3 py-2 text-gray-600 tabular-nums text-xs">{{ i + 1 }}</td>
-                <td class="px-3 py-2">
-                  <div class="font-bold text-gray-100 text-sm">{{ s.stockNo }}</div>
-                  <div class="text-xs text-gray-500">{{ s.stockName }}</div>
-                </td>
-                <td class="px-3 py-2">
-                  <div class="flex items-center gap-1.5">
-                    <div class="w-12 h-1.5 bg-gray-700 rounded-full overflow-hidden">
-                      <div class="h-full rounded-full" :class="swScoreBg(s.totalScore)" :style="`width:${Math.min(100,s.totalScore)}%`"/>
-                    </div>
-                    <span class="text-xs font-bold tabular-nums" :class="swScoreColor(s.totalScore)">{{ s.totalScore.toFixed(1) }}</span>
-                  </div>
-                </td>
-                <td class="px-3 py-2 text-xs tabular-nums" :class="swScoreColor(s.trendScore)">{{ s.trendScore.toFixed(1) }}</td>
-                <td class="px-3 py-2 text-xs tabular-nums" :class="swScoreColor(s.chipsScore)">{{ s.chipsScore.toFixed(1) }}</td>
-                <td class="px-3 py-2 hidden md:table-cell">
-                  <div class="flex gap-1 flex-wrap">
-                    <span v-if="s.isAboveMa2060" class="px-1 py-0.5 rounded text-[10px] bg-green-900/40 text-green-400 border border-green-700/40">MA多頭</span>
-                    <span v-if="s.isNewHigh20d" class="px-1 py-0.5 rounded text-[10px] bg-blue-900/40 text-blue-400 border border-blue-700/40">20高</span>
-                    <span v-if="s.trustConsecDays >= 3" class="px-1 py-0.5 rounded text-[10px] bg-purple-900/40 text-purple-400 border border-purple-700/40">投信+{{ s.trustConsecDays }}</span>
-                  </div>
-                </td>
-                <td class="px-3 py-2 text-right text-xs tabular-nums text-gray-300">
-                  {{ s.close != null ? s.close.toFixed(1) : '—' }}
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <!-- ── 價值排行表 ── -->
-      <div v-else-if="swMode === 'value'">
-        <div v-if="!swData.value" class="rounded-xl border border-gray-700 bg-gray-900/60 p-8 text-center text-gray-500 text-sm">
-          價值評分資料尚未生成，請先執行 sync_bwibbu 後再計算
-        </div>
-        <div v-else class="rounded-xl border border-gray-700 bg-gray-900/60 overflow-hidden">
-          <div class="px-4 py-3 border-b border-gray-700 flex items-center justify-between">
-            <div>
-              <span class="text-sm font-semibold text-white">價值排行 Top 50</span>
-              <span class="ml-2 px-2 py-0.5 rounded text-[10px] bg-blue-900/40 text-blue-400 border border-blue-700/40">品質 × 估值 × 防禦</span>
-            </div>
-            <span class="text-xs text-gray-500">{{ swData.value?.scoreDate }} · {{ swData.value?.total }} 支</span>
-          </div>
-          <div class="overflow-x-auto">
-            <table class="w-full text-sm">
-              <thead class="bg-gray-800/50">
-                <tr class="text-xs text-gray-500">
-                  <th class="px-3 py-2 text-left w-8">#</th>
-                  <th class="px-3 py-2 text-left">股票</th>
-                  <th class="px-3 py-2 text-left">綜合分</th>
-                  <th class="px-3 py-2 text-left hidden sm:table-cell">品質</th>
-                  <th class="px-3 py-2 text-left hidden sm:table-cell">估值</th>
-                  <th class="px-3 py-2 text-right hidden md:table-cell">PE</th>
-                  <th class="px-3 py-2 text-right hidden md:table-cell">PBR</th>
-                  <th class="px-3 py-2 text-right hidden md:table-cell">ROE%</th>
-                  <th class="px-3 py-2 text-right hidden lg:table-cell">殖利率</th>
-                  <th class="px-3 py-2 text-right hidden lg:table-cell">營收YoY</th>
-                  <th class="px-3 py-2 text-right">收盤</th>
-                </tr>
-              </thead>
-              <tbody class="divide-y divide-gray-800">
-                <tr v-for="(s, i) in (swData.value?.items ?? [])" :key="s.stockNo"
-                    class="hover:bg-white/[0.02]">
-                  <td class="px-3 py-2 text-gray-600 tabular-nums text-xs">{{ i + 1 }}</td>
-                  <td class="px-3 py-2">
-                    <div class="font-bold text-gray-100 text-sm">{{ s.stockNo }}</div>
-                    <div class="text-xs text-gray-500">{{ s.stockName }}</div>
-                  </td>
-                  <td class="px-3 py-2">
-                    <div class="flex items-center gap-1.5">
-                      <div class="w-12 h-1.5 bg-gray-700 rounded-full overflow-hidden">
-                        <div class="h-full rounded-full" :class="valScoreBg(s.totalScore)" :style="`width:${Math.min(100,s.totalScore)}%`"/>
-                      </div>
-                      <span class="text-xs font-bold tabular-nums" :class="valScoreColor(s.totalScore)">{{ s.totalScore.toFixed(1) }}</span>
-                    </div>
-                  </td>
-                  <td class="px-3 py-2 hidden sm:table-cell">
-                    <div class="flex items-center gap-1.5">
-                      <div class="w-8 h-1.5 bg-gray-700 rounded-full overflow-hidden">
-                        <div class="h-full rounded-full bg-indigo-500" :style="`width:${Math.min(100,(s.qualityScore/50)*100)}%`"/>
-                      </div>
-                      <span class="text-xs tabular-nums text-indigo-400">{{ s.qualityScore?.toFixed(0) }}</span>
-                    </div>
-                  </td>
-                  <td class="px-3 py-2 hidden sm:table-cell">
-                    <div class="flex items-center gap-1.5">
-                      <div class="w-8 h-1.5 bg-gray-700 rounded-full overflow-hidden">
-                        <div class="h-full rounded-full bg-sky-500" :style="`width:${Math.min(100,(s.valuationScore/30)*100)}%`"/>
-                      </div>
-                      <span class="text-xs tabular-nums text-sky-400">{{ s.valuationScore?.toFixed(0) }}</span>
-                    </div>
-                  </td>
-                  <td class="px-3 py-2 text-right hidden md:table-cell text-xs tabular-nums text-gray-300">
-                    {{ s.pe != null ? s.pe.toFixed(1) : '—' }}
-                  </td>
-                  <td class="px-3 py-2 text-right hidden md:table-cell text-xs tabular-nums text-gray-300">
-                    {{ s.pbr != null ? s.pbr.toFixed(2) : '—' }}
-                  </td>
-                  <td class="px-3 py-2 text-right hidden md:table-cell text-xs tabular-nums"
-                      :class="s.roe > 0 ? 'text-green-400' : 'text-gray-500'">
-                    {{ s.roe != null ? s.roe.toFixed(1) + '%' : '—' }}
-                  </td>
-                  <td class="px-3 py-2 text-right hidden lg:table-cell text-xs tabular-nums text-amber-400">
-                    {{ s.dividendYield != null ? s.dividendYield.toFixed(2) + '%' : '—' }}
-                  </td>
-                  <td class="px-3 py-2 text-right hidden lg:table-cell text-xs tabular-nums"
-                      :class="s.revYoyPct > 0 ? 'text-green-400' : s.revYoyPct < 0 ? 'text-red-400' : 'text-gray-500'">
-                    {{ s.revYoyPct != null ? (s.revYoyPct > 0 ? '+' : '') + s.revYoyPct.toFixed(1) + '%' : '—' }}
-                  </td>
-                  <td class="px-3 py-2 text-right text-xs tabular-nums text-gray-300">
-                    {{ s.close != null ? s.close.toFixed(1) : '—' }}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-
-    </template>
 
     </div><!-- end 分頁內容區 -->
   </div>

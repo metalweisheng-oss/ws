@@ -1,6 +1,7 @@
 """
 富邦 SDK 登入封裝 — 供其他模組共用
 """
+import sys
 from fubon_neo.sdk import FubonSDK, Mode
 from .config import FUBON_ID, FUBON_API_KEY, FUBON_CERT, FUBON_CERT_PASS
 
@@ -18,5 +19,5 @@ def get_sdk(mode: Mode = Mode.Normal) -> FubonSDK:
 
     sdk.init_realtime(mode)
     _sdk = sdk
-    print(f"[fubon] 登入成功 ({FUBON_ID})")
+    print(f"[fubon] 登入成功 ({FUBON_ID})", file=sys.stderr)
     return sdk
