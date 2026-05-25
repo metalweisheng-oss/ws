@@ -2169,7 +2169,7 @@ function btDisconnect() {
 
 async function btLoadHistory() {
   try {
-    const r = await fetch(`${BT_API}/api/bt/scan/history?limit=50`)
+    const r = await fetch(`${BT_API}/api/bt/scan/recent?limit=50`)
     const d = await r.json()
     btHistory.value = d
   } catch {}
@@ -2179,7 +2179,7 @@ async function btLoadLatest() {
   try {
     const r = await fetch(`${BT_API}/api/bt/scan/latest`)
     const d = await r.json()
-    btResults.value = d
+    btResults.value = d.data || []
   } catch {}
 }
 
@@ -2187,7 +2187,8 @@ async function btSelectStock(item) {
   btSelected.value = item
   try {
     const r = await fetch(`${BT_API}/api/bt/ohlcv/${item.symbol}?days=60`)
-    btOhlcv.value = await r.json()
+    const d = await r.json()
+    btOhlcv.value = d.data || []
     await nextTick()
     btRenderChart()
   } catch {}
@@ -6380,17 +6381,17 @@ async function btSyncOhlcv() {
       <div class="space-y-3">
         <h3 class="text-sm font-medium text-gray-400">即時掃描結果</h3>
         <div v-if="!btResults.length" class="text-sm text-gray-600 py-8 text-center">尚無掃描結果（盤中自動更新）</div>
-        <div v-for="item in btResults" :key="item.symbol + item.scanned_at"
+        <div v-for="item in btResults" :key="item.symbol + item.scan_time"
              @click="btSelectStock(item)"
              class="cursor-pointer border rounded-xl px-4 py-3 space-y-2 transition hover:brightness-110"
-             :class="[btScoreBg(item.total_score), btSelected?.symbol === item.symbol ? 'ring-1 ring-purple-500' : '']">
+             :class="[btScoreBg(item.ai_score), btSelected?.symbol === item.symbol ? 'ring-1 ring-purple-500' : '']">
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-2">
               <span class="font-mono text-sm font-bold text-white">{{ item.symbol }}</span>
               <span class="text-sm text-gray-300">{{ item.name }}</span>
             </div>
             <div class="flex items-center gap-2">
-              <span class="font-bold text-base" :class="btScoreColor(item.total_score)">{{ item.total_score }}</span>
+              <span class="font-bold text-base" :class="btScoreColor(item.ai_score)">{{ item.ai_score }}</span>
               <span class="text-xs text-gray-500">分</span>
             </div>
           </div>
@@ -6402,16 +6403,18 @@ async function btSyncOhlcv() {
           </div>
           <!-- 條件標籤 -->
           <div class="flex flex-wrap gap-1">
-            <span v-if="item.low_base" class="text-xs px-1.5 py-0.5 rounded bg-blue-900/50 text-blue-300">低位整理</span>
-            <span v-if="item.breakout" class="text-xs px-1.5 py-0.5 rounded bg-red-900/50 text-red-300">突破</span>
-            <span v-if="item.fake_filtered" class="text-xs px-1.5 py-0.5 rounded bg-green-900/50 text-green-300">假突破過濾✓</span>
+            <span v-for="c in (item.conditions || [])" :key="c"
+                  class="text-xs px-1.5 py-0.5 rounded"
+                  :class="c === 'low_base' ? 'bg-blue-900/50 text-blue-300' : c === 'breakout' ? 'bg-red-900/50 text-red-300' : 'bg-green-900/50 text-green-300'">
+              {{ c === 'low_base' ? '低位整理' : c === 'breakout' ? '突破' : c }}
+            </span>
           </div>
           <!-- 指標列 -->
           <div class="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-400">
             <span>漲幅 <span :class="item.change_pct > 0 ? 'text-red-400' : 'text-green-400'">{{ item.change_pct?.toFixed(2) }}%</span></span>
             <span>量比 <span class="text-yellow-400">{{ item.vol_ratio?.toFixed(1) }}x</span></span>
             <span>VWAP差 <span class="text-purple-400">{{ item.vwap_diff?.toFixed(2) }}%</span></span>
-            <span class="text-gray-600">{{ item.scanned_at?.slice(11,16) }}</span>
+            <span class="text-gray-600">{{ item.scan_time?.slice(11,16) }}</span>
           </div>
         </div>
       </div>
@@ -6423,7 +6426,7 @@ async function btSyncOhlcv() {
           <div class="px-4 py-2 border-b border-gray-800 flex items-center gap-2">
             <span class="font-mono text-sm font-bold text-white">{{ btSelected.symbol }}</span>
             <span class="text-sm text-gray-400">{{ btSelected.name }}</span>
-            <span class="ml-auto text-xs font-bold" :class="btScoreColor(btSelected.total_score)">AI {{ btSelected.total_score }} 分</span>
+            <span class="ml-auto text-xs font-bold" :class="btScoreColor(btSelected.ai_score)">AI {{ btSelected.ai_score }} 分</span>
           </div>
           <div ref="btChartEl" class="w-full"></div>
         </div>
@@ -6450,10 +6453,10 @@ async function btSyncOhlcv() {
                     class="border-b border-gray-800/50 hover:bg-gray-800/40 cursor-pointer transition">
                   <td class="px-3 py-1.5 font-mono text-white">{{ h.symbol }}</td>
                   <td class="px-3 py-1.5 text-gray-300">{{ h.name }}</td>
-                  <td class="px-3 py-1.5 text-right font-bold" :class="btScoreColor(h.total_score)">{{ h.total_score }}</td>
+                  <td class="px-3 py-1.5 text-right font-bold" :class="btScoreColor(h.ai_score)">{{ h.ai_score }}</td>
                   <td class="px-3 py-1.5 text-right" :class="h.change_pct > 0 ? 'text-red-400' : 'text-green-400'">{{ h.change_pct?.toFixed(2) }}%</td>
                   <td class="px-3 py-1.5 text-right text-yellow-400">{{ h.vol_ratio?.toFixed(1) }}x</td>
-                  <td class="px-3 py-1.5 text-right text-gray-500">{{ h.scanned_at?.slice(5,16) }}</td>
+                  <td class="px-3 py-1.5 text-right text-gray-500">{{ h.scan_time?.slice(5,16) }}</td>
                 </tr>
               </tbody>
             </table>
