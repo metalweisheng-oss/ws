@@ -9,7 +9,7 @@ git add -A
 git commit -m "Update $(date '+%Y-%m-%d %H:%M')" 2>/dev/null || echo "（沒有新的程式碼變更）"
 git push origin main
 
-# 2. 後端由 Railway GitHub 整合自動部署（push 到 GitHub 後自動觸發）
+# 2. 後端由 LXC + pm2 運行（ws.tail915bbc.ts.net），不需要額外部署
 
 # 3. Build 前端
 echo "🔨 Build 前端..."
@@ -36,4 +36,4 @@ cd /Users/linweisheng/projects/my-app
 echo ""
 echo "✅ 部署完成！"
 echo "   網頁：https://metalweisheng-oss.github.io/ws/"
-echo "   後端：https://pleasing-exploration-production-c3c1.up.railway.app"
+echo "   後端：https://ws.tail915bbc.ts.net"

@@ -344,6 +344,8 @@ function selectTab(t) {
   if (t === 'buyback') fetchBuyback()
   if (t === 'disposal') fetchDisposal()
   if (t !== 'finance') destroyFinCharts()
+  if (t === 'breakthrough') { btConnect(); btLoadLatest(); btLoadHistory() }
+  else btDisconnect()
 }
 
 // ── 權證查詢 ──────────────────────────────────────────
@@ -1816,6 +1818,12 @@ function signColor(v) { return +v > 0 ? 'text-red-400' : +v < 0 ? 'text-green-40
 
 const changelog = [
   {
+    date: '2026-05-24', tag: '新功能',
+    items: [
+      '新增「半路突破」分頁：盤中掃描低位整理+突破個股，AI 評分 0–100（技術 40＋動能 40＋籌碼 20），評分 ≥70 自動發 Telegram 通知；WebSocket 即時更新，可點選個股查看 60 日 K 線圖；後端運行於 LXC（port 8001），含 PostgreSQL 歷史資料庫與 Redis 快取',
+    ]
+  },
+  {
     date: '2026-05-24', tag: '修正',
     items: [
       '漲跌排行：修正早盤鎖漲停個股遺漏的根本問題——原本後端對成交量 = 0 的個股一律過濾；開盤初期若某股買盤龐大無賣單（開盤即鎖漲停），Fubon API 回傳 tradeVolume = 0，導致這些最強勢個股反而完全消失；現改為 vol = 0 且漲跌幅 < 9.5% 才跳過，漲停個股即使量 = 0 也會正確列入；同時修正 Fubon change 欄位為 null 時改用 changePercent 反推昨收，避免額外遺漏',
@@ -2108,6 +2116,133 @@ onUnmounted(() => { stopAll(); if (_askTimer) clearInterval(_askTimer) })
 const fmt   = n => n != null ? (+n).toLocaleString() : '-'
 const fmtZ  = n => n != null ? Math.floor(Math.abs(+n) / 1000).toLocaleString() : '-'
 const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Math.abs(+n) / 1000).toLocaleString() : '—'
+
+// ── 半路突破 ──────────────────────────────────────────────
+const BT_API = 'https://ws.tail915bbc.ts.net:8001'
+const btWs = ref(null)
+const btConnected = ref(false)
+const btResults = ref([])
+const btHistory = ref([])
+const btSyncing = ref(false)
+const btSyncMsg = ref('')
+const btSelected = ref(null)
+const btOhlcv = ref([])
+const btChartEl = ref(null)
+let btChart = null
+let btCandleSeries = null
+let btVolSeries = null
+
+function btScoreColor(score) {
+  if (score >= 80) return 'text-red-400'
+  if (score >= 65) return 'text-orange-400'
+  if (score >= 50) return 'text-yellow-400'
+  return 'text-gray-400'
+}
+function btScoreBg(score) {
+  if (score >= 80) return 'bg-red-900/40 border-red-700'
+  if (score >= 65) return 'bg-orange-900/40 border-orange-700'
+  if (score >= 50) return 'bg-yellow-900/40 border-yellow-700'
+  return 'bg-gray-800 border-gray-700'
+}
+
+function btConnect() {
+  if (btWs.value) return
+  const ws = new WebSocket(`wss://ws.tail915bbc.ts.net:8001/ws/bt`)
+  ws.onopen = () => { btConnected.value = true }
+  ws.onclose = () => { btConnected.value = false; btWs.value = null; setTimeout(btConnect, 5000) }
+  ws.onerror = () => { ws.close() }
+  ws.onmessage = (e) => {
+    try {
+      const msg = JSON.parse(e.data)
+      if (msg.type === 'scan_result') {
+        btResults.value = msg.data || []
+      }
+    } catch {}
+  }
+  btWs.value = ws
+}
+
+function btDisconnect() {
+  if (btWs.value) { btWs.value.close(); btWs.value = null }
+  btConnected.value = false
+}
+
+async function btLoadHistory() {
+  try {
+    const r = await fetch(`${BT_API}/api/bt/scan/history?limit=50`)
+    const d = await r.json()
+    btHistory.value = d
+  } catch {}
+}
+
+async function btLoadLatest() {
+  try {
+    const r = await fetch(`${BT_API}/api/bt/scan/latest`)
+    const d = await r.json()
+    btResults.value = d
+  } catch {}
+}
+
+async function btSelectStock(item) {
+  btSelected.value = item
+  try {
+    const r = await fetch(`${BT_API}/api/bt/ohlcv/${item.symbol}?days=60`)
+    btOhlcv.value = await r.json()
+    await nextTick()
+    btRenderChart()
+  } catch {}
+}
+
+function btRenderChart() {
+  if (!btChartEl.value || !btOhlcv.value.length) return
+  if (btChart) { btChart.remove(); btChart = null }
+  btChart = createChart(btChartEl.value, {
+    layout: { background: { color: '#0f172a' }, textColor: '#94a3b8' },
+    grid: { vertLines: { color: '#1e293b' }, horzLines: { color: '#1e293b' } },
+    width: btChartEl.value.clientWidth,
+    height: 260,
+    timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#334155' },
+    rightPriceScale: { borderColor: '#334155' },
+  })
+  btCandleSeries = btChart.addCandlestickSeries({
+    upColor: '#ef4444', downColor: '#22c55e',
+    borderUpColor: '#ef4444', borderDownColor: '#22c55e',
+    wickUpColor: '#ef4444', wickDownColor: '#22c55e',
+  })
+  const data = btOhlcv.value.map(d => ({
+    time: d.date, open: +d.open, high: +d.high, low: +d.low, close: +d.close
+  }))
+  btCandleSeries.setData(data)
+  btChart.timeScale().fitContent()
+}
+
+async function btSyncStocks() {
+  btSyncing.value = true
+  btSyncMsg.value = '同步股票清單中...'
+  try {
+    const r = await fetch(`${BT_API}/api/bt/sync/stocks`, { method: 'POST' })
+    const d = await r.json()
+    btSyncMsg.value = `✅ ${d.message}`
+  } catch(e) {
+    btSyncMsg.value = '❌ 同步失敗：' + e.message
+  }
+  btSyncing.value = false
+  setTimeout(() => btSyncMsg.value = '', 5000)
+}
+
+async function btSyncOhlcv() {
+  btSyncing.value = true
+  btSyncMsg.value = '同步歷史資料中（約需數分鐘）...'
+  try {
+    const r = await fetch(`${BT_API}/api/bt/sync/ohlcv`, { method: 'POST' })
+    const d = await r.json()
+    btSyncMsg.value = `✅ ${d.message}`
+  } catch(e) {
+    btSyncMsg.value = '❌ 同步失敗：' + e.message
+  }
+  btSyncing.value = false
+  setTimeout(() => btSyncMsg.value = '', 8000)
+}
 </script>
 
 <template>
@@ -2129,7 +2264,7 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
 
     <!-- 分頁切換 -->
     <div ref="navbarRef" class="border-b border-gray-800 px-6 flex gap-1">
-      <button v-for="t in [{ id:'changelog', label:'修正公告' }, { id:'movers', label:'漲跌排行' }, { id:'warrant', label:'權證' }, { id:'screener', label:'台股選股' }, { id:'strongweak', label:'漲時看勢跌時看質' }, { id:'sector', label:'強勢族群' }, { id:'inst', label:'三大法人' }, { id:'finance', label:'財務分析' }, { id:'breadth', label:'漲跌家數' }, { id:'disposal', label:'處置股' }, { id:'buyback', label:'庫藏股' }, { id:'monitor', label:'即時監控' }, { id:'report', label:'日報表' }, { id:'db', label:'歷史資料' }, { id:'chips', label:'台指期籌碼' }]" :key="t.id"
+      <button v-for="t in [{ id:'changelog', label:'修正公告' }, { id:'movers', label:'漲跌排行' }, { id:'warrant', label:'權證' }, { id:'screener', label:'台股選股' }, { id:'strongweak', label:'漲時看勢跌時看質' }, { id:'sector', label:'強勢族群' }, { id:'inst', label:'三大法人' }, { id:'finance', label:'財務分析' }, { id:'breadth', label:'漲跌家數' }, { id:'disposal', label:'處置股' }, { id:'buyback', label:'庫藏股' }, { id:'breakthrough', label:'半路突破' }, { id:'monitor', label:'即時監控' }, { id:'report', label:'日報表' }, { id:'db', label:'歷史資料' }, { id:'chips', label:'台指期籌碼' }]" :key="t.id"
               @click="selectTab(t.id)"
               class="px-4 py-3 text-sm font-medium transition border-b-2 -mb-px"
               :class="tab === t.id ? 'border-purple-500 text-purple-400' : 'border-transparent text-gray-500 hover:text-gray-300'">
@@ -6217,6 +6352,116 @@ const sgnZ  = n => n != null ? (n < 0 ? '-' : n > 0 ? '+' : '') + Math.floor(Mat
       </div>
     </div>
   </Teleport>
+
+  <!-- ══ 半路突破 ══════════════════════════════════════════ -->
+  <div v-if="tab === 'breakthrough'" class="max-w-7xl mx-auto px-4 py-6 space-y-4">
+
+    <!-- 標題列 -->
+    <div class="flex items-center justify-between flex-wrap gap-2">
+      <div class="flex items-center gap-3">
+        <h2 class="text-lg font-semibold text-white">半路突破掃描</h2>
+        <span class="flex items-center gap-1.5 text-xs">
+          <span class="w-2 h-2 rounded-full" :class="btConnected ? 'bg-green-400 animate-pulse' : 'bg-gray-600'"></span>
+          <span :class="btConnected ? 'text-green-400' : 'text-gray-500'">{{ btConnected ? 'WS 連線中' : '未連線' }}</span>
+        </span>
+      </div>
+      <div class="flex items-center gap-2">
+        <button @click="btLoadLatest" class="px-3 py-1.5 text-xs bg-gray-800 hover:bg-gray-700 rounded-lg text-gray-300">重新整理</button>
+        <button @click="btSyncStocks" :disabled="btSyncing" class="px-3 py-1.5 text-xs bg-blue-900/50 hover:bg-blue-800/60 rounded-lg text-blue-300 disabled:opacity-40">同步股票清單</button>
+        <button @click="btSyncOhlcv"  :disabled="btSyncing" class="px-3 py-1.5 text-xs bg-purple-900/50 hover:bg-purple-800/60 rounded-lg text-purple-300 disabled:opacity-40">同步歷史K線</button>
+      </div>
+    </div>
+
+    <!-- 同步訊息 -->
+    <div v-if="btSyncMsg" class="text-sm px-3 py-2 rounded-lg bg-gray-800 text-gray-300">{{ btSyncMsg }}</div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <!-- 左：即時掃描結果 -->
+      <div class="space-y-3">
+        <h3 class="text-sm font-medium text-gray-400">即時掃描結果</h3>
+        <div v-if="!btResults.length" class="text-sm text-gray-600 py-8 text-center">尚無掃描結果（盤中自動更新）</div>
+        <div v-for="item in btResults" :key="item.symbol + item.scanned_at"
+             @click="btSelectStock(item)"
+             class="cursor-pointer border rounded-xl px-4 py-3 space-y-2 transition hover:brightness-110"
+             :class="[btScoreBg(item.total_score), btSelected?.symbol === item.symbol ? 'ring-1 ring-purple-500' : '']">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <span class="font-mono text-sm font-bold text-white">{{ item.symbol }}</span>
+              <span class="text-sm text-gray-300">{{ item.name }}</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="font-bold text-base" :class="btScoreColor(item.total_score)">{{ item.total_score }}</span>
+              <span class="text-xs text-gray-500">分</span>
+            </div>
+          </div>
+          <!-- 子分數 -->
+          <div class="flex gap-3 text-xs">
+            <span class="text-gray-500">技術 <span class="text-gray-300">{{ item.tech_score }}</span></span>
+            <span class="text-gray-500">動能 <span class="text-gray-300">{{ item.momentum_score }}</span></span>
+            <span class="text-gray-500">籌碼 <span class="text-gray-300">{{ item.chip_score }}</span></span>
+          </div>
+          <!-- 條件標籤 -->
+          <div class="flex flex-wrap gap-1">
+            <span v-if="item.low_base" class="text-xs px-1.5 py-0.5 rounded bg-blue-900/50 text-blue-300">低位整理</span>
+            <span v-if="item.breakout" class="text-xs px-1.5 py-0.5 rounded bg-red-900/50 text-red-300">突破</span>
+            <span v-if="item.fake_filtered" class="text-xs px-1.5 py-0.5 rounded bg-green-900/50 text-green-300">假突破過濾✓</span>
+          </div>
+          <!-- 指標列 -->
+          <div class="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-400">
+            <span>漲幅 <span :class="item.change_pct > 0 ? 'text-red-400' : 'text-green-400'">{{ item.change_pct?.toFixed(2) }}%</span></span>
+            <span>量比 <span class="text-yellow-400">{{ item.vol_ratio?.toFixed(1) }}x</span></span>
+            <span>VWAP差 <span class="text-purple-400">{{ item.vwap_diff?.toFixed(2) }}%</span></span>
+            <span class="text-gray-600">{{ item.scanned_at?.slice(11,16) }}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 右：圖表 + 歷史 -->
+      <div class="space-y-4">
+        <!-- K 線圖 -->
+        <div v-if="btSelected" class="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+          <div class="px-4 py-2 border-b border-gray-800 flex items-center gap-2">
+            <span class="font-mono text-sm font-bold text-white">{{ btSelected.symbol }}</span>
+            <span class="text-sm text-gray-400">{{ btSelected.name }}</span>
+            <span class="ml-auto text-xs font-bold" :class="btScoreColor(btSelected.total_score)">AI {{ btSelected.total_score }} 分</span>
+          </div>
+          <div ref="btChartEl" class="w-full"></div>
+        </div>
+        <div v-else class="bg-gray-900 border border-gray-800 rounded-xl px-4 py-10 text-center text-sm text-gray-600">點選左側個股查看 K 線</div>
+
+        <!-- 歷史掃描紀錄 -->
+        <div class="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+          <div class="px-4 py-2 border-b border-gray-800 text-sm font-medium text-gray-400">歷史掃描紀錄</div>
+          <div v-if="!btHistory.length" class="px-4 py-4 text-sm text-gray-600 text-center">暫無紀錄</div>
+          <div class="max-h-64 overflow-y-auto">
+            <table class="w-full text-xs">
+              <thead>
+                <tr class="text-gray-500 border-b border-gray-800">
+                  <th class="px-3 py-2 text-left">代號</th>
+                  <th class="px-3 py-2 text-left">名稱</th>
+                  <th class="px-3 py-2 text-right">分數</th>
+                  <th class="px-3 py-2 text-right">漲幅</th>
+                  <th class="px-3 py-2 text-right">量比</th>
+                  <th class="px-3 py-2 text-right">時間</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="h in btHistory" :key="h.id" @click="btSelectStock(h)"
+                    class="border-b border-gray-800/50 hover:bg-gray-800/40 cursor-pointer transition">
+                  <td class="px-3 py-1.5 font-mono text-white">{{ h.symbol }}</td>
+                  <td class="px-3 py-1.5 text-gray-300">{{ h.name }}</td>
+                  <td class="px-3 py-1.5 text-right font-bold" :class="btScoreColor(h.total_score)">{{ h.total_score }}</td>
+                  <td class="px-3 py-1.5 text-right" :class="h.change_pct > 0 ? 'text-red-400' : 'text-green-400'">{{ h.change_pct?.toFixed(2) }}%</td>
+                  <td class="px-3 py-1.5 text-right text-yellow-400">{{ h.vol_ratio?.toFixed(1) }}x</td>
+                  <td class="px-3 py-1.5 text-right text-gray-500">{{ h.scanned_at?.slice(5,16) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div><!-- end 半路突破 -->
 
   <!-- ══ 雙模選股 ══════════════════════════════════════════ -->
   <div v-if="tab === 'strongweak'"
