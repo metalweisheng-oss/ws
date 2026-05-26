@@ -342,6 +342,7 @@ function selectTab(t) {
   if (t === 'movers') startMoversAutoRefresh()
   else stopMoversAutoRefresh()
   if (t === 'squeeze') fetchMovers()
+  if (t === 'contribution') fetchContribution()
   if (t === 'buyback') fetchBuyback()
   if (t === 'disposal') fetchDisposal()
   if (t !== 'finance') destroyFinCharts()
@@ -1292,6 +1293,42 @@ function renderFinCharts() {
 }
 
 watch(finSubTab, async () => { await nextTick(); renderFinCharts() })
+
+// ── 加權指數貢獻排行 ────────────────────────────────────
+const contributionPositive = ref([])
+const contributionNegative = ref([])
+const contributionTaiex    = ref(null)
+const contributionUpdated  = ref('')
+const contributionLoading  = ref(false)
+const contributionError    = ref('')
+let _contributionTimer = null
+
+async function fetchContribution() {
+  contributionLoading.value = true
+  contributionError.value   = ''
+  try {
+    const r = await fetch(`${API}/api/contribution`)
+    const d = await r.json()
+    if (d.error) throw new Error(d.error)
+    contributionPositive.value = d.positive || []
+    contributionNegative.value = d.negative  || []
+    contributionTaiex.value    = d.taiex
+    contributionUpdated.value  = d.updatedAt ? new Date(d.updatedAt).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : ''
+  } catch(e) {
+    contributionError.value = '載入失敗：' + e.message
+  } finally {
+    contributionLoading.value = false
+  }
+}
+
+watch(tab, (t) => {
+  if (t === 'contribution') {
+    _contributionTimer = setInterval(fetchContribution, 60000)
+  } else {
+    clearInterval(_contributionTimer)
+    _contributionTimer = null
+  }
+}, { immediate: false })
 
 // ── 庫藏股買回 ───────────────────────────────────────
 const buybackRows    = ref([])
@@ -2282,7 +2319,7 @@ async function btSyncOhlcv() {
 
     <!-- 分頁切換 -->
     <div ref="navbarRef" class="border-b border-gray-800 px-6 flex gap-1">
-      <button v-for="t in [{ id:'changelog', label:'修正公告' }, { id:'movers', label:'漲跌排行' }, { id:'squeeze', label:'量縮/增鎖漲停' }, { id:'breakthrough', label:'半路突破' }, { id:'warrant', label:'權證' }, { id:'screener', label:'台股選股' }, { id:'strongweak', label:'漲時看勢跌時看質' }, { id:'sector', label:'強勢族群' }, { id:'inst', label:'三大法人' }, { id:'finance', label:'財務分析' }, { id:'breadth', label:'漲跌家數' }, { id:'disposal', label:'處置股' }, { id:'buyback', label:'庫藏股' }, { id:'monitor', label:'即時監控' }, { id:'report', label:'日報表' }, { id:'db', label:'歷史資料' }, { id:'chips', label:'台指期籌碼' }]" :key="t.id"
+      <button v-for="t in [{ id:'changelog', label:'修正公告' }, { id:'movers', label:'漲跌排行' }, { id:'squeeze', label:'量縮/增鎖漲停' }, { id:'contribution', label:'加權貢獻' }, { id:'breakthrough', label:'半路突破' }, { id:'warrant', label:'權證' }, { id:'screener', label:'台股選股' }, { id:'strongweak', label:'漲時看勢跌時看質' }, { id:'sector', label:'強勢族群' }, { id:'inst', label:'三大法人' }, { id:'finance', label:'財務分析' }, { id:'breadth', label:'漲跌家數' }, { id:'disposal', label:'處置股' }, { id:'buyback', label:'庫藏股' }, { id:'monitor', label:'即時監控' }, { id:'report', label:'日報表' }, { id:'db', label:'歷史資料' }, { id:'chips', label:'台指期籌碼' }]" :key="t.id"
               @click="selectTab(t.id)"
               class="px-4 py-3 text-sm font-medium transition border-b-2 -mb-px"
               :class="tab === t.id ? 'border-purple-500 text-purple-400' : 'border-transparent text-gray-500 hover:text-gray-300'">
@@ -6564,6 +6601,71 @@ async function btSyncOhlcv() {
       </div>
     </div>
   </div><!-- end 半路突破 -->
+
+  <!-- ══ 加權指數貢獻排行 ══════════════════════════════════════════ -->
+  <div v-if="tab === 'contribution'" class="max-w-5xl mx-auto px-4 py-6 space-y-4">
+    <div class="flex items-center gap-4 flex-wrap">
+      <h2 class="text-lg font-semibold text-white">加權指數貢獻排行</h2>
+      <span v-if="contributionTaiex" class="text-sm text-gray-400">
+        加權指數 <span class="text-white font-medium">{{ contributionTaiex.toLocaleString('zh-TW', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }}</span>
+      </span>
+      <span class="text-xs text-gray-600">{{ contributionUpdated }}</span>
+      <button @click="fetchContribution" :disabled="contributionLoading"
+              class="ml-auto px-3 py-1.5 text-xs rounded bg-gray-800 hover:bg-gray-700 text-gray-300 disabled:opacity-50">
+        {{ contributionLoading ? '載入中…' : '重新整理' }}
+      </button>
+    </div>
+
+    <div v-if="contributionError" class="text-red-400 text-sm">{{ contributionError }}</div>
+
+    <div v-if="!contributionLoading && !contributionError && !contributionPositive.length" class="text-gray-500 text-sm">
+      無資料（可能盤前或盤後，請等市場開盤後再試）
+    </div>
+
+    <div v-if="contributionPositive.length || contributionNegative.length" class="grid grid-cols-2 gap-4">
+      <!-- 正貢獻 -->
+      <div>
+        <div class="text-sm font-semibold text-red-400 mb-2 pb-1 border-b border-gray-800">正貢獻點數（拉抬加權）</div>
+        <div class="space-y-1">
+          <div v-for="(item, idx) in contributionPositive" :key="item.stockNo"
+               class="flex items-center gap-2 py-1.5 px-2 rounded hover:bg-gray-800/50 text-sm">
+            <span class="w-5 text-center text-xs font-bold text-orange-400">{{ idx + 1 }}</span>
+            <div class="flex-1 min-w-0">
+              <div class="text-white font-medium truncate">{{ item.stockName }}</div>
+              <div class="text-gray-500 text-xs">{{ item.stockNo }}</div>
+            </div>
+            <div class="text-right shrink-0">
+              <div class="text-red-400 font-semibold">+{{ item.contribution.toFixed(2) }}</div>
+              <div class="text-xs text-gray-500">{{ item.changePct >= 0 ? '+' : '' }}{{ item.changePct.toFixed(2) }}%</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 負貢獻 -->
+      <div>
+        <div class="text-sm font-semibold text-green-400 mb-2 pb-1 border-b border-gray-800">負貢獻點數（壓抑加權）</div>
+        <div class="space-y-1">
+          <div v-for="(item, idx) in contributionNegative" :key="item.stockNo"
+               class="flex items-center gap-2 py-1.5 px-2 rounded hover:bg-gray-800/50 text-sm">
+            <span class="w-5 text-center text-xs font-bold text-orange-400">{{ idx + 1 }}</span>
+            <div class="flex-1 min-w-0">
+              <div class="text-white font-medium truncate">{{ item.stockName }}</div>
+              <div class="text-gray-500 text-xs">{{ item.stockNo }}</div>
+            </div>
+            <div class="text-right shrink-0">
+              <div class="text-green-400 font-semibold">{{ item.contribution.toFixed(2) }}</div>
+              <div class="text-xs text-gray-500">{{ item.changePct >= 0 ? '+' : '' }}{{ item.changePct.toFixed(2) }}%</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="text-xs text-gray-700 pt-2 border-t border-gray-800">
+      貢獻點數 = 漲跌價 × 流通在外股數 × 加權指數 ÷ 全市場市值（僅計上市股，集保股數每週更新）
+    </div>
+  </div><!-- end 加權指數貢獻排行 -->
 
   <!-- ══ 雙模選股 ══════════════════════════════════════════ -->
   <div v-if="tab === 'strongweak'"

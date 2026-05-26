@@ -6395,6 +6395,57 @@ app.get('/api/market/disposal', async (req, res) => {
   }
 })
 
+// ── 加權指數貢獻排行 ────────────────────────────────────────────────────────
+const _contributionCache = { data: null, ts: 0 }
+
+app.get('/api/contribution', async (req, res) => {
+  const now = Date.now()
+  if (_contributionCache.data && now - _contributionCache.ts < 60 * 1000) {
+    return res.json(_contributionCache.data)
+  }
+
+  try {
+    const cache = _moversCache.data || _moversCache.lastGoodData
+    if (!cache) return res.status(503).json({ error: '漲跌資料尚未載入，請稍後再試' })
+
+    const [{ rows: tseRows }, { rows: conRows }, taiexMis] = await Promise.all([
+      pool.query(`SELECT DISTINCT ON (stock_no) stock_no FROM market_daily WHERE exchange='TWSE' ORDER BY stock_no, trade_date DESC`),
+      pool.query(`SELECT DISTINCT ON (stock_no) stock_no, total_shares FROM concentration WHERE total_shares > 0 ORDER BY stock_no, data_date DESC`),
+      fetchMisRaw(['tse_t00.tw'], 5000).catch(() => null),
+    ])
+
+    const tseSet = new Set(tseRows.map(r => r.stock_no))
+    const sharesMap = {}
+    for (const r of conRows) sharesMap[r.stock_no] = Number(r.total_shares)
+
+    const taiexItem = taiexMis?.msgArray?.[0]
+    const taiex = taiexItem ? +(taiexItem.z || taiexItem.y || 0) : 0
+    if (!taiex) return res.status(503).json({ error: '無法取得加權指數點位' })
+
+    const tseStocks = cache.gainers.filter(m => tseSet.has(m.stockNo) && sharesMap[m.stockNo] && m.price && m.change != null)
+
+    let totalMktCap = 0
+    for (const m of tseStocks) totalMktCap += m.price * sharesMap[m.stockNo]
+    if (!totalMktCap) return res.status(503).json({ error: '市值資料不足' })
+
+    const items = tseStocks.map(m => {
+      const shares = sharesMap[m.stockNo]
+      const contribution = +(m.change * shares * taiex / totalMktCap).toFixed(2)
+      return { stockNo: m.stockNo, stockName: m.stockName, price: m.price, change: m.change, changePct: m.changePct, contribution }
+    }).sort((a, b) => b.contribution - a.contribution)
+
+    const positive = items.filter(i => i.contribution > 0).slice(0, 20)
+    const negative = items.filter(i => i.contribution < 0).reverse().slice(0, 20)
+
+    const result = { positive, negative, taiex, updatedAt: new Date().toISOString() }
+    _contributionCache.data = result
+    _contributionCache.ts = now
+    res.json(result)
+  } catch(e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
 // ── 批次即時股價 ──────────────────────────────────────────────────────────
 app.get('/api/market/prices', async (req, res) => {
   const nos = (req.query.stocks || '').split(',').map(s => s.trim()).filter(Boolean)
