@@ -341,6 +341,7 @@ function selectTab(t) {
   if (t === 'warrant') { warrantRows.value = []; warrantError.value = ''; warrantStockName.value = '' }
   if (t === 'movers') startMoversAutoRefresh()
   else stopMoversAutoRefresh()
+  if (t === 'squeeze') fetchMovers()
   if (t === 'buyback') fetchBuyback()
   if (t === 'disposal') fetchDisposal()
   if (t !== 'finance') destroyFinCharts()
@@ -1485,6 +1486,7 @@ const screenerSyncing  = ref(false)
 const screenerBackfilling = ref(false)
 const screenerLogicOpen = ref(false)
 const screenerSortKey  = ref('score')
+const screenerWarrantSet = ref(new Set())
 const screenerSortDir  = ref(-1)  // -1 = desc, 1 = asc
 
 function screenerSortBy(key) {
@@ -1565,12 +1567,19 @@ async function loadScreener() {
   screenerLoading.value = true
   screenerError.value   = ''
   try {
-    const r = await fetch(`${API}/api/screener/results?limit=100`)
+    const [r, wr] = await Promise.all([
+      fetch(`${API}/api/screener/results?limit=100`),
+      fetch(`${API}/api/warrant/covered-stocks`).catch(() => null),
+    ])
     const d = await r.json()
     if (d.error) throw new Error(d.error)
     screenerRows.value    = d.rows || []
     screenerTotal.value   = d.total || 0
     screenerRunDate.value = d.run_date ? String(d.run_date).slice(0, 10) : ''
+    if (wr?.ok) {
+      const wd = await wr.json()
+      screenerWarrantSet.value = new Set(wd.stocks || [])
+    }
   } catch(e) {
     screenerError.value = '載入失敗：' + e.message
   } finally {
@@ -1818,9 +1827,17 @@ function signColor(v) { return +v > 0 ? 'text-red-400' : +v < 0 ? 'text-green-40
 
 const changelog = [
   {
-    date: '2026-05-24', tag: '新功能',
+    date: '2026-05-26', tag: '新功能',
     items: [
-      '新增「半路突破」分頁：盤中掃描低位整理+突破個股，AI 評分 0–100（技術 40＋動能 40＋籌碼 20），評分 ≥70 自動發 Telegram 通知；WebSocket 即時更新，可點選個股查看 60 日 K 線圖；後端運行於 LXC（port 8001），含 PostgreSQL 歷史資料庫與 Redis 快取',
+      '台股選股：選股結果列表與個股跑分卡片，若該股有上市/上櫃掛牌的有效 call 權證（剩餘天數 > 60），名稱旁自動顯示紫色「有證」標籤；資料來源為 TWSE t187ap03_L 快取，每次進入分頁時非同步查詢，不影響主載入速度',
+      '新增「量縮/增鎖漲停」分頁：將原本在「漲跌排行」內的量縮漲停觀察（★/▲/△ 三順位）與量增漲停觀察（★/▲/△ 三順位）獨立為專屬分頁，含選股邏輯說明、passAntiFake 假掛單過濾說明、觀察時段快照下拉、Telegram/Mail 傳送按鈕，以及完整的顏色規則與委買可信度說明',
+      '半路突破：無即時掃描結果時改為自動顯示歷史紀錄，不再只顯示空白提示；新增策略說明區塊（系統架構 / 策略核心 / 條件設計 / AI 評分對照）',
+    ]
+  },
+  {
+    date: '2026-05-25', tag: '新功能',
+    items: [
+      '新增「半路突破」分頁（位於漲跌排行後方）：盤中每 30 秒掃描低位整理 + 突破個股，AI 評分 0–100（技術 40＋動能 40＋籌碼 20），評分 ≥70 自動發 Telegram 通知；WebSocket 即時更新，點選個股可查看 60 日 K 線圖；後端運行於 LXC port 8001，含 PostgreSQL 資料庫（1,979 支股票）與 Redis 快取',
     ]
   },
   {
@@ -2265,7 +2282,7 @@ async function btSyncOhlcv() {
 
     <!-- 分頁切換 -->
     <div ref="navbarRef" class="border-b border-gray-800 px-6 flex gap-1">
-      <button v-for="t in [{ id:'changelog', label:'修正公告' }, { id:'movers', label:'漲跌排行' }, { id:'warrant', label:'權證' }, { id:'screener', label:'台股選股' }, { id:'strongweak', label:'漲時看勢跌時看質' }, { id:'sector', label:'強勢族群' }, { id:'inst', label:'三大法人' }, { id:'finance', label:'財務分析' }, { id:'breadth', label:'漲跌家數' }, { id:'disposal', label:'處置股' }, { id:'buyback', label:'庫藏股' }, { id:'breakthrough', label:'半路突破' }, { id:'monitor', label:'即時監控' }, { id:'report', label:'日報表' }, { id:'db', label:'歷史資料' }, { id:'chips', label:'台指期籌碼' }]" :key="t.id"
+      <button v-for="t in [{ id:'changelog', label:'修正公告' }, { id:'movers', label:'漲跌排行' }, { id:'squeeze', label:'量縮/增鎖漲停' }, { id:'breakthrough', label:'半路突破' }, { id:'warrant', label:'權證' }, { id:'screener', label:'台股選股' }, { id:'strongweak', label:'漲時看勢跌時看質' }, { id:'sector', label:'強勢族群' }, { id:'inst', label:'三大法人' }, { id:'finance', label:'財務分析' }, { id:'breadth', label:'漲跌家數' }, { id:'disposal', label:'處置股' }, { id:'buyback', label:'庫藏股' }, { id:'monitor', label:'即時監控' }, { id:'report', label:'日報表' }, { id:'db', label:'歷史資料' }, { id:'chips', label:'台指期籌碼' }]" :key="t.id"
               @click="selectTab(t.id)"
               class="px-4 py-3 text-sm font-medium transition border-b-2 -mb-px"
               :class="tab === t.id ? 'border-purple-500 text-purple-400' : 'border-transparent text-gray-500 hover:text-gray-300'">
@@ -3517,6 +3534,8 @@ async function btSyncOhlcv() {
           <!-- 標題與分數 -->
           <div class="flex flex-wrap items-center gap-3">
             <span class="text-white font-semibold">{{ scoreResult.stockName }} ({{ scoreResult.stockNo }})</span>
+            <span v-if="screenerWarrantSet.has(scoreResult.stockNo)"
+                  class="text-xs px-1.5 py-0.5 rounded bg-violet-500/20 text-violet-400 border border-violet-700/50 font-medium">有證</span>
             <span v-if="scoreResult.pass"
                   class="px-3 py-1 rounded-full text-sm font-bold bg-green-500/20 text-green-400 border border-green-700">
               ✅ 通過篩選・評分 {{ scoreResult.score }}
@@ -3940,6 +3959,8 @@ async function btSyncOhlcv() {
                   <div class="flex items-center gap-1.5">
                     <span class="font-semibold text-white">{{ row.stock_name }}</span>
                     <span v-if="row.is_stealth" class="text-xs text-cyan-400">🕵️</span>
+                    <span v-if="screenerWarrantSet.has(row.stock_no)"
+                          class="text-xs px-1.5 py-0.5 rounded bg-violet-500/20 text-violet-400 border border-violet-700/50 font-medium">有證</span>
                   </div>
                   <div class="text-xs text-gray-500 font-mono">{{ row.stock_no }}</div>
                 </td>
@@ -4664,679 +4685,9 @@ async function btSyncOhlcv() {
         <div class="flex flex-wrap gap-x-4 gap-y-1 border-t border-gray-800 pt-2 text-gray-600">
           <span>點<span class="text-white">名稱</span> → 權證查詢</span>
           <span>點<span class="text-blue-400 underline decoration-dotted">代號</span> → 即時五檔</span>
-          <span>點觀察區整列 → 跳到量縮清單</span>
         </div>
 
-        <!-- Telegram 通知說明 -->
-        <div class="flex items-center gap-2 border-t border-gray-800 pt-2 text-gray-600">
-          <span class="text-blue-400">📨</span>
-          <span>每個交易日 <span class="text-gray-300 font-medium">09:30 起每 30 分鐘</span>（09:30、10:00、10:30…13:30）自動傳送量縮 + 量增漲停觀察名單至 Telegram（週一至週五）</span>
-        </div>
-
-        <!-- 選股邏輯說明 -->
-        <div class="border-t border-gray-800 pt-2 space-y-2">
-          <div class="text-gray-500 font-medium mb-1">📋 量縮 / 量增漲停觀察 — 選股邏輯</div>
-
-          <!-- 共同前置條件 -->
-          <div>
-            <div class="text-gray-500 mb-1">共同前置條件（量縮 + 量增皆須符合）</div>
-            <table class="w-full text-xs border-collapse">
-              <thead>
-                <tr class="text-gray-600">
-                  <th class="text-left pr-4 pb-0.5 font-normal">條件</th>
-                  <th class="text-left pb-0.5 font-normal">說明</th>
-                </tr>
-              </thead>
-              <tbody class="text-gray-400">
-                <tr><td class="pr-4 py-0.5 text-gray-300">漲幅 ≥ 9.5%</td><td>排除未達漲停邊緣的個股</td></tr>
-                <tr><td class="pr-4 py-0.5 text-gray-300">成交量 ≥ 50 張</td><td>排除極低流動性標的</td></tr>
-                <tr><td class="pr-4 py-0.5 text-gray-300">內盤量 ≤ 外盤量</td><td>排除明顯空方主導賣壓</td></tr>
-                <tr><td class="pr-4 py-0.5 text-gray-300">passAntiFake 通過</td><td>委買真實性過濾（見下方說明）</td></tr>
-              </tbody>
-            </table>
-          </div>
-
-          <!-- passAntiFake 說明 -->
-          <div>
-            <div class="text-gray-500 mb-1">passAntiFake — 委買假掛單過濾（三層）</div>
-            <table class="w-full text-xs border-collapse">
-              <thead>
-                <tr class="text-gray-600">
-                  <th class="text-left pr-4 pb-0.5 font-normal">條件</th>
-                  <th class="text-left pb-0.5 font-normal">判斷</th>
-                </tr>
-              </thead>
-              <tbody class="text-gray-400">
-                <tr><td class="pr-4 py-0.5 text-gray-300">無委買紀錄</td><td>直接通過</td></tr>
-                <tr><td class="pr-4 py-0.5 text-gray-300">快照次數 &lt; 2</td><td>標示「待觀察」放行，尚無足夠樣本判斷</td></tr>
-                <tr><td class="pr-4 py-0.5 text-gray-300">快照 ≥ 2 且 平均/最大委買比 &lt; 0.25</td><td>排除（歷史委買皆小，疑假掛）</td></tr>
-                <tr><td class="pr-4 py-0.5 text-gray-300">收盤前且委買量 = 0 且尚未漲停</td><td>排除（買盤已撤）</td></tr>
-                <tr><td class="pr-4 py-0.5 text-gray-300">尾盤留存率 &lt; 30%（close / max）</td><td>排除（盤尾大量撤單，疑假掛）</td></tr>
-                <tr><td class="pr-4 py-0.5 text-gray-300">最低委買 &lt; 最大委買 10%</td><td>排除（曾短暫歸零，先掛後撤再掛的假掛模式）</td></tr>
-              </tbody>
-            </table>
-          </div>
-
-          <!-- 量縮觀察邏輯 -->
-          <div>
-            <div class="text-gray-500 mb-1">量縮漲停觀察（★ L1 / ▲ L2 / △ L3）</div>
-            <table class="w-full text-xs border-collapse">
-              <thead>
-                <tr class="text-gray-600">
-                  <th class="text-left pr-3 pb-0.5 font-normal">順位</th>
-                  <th class="text-left pr-3 pb-0.5 font-normal">5日量比</th>
-                  <th class="text-left pr-3 pb-0.5 font-normal">漲停委買比</th>
-                  <th class="text-left pb-0.5 font-normal">說明</th>
-                </tr>
-              </thead>
-              <tbody class="text-gray-400">
-                <tr>
-                  <td class="pr-3 py-0.5 text-yellow-400 font-bold">★ L1</td>
-                  <td class="pr-3 py-0.5 text-gray-300">&lt; 0.5x</td>
-                  <td class="pr-3 py-0.5 text-gray-300">&gt; 1.7</td>
-                  <td>大縮量漲停＋強護盤，籌碼最集中</td>
-                </tr>
-                <tr>
-                  <td class="pr-3 py-0.5 text-orange-400 font-bold">▲ L2</td>
-                  <td class="pr-3 py-0.5 text-gray-300">&lt; 0.7x</td>
-                  <td class="pr-3 py-0.5 text-gray-300">&gt; 1.5</td>
-                  <td>縮量漲停＋明顯護盤</td>
-                </tr>
-                <tr>
-                  <td class="pr-3 py-0.5 text-gray-400 font-bold">△ L3</td>
-                  <td class="pr-3 py-0.5 text-gray-300">&lt; 0.8x</td>
-                  <td class="pr-3 py-0.5 text-gray-300">&gt; 0.8</td>
-                  <td>輕縮量漲停＋基本護盤意願</td>
-                </tr>
-              </tbody>
-            </table>
-            <div class="text-gray-600 mt-0.5">排序：連板天數 <span class="text-gray-500">↓</span> → 漲停委買比 <span class="text-gray-500">↓</span></div>
-          </div>
-
-          <!-- 量增觀察邏輯 -->
-          <div>
-            <div class="text-gray-500 mb-1">量增漲停觀察（★ L1 / ▲ L2 / △ L3）</div>
-            <table class="w-full text-xs border-collapse">
-              <thead>
-                <tr class="text-gray-600">
-                  <th class="text-left pr-3 pb-0.5 font-normal">順位</th>
-                  <th class="text-left pr-3 pb-0.5 font-normal">量比範圍</th>
-                  <th class="text-left pr-3 pb-0.5 font-normal">連板限制</th>
-                  <th class="text-left pr-3 pb-0.5 font-normal">漲停委買比</th>
-                  <th class="text-left pb-0.5 font-normal">說明</th>
-                </tr>
-              </thead>
-              <tbody class="text-gray-400">
-                <tr>
-                  <td class="pr-3 py-0.5 text-yellow-400 font-bold">★ L1</td>
-                  <td class="pr-3 py-0.5 text-gray-300">1.5 ～ 8x</td>
-                  <td class="pr-3 py-0.5 text-gray-300">≤ 3 板</td>
-                  <td class="pr-3 py-0.5 text-gray-300">&gt; 2</td>
-                  <td>首至三板主力爆量進場，強力護盤</td>
-                </tr>
-                <tr>
-                  <td class="pr-3 py-0.5 text-orange-400 font-bold">▲ L2</td>
-                  <td class="pr-3 py-0.5 text-gray-300">1.5 ～ 8x</td>
-                  <td class="pr-3 py-0.5 text-gray-300">≤ 7 板</td>
-                  <td class="pr-3 py-0.5 text-gray-300">&gt; 1.5</td>
-                  <td>七板內換手爆量＋明顯護盤</td>
-                </tr>
-                <tr>
-                  <td class="pr-3 py-0.5 text-gray-400 font-bold">△ L3</td>
-                  <td class="pr-3 py-0.5 text-gray-300">1.5 ～ 8x</td>
-                  <td class="pr-3 py-0.5 text-gray-300">≤ 7 板</td>
-                  <td class="pr-3 py-0.5 text-gray-300">&gt; 0.8</td>
-                  <td>爆量漲停＋基本護盤意願，觀察換手</td>
-                </tr>
-              </tbody>
-            </table>
-            <div class="text-gray-600 mt-0.5">量比上限 8x：超過 8x 通常為消息炒作或軋空，換手目的不明確，不納入觀察</div>
-            <div class="text-gray-600 mt-0.5">排序：5日量比 <span class="text-gray-500">↓</span> → 漲停委買比 <span class="text-gray-500">↓</span></div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 觀察名單時段快照下拉 -->
-      <div class="flex items-center gap-2 px-1">
-        <span class="text-xs text-gray-500">觀察時段：</span>
-        <select
-          v-model="limitSnapshotTime"
-          class="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1 text-xs text-gray-200 focus:outline-none focus:ring-1 focus:ring-blue-500">
-          <option value="">即時</option>
-          <option v-for="t in limitSnapshotTimes" :key="t" :value="t">{{ t }}</option>
-        </select>
-        <span v-if="limitSnapshotTime" class="text-xs text-yellow-400">歷史快照</span>
-        <span v-else-if="limitSnapshotTimes.length === 0" class="text-xs text-gray-600">（今日尚無快照）</span>
-        <span v-else class="text-xs text-gray-600">{{ limitSnapshotTimes.length }} 個時段可查</span>
-      </div>
-
-      <!-- 量縮漲停觀察 Telegram 測試鈕 -->
-      <div class="flex items-center gap-3 px-1 flex-wrap">
-        <button
-          @click="sendSqueezeTest"
-          :disabled="squeezeTestLoading"
-          class="px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-900/50 border border-blue-500/40 text-blue-300 hover:bg-blue-800/60 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
-          {{ squeezeTestLoading ? '傳送中…' : '📨 傳送觀察名單' }}
-        </button>
-        <button
-          @click="sendEmailAlert"
-          :disabled="emailSendLoading"
-          class="px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-900/50 border border-emerald-500/40 text-emerald-300 hover:bg-emerald-800/60 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
-          {{ emailSendLoading ? '寄送中…' : '✉️ 傳送到 Mail' }}
-        </button>
-        <span v-if="squeezeTestResult" :class="squeezeTestResult.ok ? 'text-green-400' : squeezeTestResult.skipped ? 'text-yellow-400' : 'text-red-400'" class="text-xs">
-          {{ squeezeTestResult.message || squeezeTestResult.reason }}
-        </span>
-        <span v-if="emailSendResult" :class="emailSendResult.ok ? 'text-green-400' : 'text-red-400'" class="text-xs">
-          {{ emailSendResult.message }}
-        </span>
-      </div>
-
-      <!-- 量縮漲停觀察 第一順位 -->
-      <div class="bg-gray-900 border border-blue-500/40 rounded-xl overflow-hidden">
-        <div class="px-4 py-3 border-b border-blue-500/30 flex items-center gap-2 flex-wrap">
-          <span class="text-blue-300 font-semibold text-sm">★ 量縮漲停觀察　第一順位</span>
-          <span class="text-gray-600 text-xs">5日量比 &lt; 0.5　且　委買比 &gt; 1.7</span>
-          <span v-if="moversDate" class="text-xs text-gray-600">（歷史資料）</span>
-          <span class="ml-auto text-xs text-blue-400">{{ limitSqueezeList1.length }} 支</span>
-        </div>
-        <table class="w-full text-sm">
-          <thead>
-            <tr class="border-b border-gray-800 bg-gray-950">
-              <th class="px-3 py-2 text-left text-xs text-gray-500 font-normal">代號／名稱</th>
-              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">5日均量</th>
-              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">今日量</th>
-              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">漲停委買比</th>
-              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">5日量比</th>
-              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">漲停委買量</th>
-              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">連漲停</th>
-              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">委買可信度</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-if="!limitSqueezeList1.length">
-              <td colspan="8" class="px-3 py-4 text-center text-gray-700 text-xs">目前無符合條件</td>
-            </tr>
-            <tr v-for="r in limitSqueezeList1" :key="r.stockNo"
-                class="border-b border-gray-800/50 bg-blue-900/15 hover:bg-blue-900/25 transition cursor-pointer"
-                @click="goToWarrant(r.stockNo)">
-              <td class="px-3 py-2">
-                <div class="flex items-center gap-1">
-                  <span class="text-white font-medium hover:text-purple-400 transition">{{ r.stockName }}</span>
-                  <span v-if="r.earlyLimitUp" class="text-yellow-300 text-xs" title="開盤一小時內漲停">⚡</span>
-                  <span v-if="warrantCoveredSet.has(r.stockNo)" class="text-xs bg-purple-900/60 text-purple-300 px-1 py-0.5 rounded">有證</span>
-                </div>
-                <div class="flex items-center gap-1.5">
-                  <span class="text-xs text-gray-500">{{ r.stockNo }}</span>
-                  <button v-if="limitSnapshotTimes.length" @click.stop="openBidTimeline(r)" class="text-xs text-blue-600 hover:text-blue-400">時序</button>
-                </div>
-              </td>
-              <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.volMa5?.toLocaleString() ?? r.prevVol?.toLocaleString() ?? '-' }}</td>
-              <td class="px-3 py-2 text-right font-mono text-xs" :class="r.volume >= 100000 ? 'text-rose-400 font-bold' : 'text-gray-400'">{{ r.volume.toLocaleString() }}</td>
-              <td class="px-3 py-2 text-right font-mono text-xs" :class="bidRatioClass(r)">
-                <template v-if="r.limitBidVol">{{ r.volume ? (r.limitBidVol / r.volume).toFixed(2) : '-' }}</template>
-                <span v-else-if="r.closedLimitUp" class="text-orange-400 text-xs">漲停收</span>
-                <template v-else>-</template>
-              </td>
-              <td class="px-3 py-2 text-right font-mono text-xs" :class="volRatio5dClass(r)">
-                {{ r.volMa5 ? (r.volume / r.volMa5).toFixed(2) : r.prevVol ? (r.volume / r.prevVol).toFixed(2) : '-' }}
-              </td>
-              <td class="px-3 py-2 text-right font-mono text-xs text-blue-300">
-                <template v-if="r.limitBidVol">{{ r.limitBidVol.toLocaleString() }}</template>
-                <span v-else-if="r.closedLimitUp" class="text-orange-400 text-xs">漲停收</span>
-                <template v-else>-</template>
-                <span v-if="bidWithdrawNote(r)" class="ml-1 text-orange-400 font-bold text-xs">⚠{{bidWithdrawNote(r)}}</span>
-              </td>
-              <td class="px-3 py-2 text-right font-mono text-xs text-yellow-400">
-                {{ r.limitDays ? r.limitDays + '天' : '-' }}
-              </td>
-              <td class="px-3 py-2 text-right font-mono text-xs">
-                <div>
-                  <template v-if="bidCredibilityScore(r) !== null">
-                    <span :class="bidCredibilityScore(r) >= 65 ? 'text-green-400 font-bold' : bidCredibilityScore(r) >= 40 ? 'text-yellow-400' : 'text-red-400'">{{ bidCredibilityScore(r) }}</span><span class="text-gray-600">分</span>
-                  </template>
-                  <span v-else-if="!r.limitBidVol" class="text-gray-600">－</span>
-                  <span v-else class="text-gray-500">待觀察</span>
-                </div>
-                <div v-if="bidRetention(r) !== null" class="text-xs mt-0.5"
-                     :class="bidRetention(r) >= 70 ? 'text-green-600' : bidRetention(r) >= 40 ? 'text-yellow-700' : 'text-red-700'">
-                  尾{{ Math.round(bidRetention(r)) }}%
-                </div>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      <!-- 量縮漲停觀察 第二順位 -->
-      <div class="bg-gray-900 border border-blue-900/50 rounded-xl overflow-hidden">
-        <div class="px-4 py-3 border-b border-blue-900/40 flex items-center gap-2 flex-wrap">
-          <span class="text-blue-400 font-semibold text-sm">▲ 量縮漲停觀察　第二順位</span>
-          <span class="text-gray-600 text-xs">5日量比 &lt; 0.7　且　委買比 &gt; 1.5</span>
-          <span v-if="moversDate" class="text-xs text-gray-600">（歷史資料）</span>
-          <span class="ml-auto text-xs text-blue-600">{{ limitSqueezeList2.length }} 支</span>
-        </div>
-        <table class="w-full text-sm">
-          <thead>
-            <tr class="border-b border-gray-800 bg-gray-950">
-              <th class="px-3 py-2 text-left text-xs text-gray-500 font-normal">代號／名稱</th>
-              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">5日均量</th>
-              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">今日量</th>
-              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">漲停委買比</th>
-              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">5日量比</th>
-              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">漲停委買量</th>
-              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">連漲停</th>
-              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">委買可信度</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-if="!limitSqueezeList2.length">
-              <td colspan="8" class="px-3 py-4 text-center text-gray-700 text-xs">目前無符合條件</td>
-            </tr>
-            <tr v-for="r in limitSqueezeList2" :key="r.stockNo"
-                class="border-b border-gray-800/50 bg-blue-900/10 hover:bg-blue-900/20 transition cursor-pointer"
-                @click="goToWarrant(r.stockNo)">
-              <td class="px-3 py-2">
-                <div class="flex items-center gap-1">
-                  <span class="text-white font-medium hover:text-purple-400 transition">{{ r.stockName }}</span>
-                  <span v-if="r.earlyLimitUp" class="text-yellow-300 text-xs" title="開盤一小時內漲停">⚡</span>
-                  <span v-if="warrantCoveredSet.has(r.stockNo)" class="text-xs bg-purple-900/60 text-purple-300 px-1 py-0.5 rounded">有證</span>
-                </div>
-                <div class="flex items-center gap-1.5">
-                  <span class="text-xs text-gray-500">{{ r.stockNo }}</span>
-                  <button v-if="limitSnapshotTimes.length" @click.stop="openBidTimeline(r)" class="text-xs text-blue-600 hover:text-blue-400">時序</button>
-                </div>
-              </td>
-              <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.volMa5?.toLocaleString() ?? r.prevVol?.toLocaleString() ?? '-' }}</td>
-              <td class="px-3 py-2 text-right font-mono text-xs" :class="r.volume >= 100000 ? 'text-rose-400 font-bold' : 'text-gray-400'">{{ r.volume.toLocaleString() }}</td>
-              <td class="px-3 py-2 text-right font-mono text-xs" :class="bidRatioClass(r)">
-                <template v-if="r.limitBidVol">{{ r.volume ? (r.limitBidVol / r.volume).toFixed(2) : '-' }}</template>
-                <span v-else-if="r.closedLimitUp" class="text-orange-400 text-xs">漲停收</span>
-                <template v-else>-</template>
-              </td>
-              <td class="px-3 py-2 text-right font-mono text-xs" :class="volRatio5dClass(r)">
-                {{ r.volMa5 ? (r.volume / r.volMa5).toFixed(2) : r.prevVol ? (r.volume / r.prevVol).toFixed(2) : '-' }}
-              </td>
-              <td class="px-3 py-2 text-right font-mono text-xs text-blue-300">
-                <template v-if="r.limitBidVol">{{ r.limitBidVol.toLocaleString() }}</template>
-                <span v-else-if="r.closedLimitUp" class="text-orange-400 text-xs">漲停收</span>
-                <template v-else>-</template>
-                <span v-if="bidWithdrawNote(r)" class="ml-1 text-orange-400 font-bold text-xs">⚠{{bidWithdrawNote(r)}}</span>
-              </td>
-              <td class="px-3 py-2 text-right font-mono text-xs text-yellow-400">
-                {{ r.limitDays ? r.limitDays + '天' : '-' }}
-              </td>
-              <td class="px-3 py-2 text-right font-mono text-xs">
-                <div>
-                  <template v-if="bidCredibilityScore(r) !== null">
-                    <span :class="bidCredibilityScore(r) >= 65 ? 'text-green-400 font-bold' : bidCredibilityScore(r) >= 40 ? 'text-yellow-400' : 'text-red-400'">{{ bidCredibilityScore(r) }}</span><span class="text-gray-600">分</span>
-                  </template>
-                  <span v-else-if="!r.limitBidVol" class="text-gray-600">－</span>
-                  <span v-else class="text-gray-500">待觀察</span>
-                </div>
-                <div v-if="bidRetention(r) !== null" class="text-xs mt-0.5"
-                     :class="bidRetention(r) >= 70 ? 'text-green-600' : bidRetention(r) >= 40 ? 'text-yellow-700' : 'text-red-700'">
-                  尾{{ Math.round(bidRetention(r)) }}%
-                </div>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      <!-- 量縮漲停觀察 第三順位 -->
-      <div class="bg-gray-900 border border-gray-800/60 rounded-xl overflow-hidden">
-        <div class="px-4 py-3 border-b border-gray-800/40 flex items-center gap-2 flex-wrap">
-          <span class="text-gray-400 font-semibold text-sm">△ 量縮漲停觀察　第三順位</span>
-          <span class="text-gray-600 text-xs">5日量比 &lt; 0.8　且　委買比 &gt; 0.8</span>
-          <span class="ml-auto text-xs text-gray-600">{{ limitSqueezeList3.length }} 支</span>
-        </div>
-        <table class="w-full text-sm">
-          <thead>
-            <tr class="border-b border-gray-800 bg-gray-950">
-              <th class="px-3 py-2 text-left text-xs text-gray-500 font-normal">代號／名稱</th>
-              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">5日均量</th>
-              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">今日量</th>
-              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">漲停委買比</th>
-              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">5日量比</th>
-              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">漲停委買量</th>
-              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">連漲停</th>
-              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">委買可信度</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-if="!limitSqueezeList3.length">
-              <td colspan="8" class="px-3 py-4 text-center text-gray-700 text-xs">目前無符合條件</td>
-            </tr>
-            <tr v-for="r in limitSqueezeList3" :key="r.stockNo"
-                class="border-b border-gray-800/50 hover:bg-gray-800/20 transition cursor-pointer"
-                @click="goToWarrant(r.stockNo)">
-              <td class="px-3 py-2">
-                <div class="flex items-center gap-1">
-                  <span class="text-white font-medium hover:text-purple-400 transition">{{ r.stockName }}</span>
-                  <span v-if="r.earlyLimitUp" class="text-yellow-300 text-xs" title="開盤一小時內漲停">⚡</span>
-                  <span v-if="warrantCoveredSet.has(r.stockNo)" class="text-xs bg-purple-900/60 text-purple-300 px-1 py-0.5 rounded">有證</span>
-                </div>
-                <div class="flex items-center gap-1.5">
-                  <span class="text-xs text-gray-500">{{ r.stockNo }}</span>
-                  <button v-if="limitSnapshotTimes.length" @click.stop="openBidTimeline(r)" class="text-xs text-blue-600 hover:text-blue-400">時序</button>
-                </div>
-              </td>
-              <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.volMa5?.toLocaleString() ?? r.prevVol?.toLocaleString() ?? '-' }}</td>
-              <td class="px-3 py-2 text-right font-mono text-xs" :class="r.volume >= 100000 ? 'text-rose-400 font-bold' : 'text-gray-400'">{{ r.volume.toLocaleString() }}</td>
-              <td class="px-3 py-2 text-right font-mono text-xs" :class="bidRatioClass(r)">
-                {{ r.limitBidVol && r.volume ? (r.limitBidVol / r.volume).toFixed(2) : '-' }}
-              </td>
-              <td class="px-3 py-2 text-right font-mono text-xs" :class="volRatio5dClass(r)">
-                {{ r.volMa5 ? (r.volume / r.volMa5).toFixed(2) : r.prevVol ? (r.volume / r.prevVol).toFixed(2) : '-' }}
-              </td>
-              <td class="px-3 py-2 text-right font-mono text-xs text-gray-500">{{ r.limitBidVol?.toLocaleString() ?? '-' }}<span v-if="bidWithdrawNote(r)" class="ml-1 text-orange-400 font-bold">⚠{{bidWithdrawNote(r)}}</span></td>
-              <td class="px-3 py-2 text-right font-mono text-xs text-yellow-400">
-                {{ r.limitDays ? r.limitDays + '天' : '-' }}
-              </td>
-              <td class="px-3 py-2 text-right font-mono text-xs">
-                <div>
-                  <template v-if="bidCredibilityScore(r) !== null">
-                    <span :class="bidCredibilityScore(r) >= 65 ? 'text-green-400 font-bold' : bidCredibilityScore(r) >= 40 ? 'text-yellow-400' : 'text-red-400'">{{ bidCredibilityScore(r) }}</span><span class="text-gray-600">分</span>
-                  </template>
-                  <span v-else-if="!r.limitBidVol" class="text-gray-600">－</span>
-                  <span v-else class="text-gray-500">待觀察</span>
-                </div>
-                <div v-if="bidRetention(r) !== null" class="text-xs mt-0.5"
-                     :class="bidRetention(r) >= 70 ? 'text-green-600' : bidRetention(r) >= 40 ? 'text-yellow-700' : 'text-red-700'">
-                  尾{{ Math.round(bidRetention(r)) }}%
-                </div>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      <!-- 量增漲停觀察 第一順位 -->
-      <div class="bg-gray-900 border border-amber-500/40 rounded-xl overflow-hidden">
-        <div class="px-4 py-3 border-b border-amber-500/30 flex items-center gap-2 flex-wrap">
-          <span class="text-amber-300 font-semibold text-sm">★ 量增漲停觀察（主力換手）　第一順位</span>
-          <span class="text-gray-600 text-xs">5日量比 1.5～8x　且　委買比 &gt; 2　且　首至三板</span>
-          <span v-if="moversDate" class="text-xs text-gray-600">（歷史資料）</span>
-          <span class="ml-auto text-xs text-amber-400">{{ volIncreaseLimitList1.length }} 支</span>
-        </div>
-        <table class="w-full text-sm">
-          <thead>
-            <tr class="border-b border-gray-800 bg-gray-950">
-              <th class="px-3 py-2 text-left text-xs text-gray-500 font-normal">代號／名稱</th>
-              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">5日均量</th>
-              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">今日量</th>
-              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">漲停委買比</th>
-              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">5日量比</th>
-              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">漲停委買量</th>
-              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">連漲停</th>
-              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">委買可信度</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-if="!volIncreaseLimitList1.length">
-              <td colspan="8" class="px-3 py-4 text-center text-gray-700 text-xs">目前無符合條件</td>
-            </tr>
-            <tr v-for="r in volIncreaseLimitList1" :key="r.stockNo"
-                class="border-b border-gray-800/50 bg-amber-900/15 hover:bg-amber-900/25 transition cursor-pointer"
-                @click="goToWarrant(r.stockNo)">
-              <td class="px-3 py-2">
-                <div class="flex items-center gap-1">
-                  <span class="text-white font-medium hover:text-purple-400 transition">{{ r.stockName }}</span>
-                  <span v-if="r.earlyLimitUp" class="text-yellow-300 text-xs" title="開盤一小時內漲停">⚡</span>
-                  <span v-if="warrantCoveredSet.has(r.stockNo)" class="text-xs bg-purple-900/60 text-purple-300 px-1 py-0.5 rounded">有證</span>
-                </div>
-                <div class="flex items-center gap-1.5">
-                  <span class="text-xs text-gray-500">{{ r.stockNo }}</span>
-                  <button v-if="limitSnapshotTimes.length" @click.stop="openBidTimeline(r)" class="text-xs text-blue-600 hover:text-blue-400">時序</button>
-                </div>
-              </td>
-              <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.volMa5?.toLocaleString() ?? r.prevVol?.toLocaleString() ?? '-' }}</td>
-              <td class="px-3 py-2 text-right font-mono text-xs" :class="r.volume >= 100000 ? 'text-rose-400 font-bold' : 'text-gray-400'">{{ r.volume.toLocaleString() }}</td>
-              <td class="px-3 py-2 text-right font-mono text-xs" :class="bidRatioClass(r)">
-                {{ r.volume ? (r.limitBidVol / r.volume).toFixed(2) : '-' }}
-              </td>
-              <td class="px-3 py-2 text-right font-mono text-xs" :class="volRatio5dClass(r)">
-                {{ r.volMa5 ? (r.volume / r.volMa5).toFixed(2) : r.prevVol ? (r.volume / r.prevVol).toFixed(2) : '-' }}
-              </td>
-              <td class="px-3 py-2 text-right font-mono text-xs text-amber-300">{{ r.limitBidVol?.toLocaleString() ?? '-' }}<span v-if="bidWithdrawNote(r)" class="ml-1 text-orange-400 font-bold">⚠{{bidWithdrawNote(r)}}</span></td>
-              <td class="px-3 py-2 text-right font-mono text-xs text-yellow-400">
-                {{ r.limitDays ? r.limitDays + '天' : '-' }}
-              </td>
-              <td class="px-3 py-2 text-right font-mono text-xs">
-                <div>
-                  <template v-if="bidCredibilityScore(r) !== null">
-                    <span :class="bidCredibilityScore(r) >= 65 ? 'text-green-400 font-bold' : bidCredibilityScore(r) >= 40 ? 'text-yellow-400' : 'text-red-400'">{{ bidCredibilityScore(r) }}</span><span class="text-gray-600">分</span>
-                  </template>
-                  <span v-else-if="!r.limitBidVol" class="text-gray-600">－</span>
-                  <span v-else class="text-gray-500">待觀察</span>
-                </div>
-                <div v-if="bidRetention(r) !== null" class="text-xs mt-0.5"
-                     :class="bidRetention(r) >= 70 ? 'text-green-600' : bidRetention(r) >= 40 ? 'text-yellow-700' : 'text-red-700'">
-                  尾{{ Math.round(bidRetention(r)) }}%
-                </div>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      <!-- 量增漲停觀察 第二順位 -->
-      <div class="bg-gray-900 border border-amber-900/50 rounded-xl overflow-hidden">
-        <div class="px-4 py-3 border-b border-amber-900/40 flex items-center gap-2 flex-wrap">
-          <span class="text-amber-400 font-semibold text-sm">▲ 量增漲停觀察（主力換手）　第二順位</span>
-          <span class="text-gray-600 text-xs">5日量比 1.5～8x　且　委買比 &gt; 1.5　且　連板 ≤ 7</span>
-          <span v-if="moversDate" class="text-xs text-gray-600">（歷史資料）</span>
-          <span class="ml-auto text-xs text-amber-600">{{ volIncreaseLimitList2.length }} 支</span>
-        </div>
-        <table class="w-full text-sm">
-          <thead>
-            <tr class="border-b border-gray-800 bg-gray-950">
-              <th class="px-3 py-2 text-left text-xs text-gray-500 font-normal">代號／名稱</th>
-              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">5日均量</th>
-              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">今日量</th>
-              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">漲停委買比</th>
-              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">5日量比</th>
-              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">漲停委買量</th>
-              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">連漲停</th>
-              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">委買可信度</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-if="!volIncreaseLimitList2.length">
-              <td colspan="8" class="px-3 py-4 text-center text-gray-700 text-xs">目前無符合條件</td>
-            </tr>
-            <tr v-for="r in volIncreaseLimitList2" :key="r.stockNo"
-                class="border-b border-gray-800/50 bg-amber-900/10 hover:bg-amber-900/20 transition cursor-pointer"
-                @click="goToWarrant(r.stockNo)">
-              <td class="px-3 py-2">
-                <div class="flex items-center gap-1">
-                  <span class="text-white font-medium hover:text-purple-400 transition">{{ r.stockName }}</span>
-                  <span v-if="r.earlyLimitUp" class="text-yellow-300 text-xs" title="開盤一小時內漲停">⚡</span>
-                  <span v-if="warrantCoveredSet.has(r.stockNo)" class="text-xs bg-purple-900/60 text-purple-300 px-1 py-0.5 rounded">有證</span>
-                </div>
-                <div class="flex items-center gap-1.5">
-                  <span class="text-xs text-gray-500">{{ r.stockNo }}</span>
-                  <button v-if="limitSnapshotTimes.length" @click.stop="openBidTimeline(r)" class="text-xs text-blue-600 hover:text-blue-400">時序</button>
-                </div>
-              </td>
-              <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.volMa5?.toLocaleString() ?? r.prevVol?.toLocaleString() ?? '-' }}</td>
-              <td class="px-3 py-2 text-right font-mono text-xs" :class="r.volume >= 100000 ? 'text-rose-400 font-bold' : 'text-gray-400'">{{ r.volume.toLocaleString() }}</td>
-              <td class="px-3 py-2 text-right font-mono text-xs" :class="bidRatioClass(r)">
-                {{ r.volume ? (r.limitBidVol / r.volume).toFixed(2) : '-' }}
-              </td>
-              <td class="px-3 py-2 text-right font-mono text-xs" :class="volRatio5dClass(r)">
-                {{ r.volMa5 ? (r.volume / r.volMa5).toFixed(2) : r.prevVol ? (r.volume / r.prevVol).toFixed(2) : '-' }}
-              </td>
-              <td class="px-3 py-2 text-right font-mono text-xs text-amber-400">{{ r.limitBidVol?.toLocaleString() ?? '-' }}<span v-if="bidWithdrawNote(r)" class="ml-1 text-orange-400 font-bold">⚠{{bidWithdrawNote(r)}}</span></td>
-              <td class="px-3 py-2 text-right font-mono text-xs text-yellow-400">
-                {{ r.limitDays ? r.limitDays + '天' : '-' }}
-              </td>
-              <td class="px-3 py-2 text-right font-mono text-xs">
-                <div>
-                  <template v-if="bidCredibilityScore(r) !== null">
-                    <span :class="bidCredibilityScore(r) >= 65 ? 'text-green-400 font-bold' : bidCredibilityScore(r) >= 40 ? 'text-yellow-400' : 'text-red-400'">{{ bidCredibilityScore(r) }}</span><span class="text-gray-600">分</span>
-                  </template>
-                  <span v-else-if="!r.limitBidVol" class="text-gray-600">－</span>
-                  <span v-else class="text-gray-500">待觀察</span>
-                </div>
-                <div v-if="bidRetention(r) !== null" class="text-xs mt-0.5"
-                     :class="bidRetention(r) >= 70 ? 'text-green-600' : bidRetention(r) >= 40 ? 'text-yellow-700' : 'text-red-700'">
-                  尾{{ Math.round(bidRetention(r)) }}%
-                </div>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      <!-- 量增漲停觀察 第三順位 -->
-      <div class="bg-gray-900 border border-amber-900/30 rounded-xl overflow-hidden">
-        <div class="px-4 py-3 border-b border-amber-900/20 flex items-center gap-2 flex-wrap">
-          <span class="text-amber-600 font-semibold text-sm">△ 量增漲停觀察（主力換手）　第三順位</span>
-          <span class="text-gray-600 text-xs">5日量比 1.5～8x　且　委買比 &gt; 0.8　且　連板 ≤ 7</span>
-          <span class="ml-auto text-xs text-amber-800">{{ volIncreaseLimitList3.length }} 支</span>
-        </div>
-        <table class="w-full text-sm">
-          <thead>
-            <tr class="border-b border-gray-800 bg-gray-950">
-              <th class="px-3 py-2 text-left text-xs text-gray-500 font-normal">代號／名稱</th>
-              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">5日均量</th>
-              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">今日量</th>
-              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">漲停委買比</th>
-              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">5日量比</th>
-              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">漲停委買量</th>
-              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">連漲停</th>
-              <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">委買可信度</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-if="!volIncreaseLimitList3.length">
-              <td colspan="8" class="px-3 py-4 text-center text-gray-700 text-xs">目前無符合條件</td>
-            </tr>
-            <tr v-for="r in volIncreaseLimitList3" :key="r.stockNo"
-                class="border-b border-gray-800/50 hover:bg-amber-900/10 transition cursor-pointer"
-                @click="goToWarrant(r.stockNo)">
-              <td class="px-3 py-2">
-                <div class="flex items-center gap-1">
-                  <span class="text-white font-medium hover:text-purple-400 transition">{{ r.stockName }}</span>
-                  <span v-if="r.earlyLimitUp" class="text-yellow-300 text-xs" title="開盤一小時內漲停">⚡</span>
-                  <span v-if="warrantCoveredSet.has(r.stockNo)" class="text-xs bg-purple-900/60 text-purple-300 px-1 py-0.5 rounded">有證</span>
-                </div>
-                <div class="flex items-center gap-1.5">
-                  <span class="text-xs text-gray-500">{{ r.stockNo }}</span>
-                  <button v-if="limitSnapshotTimes.length" @click.stop="openBidTimeline(r)" class="text-xs text-blue-600 hover:text-blue-400">時序</button>
-                </div>
-              </td>
-              <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.volMa5?.toLocaleString() ?? r.prevVol?.toLocaleString() ?? '-' }}</td>
-              <td class="px-3 py-2 text-right font-mono text-xs" :class="r.volume >= 100000 ? 'text-rose-400 font-bold' : 'text-gray-400'">{{ r.volume.toLocaleString() }}</td>
-              <td class="px-3 py-2 text-right font-mono text-xs" :class="bidRatioClass(r)">
-                {{ r.limitBidVol && r.volume ? (r.limitBidVol / r.volume).toFixed(2) : '-' }}
-              </td>
-              <td class="px-3 py-2 text-right font-mono text-xs" :class="volRatio5dClass(r)">
-                {{ r.volMa5 ? (r.volume / r.volMa5).toFixed(2) : r.prevVol ? (r.volume / r.prevVol).toFixed(2) : '-' }}
-              </td>
-              <td class="px-3 py-2 text-right font-mono text-xs text-gray-500">{{ r.limitBidVol?.toLocaleString() ?? '-' }}<span v-if="bidWithdrawNote(r)" class="ml-1 text-orange-400 font-bold">⚠{{bidWithdrawNote(r)}}</span></td>
-              <td class="px-3 py-2 text-right font-mono text-xs text-yellow-400">
-                {{ r.limitDays ? r.limitDays + '天' : '-' }}
-              </td>
-              <td class="px-3 py-2 text-right font-mono text-xs">
-                <div>
-                  <template v-if="bidCredibilityScore(r) !== null">
-                    <span :class="bidCredibilityScore(r) >= 65 ? 'text-green-400 font-bold' : bidCredibilityScore(r) >= 40 ? 'text-yellow-400' : 'text-red-400'">{{ bidCredibilityScore(r) }}</span><span class="text-gray-600">分</span>
-                  </template>
-                  <span v-else-if="!r.limitBidVol" class="text-gray-600">－</span>
-                  <span v-else class="text-gray-500">待觀察</span>
-                </div>
-                <div v-if="bidRetention(r) !== null" class="text-xs mt-0.5"
-                     :class="bidRetention(r) >= 70 ? 'text-green-600' : bidRetention(r) >= 40 ? 'text-yellow-700' : 'text-red-700'">
-                  尾{{ Math.round(bidRetention(r)) }}%
-                </div>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      <!-- 顏色規則說明 -->
-      <div class="bg-gray-900 border border-gray-800 rounded-xl px-4 py-3 text-xs text-gray-400 space-y-2">
-        <div class="font-semibold text-gray-300 mb-1">顏色規則說明</div>
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-1">
-          <div class="font-semibold text-gray-500 col-span-full">1日量比（今日量 ÷ 昨日量）</div>
-          <div class="flex items-center gap-2"><span class="text-yellow-400 font-bold">■ 黃色粗體</span><span>≥ 2　爆量</span></div>
-          <div class="flex items-center gap-2"><span class="text-gray-400">■ 灰色</span><span>0.7 ～ 2　正常</span></div>
-          <div class="flex items-center gap-2"><span class="text-red-400 font-bold">■ 紅色粗體</span><span>0.5 ～ 0.7　縮量</span></div>
-          <div class="flex items-center gap-2"><span class="text-purple-400 font-bold">■ 紫色粗體</span><span>&lt; 0.5　極度縮量</span></div>
-          <div class="font-semibold text-gray-500 col-span-full mt-1">5日量比（今日量 ÷ 5日均量）</div>
-          <div class="flex items-center gap-2"><span class="text-yellow-400 font-bold">■ 黃色粗體</span><span>≥ 2　爆量</span></div>
-          <div class="flex items-center gap-2"><span class="text-gray-400">■ 灰色</span><span>0.5 ～ 2　正常</span></div>
-          <div class="flex items-center gap-2"><span class="text-orange-400 font-bold">■ 橘色粗體</span><span>&lt; 0.5　縮量</span></div>
-          <div class="font-semibold text-gray-500 col-span-full mt-1">今日成交量欄顏色</div>
-          <div class="flex items-center gap-2"><span class="text-rose-400 font-bold">■ 玫瑰色粗體</span><span>≥ 10萬張　超大量，市場高度關注，籌碼流動快、主力動向值得追蹤</span></div>
-          <div class="flex items-center gap-2"><span class="text-red-300">■ 淡紅色</span><span>有漲停委買且比值 &gt; 1.6　強力護盤訊號</span></div>
-          <div class="flex items-center gap-2"><span class="text-gray-400">■ 灰色</span><span>一般成交量</span></div>
-          <div class="font-semibold text-gray-500 col-span-full mt-1">列背景</div>
-          <div class="flex items-center gap-2"><span class="px-2 py-0.5 rounded bg-red-900/40 text-red-300">紅底（主力換手）</span><span>符合量增漲停觀察第一或第二順位</span></div>
-          <div class="flex items-center gap-2"><span class="px-2 py-0.5 rounded bg-blue-900/40 text-blue-300">藍底（量縮漲停）</span><span>符合量縮漲停觀察第一、二或三順位</span></div>
-          <div class="font-semibold text-gray-500 col-span-full mt-1">股名旁徽章</div>
-          <div class="flex items-center gap-2"><span class="text-yellow-300 text-xs">⚡</span><span>開盤後一小時內（09:00–10:00）即達漲停，強勢訊號</span></div>
-          <div class="flex items-center gap-2"><span class="px-1 py-0.5 rounded bg-purple-900/60 text-purple-300 text-xs">有證</span><span>該股今日仍有券商發行的有效權證（認購或認售），點擊可直接跳至權證查詢頁</span></div>
-
-          <div class="font-semibold text-gray-500 col-span-full mt-2">量縮漲停觀察區（籌碼集中、惜售）</div>
-          <div class="text-gray-600 col-span-full text-xs mb-0.5">
-            共同前提：漲停（漲幅 ≥ 9.5%）＋ 成交量 ≥ 50張 ＋ 外盤量 &gt; 內盤量（無資料略過）<br>
-            量比基準：<b class="text-gray-400">5日均量</b>（前5個交易日平均成交量）；無5日資料時退用昨日量<br>
-            邏輯：量縮 → 籌碼集中、市場惜售；委買比高 → 仍有大量資金排隊，隔日續漲機率高
-          </div>
-          <div class="flex items-center gap-2 col-span-full"><span class="text-blue-300 font-bold">★ 第一順位</span><span>5日量比 &lt; 0.5 且 漲停委買比 &gt; 1.7　→ 極度縮量＋強力護盤；同順位按連板 DESC 排列</span></div>
-          <div class="flex items-center gap-2 col-span-full"><span class="text-blue-400">▲ 第二順位</span><span>5日量比 &lt; 0.7 且 漲停委買比 &gt; 1.5　→ 縮量＋明顯護盤（不與一重複）；同順位按連板 DESC 排列</span></div>
-          <div class="flex items-center gap-2 col-span-full"><span class="text-gray-400">△ 第三順位</span><span>5日量比 &lt; 0.8 且 漲停委買比 &gt; 0.8　→ 縮量觀察（不與一、二重複）；同順位按連板 DESC 排列</span></div>
-
-          <div class="font-semibold text-gray-500 col-span-full mt-2">量增漲停觀察區（主力換手）</div>
-          <div class="text-gray-600 col-span-full text-xs mb-0.5">
-            共同前提：漲停（漲幅 ≥ 9.5%）＋ 5日量比 1.5～8x ＋ 成交量 ≥ 50張 ＋ 外盤量 &gt; 內盤量（無資料略過）<br>
-            量比上限 8x：超過8倍多為散戶追買或炒作，排除；1.5～8x 為主力積極換手的合理區間<br>
-            邏輯：量增說明主力在積極建倉或換手；委買比高說明漲停後仍有資金護盤意願<br>
-            連板分層：<b class="text-gray-400">首板（首次漲停）</b>量增最值得關注；<b class="text-gray-400">二、三板</b>仍可追蹤；四板以上退入第二以下順位；第二/三順位另設連板上限 ≤ 7（第八板以上多為過度延伸，排除）
-          </div>
-          <div class="flex items-center gap-2 col-span-full"><span class="text-amber-300 font-bold">★ 第一順位</span><span>5日量比 1.5～8x 且 委買比 &gt; 2 且 首至三板　→ 最佳換手訊號；同順位按量比 DESC 排列</span></div>
-          <div class="flex items-center gap-2 col-span-full"><span class="text-amber-400">▲ 第二順位</span><span>5日量比 1.5～8x 且 委買比 &gt; 1.5 且連板 ≤ 7　→ 換手充分（不與一重複）；同順位按量比 DESC 排列</span></div>
-          <div class="flex items-center gap-2 col-span-full"><span class="text-amber-600">△ 第三順位</span><span>5日量比 1.5～8x 且 委買比 &gt; 0.8 且連板 ≤ 7　→ 量增觀察（不與一、二重複）；同順位按量比 DESC 排列</span></div>
-
-          <div class="font-semibold text-gray-500 col-span-full mt-2">委買可信度（假掛單過濾）</div>
-          <div class="text-gray-600 col-span-full text-xs mb-0.5">
-            假掛單手法：主力先掛出大量委買造成護盤假象，待散戶追價後悄悄撤單。<br>
-            系統每 30 分鐘對所有漲停股拍攝委買快照，並以三項指標判斷委買真實性：
-          </div>
-          <div class="flex items-start gap-2 col-span-full">
-            <span class="text-green-400 font-bold whitespace-nowrap">① 快照持續性</span>
-            <span>委買需在 ≥ 2 次快照中出現（間距 30 分鐘）。快照不足時不排除個股，改以「待觀察」標示，等第二次快照完成後才能正式判斷。</span>
-          </div>
-          <div class="flex items-start gap-2 col-span-full">
-            <span class="text-green-400 font-bold whitespace-nowrap">② 委買穩定性</span>
-            <span>各快照的平均委買量 ÷ 最大委買量 ≥ 0.25。假掛單通常「早盤衝高、盤中撤掉」，使平均值遠低於峰值；真實護盤則全天穩定。</span>
-          </div>
-          <div class="flex items-start gap-2 col-span-full">
-            <span class="text-green-400 font-bold whitespace-nowrap">③ 收盤前委買</span>
-            <span>若未漲停收盤，收盤快照委買量必須 &gt; 0；否則代表委買在收盤前被撤走（假掛單最常見的收尾方式）。</span>
-          </div>
-          <div class="flex items-center gap-2 col-span-full mt-0.5">
-            <span class="text-green-400">●高</span><span>三項全通過（快照 ≥ 3、穩定性 ≥ 0.5、收盤有委買）</span>
-          </div>
-          <div class="flex items-center gap-2 col-span-full">
-            <span class="text-yellow-400">●中</span><span>快照 ≥ 2 且穩定性 ≥ 0.25（收盤資料待確認）</span>
-          </div>
-          <div class="flex items-center gap-2 col-span-full">
-            <span class="text-red-400">●低</span><span>快照 ≥ 2 但穩定性不足或收盤委買已撤（疑似假掛單）</span>
-          </div>
-          <div class="flex items-center gap-2 col-span-full">
-            <span class="text-gray-500">●待觀察</span><span>僅有 1 次快照，資料不足以判斷真假，等待第二次快照（約 30 分鐘後）</span>
-          </div>
-          <div class="flex items-center gap-2 col-span-full">
-            <span class="text-gray-600">－</span><span>無快照資料（歷史資料，或委買量為 0）</span>
-          </div>
-        </div>
-      </div>
+      </div><!-- end 顏色操作說明 -->
 
       <!-- 錯誤 -->
       <div v-if="moversError" class="bg-red-900/30 border border-red-800 rounded-xl px-4 py-3 text-sm text-red-400">{{ moversError }}</div>
@@ -6354,6 +5705,686 @@ async function btSyncOhlcv() {
     </div>
   </Teleport>
 
+  <!-- ══ 量縮/增鎖漲停 ══════════════════════════════════════════ -->
+  <div v-if="tab === 'squeeze'" class="max-w-6xl mx-auto px-4 py-6 space-y-4">
+
+    <!-- 標題列 -->
+    <div class="flex items-center gap-3 flex-wrap">
+      <h2 class="text-lg font-semibold text-white">量縮/增鎖漲停　隔日沖觀察</h2>
+    </div>
+
+    <!-- Telegram 通知說明 -->
+    <div class="flex items-center gap-2 border-t border-gray-800 pt-2 text-gray-600">
+      <span class="text-blue-400">📨</span>
+      <span>每個交易日 <span class="text-gray-300 font-medium">09:30 起每 30 分鐘</span>（09:30、10:00、10:30…13:30）自動傳送量縮 + 量增漲停觀察名單至 Telegram（週一至週五）</span>
+    </div>
+
+    <!-- 選股邏輯說明 -->
+    <div class="border-t border-gray-800 pt-2 space-y-2">
+      <div class="text-gray-500 font-medium mb-1">📋 量縮 / 量增漲停觀察 — 選股邏輯</div>
+
+      <!-- 共同前置條件 -->
+      <div>
+        <div class="text-gray-500 mb-1">共同前置條件（量縮 + 量增皆須符合）</div>
+        <table class="w-full text-xs border-collapse">
+          <thead>
+            <tr class="text-gray-600">
+              <th class="text-left pr-4 pb-0.5 font-normal">條件</th>
+              <th class="text-left pb-0.5 font-normal">說明</th>
+            </tr>
+          </thead>
+          <tbody class="text-gray-400">
+            <tr><td class="pr-4 py-0.5 text-gray-300">漲幅 ≥ 9.5%</td><td>排除未達漲停邊緣的個股</td></tr>
+            <tr><td class="pr-4 py-0.5 text-gray-300">成交量 ≥ 50 張</td><td>排除極低流動性標的</td></tr>
+            <tr><td class="pr-4 py-0.5 text-gray-300">內盤量 ≤ 外盤量</td><td>排除明顯空方主導賣壓</td></tr>
+            <tr><td class="pr-4 py-0.5 text-gray-300">passAntiFake 通過</td><td>委買真實性過濾（見下方說明）</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- passAntiFake 說明 -->
+      <div>
+        <div class="text-gray-500 mb-1">passAntiFake — 委買假掛單過濾（三層）</div>
+        <table class="w-full text-xs border-collapse">
+          <thead>
+            <tr class="text-gray-600">
+              <th class="text-left pr-4 pb-0.5 font-normal">條件</th>
+              <th class="text-left pb-0.5 font-normal">判斷</th>
+            </tr>
+          </thead>
+          <tbody class="text-gray-400">
+            <tr><td class="pr-4 py-0.5 text-gray-300">無委買紀錄</td><td>直接通過</td></tr>
+            <tr><td class="pr-4 py-0.5 text-gray-300">快照次數 &lt; 2</td><td>標示「待觀察」放行，尚無足夠樣本判斷</td></tr>
+            <tr><td class="pr-4 py-0.5 text-gray-300">快照 ≥ 2 且 平均/最大委買比 &lt; 0.25</td><td>排除（歷史委買皆小，疑假掛）</td></tr>
+            <tr><td class="pr-4 py-0.5 text-gray-300">收盤前且委買量 = 0 且尚未漲停</td><td>排除（買盤已撤）</td></tr>
+            <tr><td class="pr-4 py-0.5 text-gray-300">尾盤留存率 &lt; 30%（close / max）</td><td>排除（盤尾大量撤單，疑假掛）</td></tr>
+            <tr><td class="pr-4 py-0.5 text-gray-300">最低委買 &lt; 最大委買 10%</td><td>排除（曾短暫歸零，先掛後撤再掛的假掛模式）</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- 量縮觀察邏輯 -->
+      <div>
+        <div class="text-gray-500 mb-1">量縮漲停觀察（★ L1 / ▲ L2 / △ L3）</div>
+        <table class="w-full text-xs border-collapse">
+          <thead>
+            <tr class="text-gray-600">
+              <th class="text-left pr-3 pb-0.5 font-normal">順位</th>
+              <th class="text-left pr-3 pb-0.5 font-normal">5日量比</th>
+              <th class="text-left pr-3 pb-0.5 font-normal">漲停委買比</th>
+              <th class="text-left pb-0.5 font-normal">說明</th>
+            </tr>
+          </thead>
+          <tbody class="text-gray-400">
+            <tr>
+              <td class="pr-3 py-0.5 text-yellow-400 font-bold">★ L1</td>
+              <td class="pr-3 py-0.5 text-gray-300">&lt; 0.5x</td>
+              <td class="pr-3 py-0.5 text-gray-300">&gt; 1.7</td>
+              <td>大縮量漲停＋強護盤，籌碼最集中</td>
+            </tr>
+            <tr>
+              <td class="pr-3 py-0.5 text-orange-400 font-bold">▲ L2</td>
+              <td class="pr-3 py-0.5 text-gray-300">&lt; 0.7x</td>
+              <td class="pr-3 py-0.5 text-gray-300">&gt; 1.5</td>
+              <td>縮量漲停＋明顯護盤</td>
+            </tr>
+            <tr>
+              <td class="pr-3 py-0.5 text-gray-400 font-bold">△ L3</td>
+              <td class="pr-3 py-0.5 text-gray-300">&lt; 0.8x</td>
+              <td class="pr-3 py-0.5 text-gray-300">&gt; 0.8</td>
+              <td>輕縮量漲停＋基本護盤意願</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="text-gray-600 mt-0.5">排序：連板天數 <span class="text-gray-500">↓</span> → 漲停委買比 <span class="text-gray-500">↓</span></div>
+      </div>
+
+      <!-- 量增觀察邏輯 -->
+      <div>
+        <div class="text-gray-500 mb-1">量增漲停觀察（★ L1 / ▲ L2 / △ L3）</div>
+        <table class="w-full text-xs border-collapse">
+          <thead>
+            <tr class="text-gray-600">
+              <th class="text-left pr-3 pb-0.5 font-normal">順位</th>
+              <th class="text-left pr-3 pb-0.5 font-normal">量比範圍</th>
+              <th class="text-left pr-3 pb-0.5 font-normal">連板限制</th>
+              <th class="text-left pr-3 pb-0.5 font-normal">漲停委買比</th>
+              <th class="text-left pb-0.5 font-normal">說明</th>
+            </tr>
+          </thead>
+          <tbody class="text-gray-400">
+            <tr>
+              <td class="pr-3 py-0.5 text-yellow-400 font-bold">★ L1</td>
+              <td class="pr-3 py-0.5 text-gray-300">1.5 ～ 8x</td>
+              <td class="pr-3 py-0.5 text-gray-300">≤ 3 板</td>
+              <td class="pr-3 py-0.5 text-gray-300">&gt; 2</td>
+              <td>首至三板主力爆量進場，強力護盤</td>
+            </tr>
+            <tr>
+              <td class="pr-3 py-0.5 text-orange-400 font-bold">▲ L2</td>
+              <td class="pr-3 py-0.5 text-gray-300">1.5 ～ 8x</td>
+              <td class="pr-3 py-0.5 text-gray-300">≤ 7 板</td>
+              <td class="pr-3 py-0.5 text-gray-300">&gt; 1.5</td>
+              <td>七板內換手爆量＋明顯護盤</td>
+            </tr>
+            <tr>
+              <td class="pr-3 py-0.5 text-gray-400 font-bold">△ L3</td>
+              <td class="pr-3 py-0.5 text-gray-300">1.5 ～ 8x</td>
+              <td class="pr-3 py-0.5 text-gray-300">≤ 7 板</td>
+              <td class="pr-3 py-0.5 text-gray-300">&gt; 0.8</td>
+              <td>爆量漲停＋基本護盤意願，觀察換手</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="text-gray-600 mt-0.5">量比上限 8x：超過 8x 通常為消息炒作或軋空，換手目的不明確，不納入觀察</div>
+        <div class="text-gray-600 mt-0.5">排序：5日量比 <span class="text-gray-500">↓</span> → 漲停委買比 <span class="text-gray-500">↓</span></div>
+      </div>
+    </div>
+
+    <!-- 觀察名單時段快照下拉 -->
+    <div class="flex items-center gap-2 px-1">
+      <span class="text-xs text-gray-500">觀察時段：</span>
+      <select
+        v-model="limitSnapshotTime"
+        class="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1 text-xs text-gray-200 focus:outline-none focus:ring-1 focus:ring-blue-500">
+        <option value="">即時</option>
+        <option v-for="t in limitSnapshotTimes" :key="t" :value="t">{{ t }}</option>
+      </select>
+      <span v-if="limitSnapshotTime" class="text-xs text-yellow-400">歷史快照</span>
+      <span v-else-if="limitSnapshotTimes.length === 0" class="text-xs text-gray-600">（今日尚無快照）</span>
+      <span v-else class="text-xs text-gray-600">{{ limitSnapshotTimes.length }} 個時段可查</span>
+    </div>
+
+    <!-- 量縮漲停觀察 Telegram 測試鈕 -->
+    <div class="flex items-center gap-3 px-1 flex-wrap">
+      <button
+        @click="sendSqueezeTest"
+        :disabled="squeezeTestLoading"
+        class="px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-900/50 border border-blue-500/40 text-blue-300 hover:bg-blue-800/60 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+        {{ squeezeTestLoading ? '傳送中…' : '📨 傳送觀察名單' }}
+      </button>
+      <button
+        @click="sendEmailAlert"
+        :disabled="emailSendLoading"
+        class="px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-900/50 border border-emerald-500/40 text-emerald-300 hover:bg-emerald-800/60 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+        {{ emailSendLoading ? '寄送中…' : '✉️ 傳送到 Mail' }}
+      </button>
+      <span v-if="squeezeTestResult" :class="squeezeTestResult.ok ? 'text-green-400' : squeezeTestResult.skipped ? 'text-yellow-400' : 'text-red-400'" class="text-xs">
+        {{ squeezeTestResult.message || squeezeTestResult.reason }}
+      </span>
+      <span v-if="emailSendResult" :class="emailSendResult.ok ? 'text-green-400' : 'text-red-400'" class="text-xs">
+        {{ emailSendResult.message }}
+      </span>
+    </div>
+
+    <!-- 量縮漲停觀察 第一順位 -->
+    <div class="bg-gray-900 border border-blue-500/40 rounded-xl overflow-hidden">
+      <div class="px-4 py-3 border-b border-blue-500/30 flex items-center gap-2 flex-wrap">
+        <span class="text-blue-300 font-semibold text-sm">★ 量縮漲停觀察　第一順位</span>
+        <span class="text-gray-600 text-xs">5日量比 &lt; 0.5　且　委買比 &gt; 1.7</span>
+        <span v-if="moversDate" class="text-xs text-gray-600">（歷史資料）</span>
+        <span class="ml-auto text-xs text-blue-400">{{ limitSqueezeList1.length }} 支</span>
+      </div>
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="border-b border-gray-800 bg-gray-950">
+            <th class="px-3 py-2 text-left text-xs text-gray-500 font-normal">代號／名稱</th>
+            <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">5日均量</th>
+            <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">今日量</th>
+            <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">漲停委買比</th>
+            <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">5日量比</th>
+            <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">漲停委買量</th>
+            <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">連漲停</th>
+            <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">委買可信度</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-if="!limitSqueezeList1.length">
+            <td colspan="8" class="px-3 py-4 text-center text-gray-700 text-xs">目前無符合條件</td>
+          </tr>
+          <tr v-for="r in limitSqueezeList1" :key="r.stockNo"
+              class="border-b border-gray-800/50 bg-blue-900/15 hover:bg-blue-900/25 transition cursor-pointer"
+              @click="goToWarrant(r.stockNo)">
+            <td class="px-3 py-2">
+              <div class="flex items-center gap-1">
+                <span class="text-white font-medium hover:text-purple-400 transition">{{ r.stockName }}</span>
+                <span v-if="r.earlyLimitUp" class="text-yellow-300 text-xs" title="開盤一小時內漲停">⚡</span>
+                <span v-if="warrantCoveredSet.has(r.stockNo)" class="text-xs bg-purple-900/60 text-purple-300 px-1 py-0.5 rounded">有證</span>
+              </div>
+              <div class="flex items-center gap-1.5">
+                <span class="text-xs text-gray-500">{{ r.stockNo }}</span>
+                <button v-if="limitSnapshotTimes.length" @click.stop="openBidTimeline(r)" class="text-xs text-blue-600 hover:text-blue-400">時序</button>
+              </div>
+            </td>
+            <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.volMa5?.toLocaleString() ?? r.prevVol?.toLocaleString() ?? '-' }}</td>
+            <td class="px-3 py-2 text-right font-mono text-xs" :class="r.volume >= 100000 ? 'text-rose-400 font-bold' : 'text-gray-400'">{{ r.volume.toLocaleString() }}</td>
+            <td class="px-3 py-2 text-right font-mono text-xs" :class="bidRatioClass(r)">
+              <template v-if="r.limitBidVol">{{ r.volume ? (r.limitBidVol / r.volume).toFixed(2) : '-' }}</template>
+              <span v-else-if="r.closedLimitUp" class="text-orange-400 text-xs">漲停收</span>
+              <template v-else>-</template>
+            </td>
+            <td class="px-3 py-2 text-right font-mono text-xs" :class="volRatio5dClass(r)">
+              {{ r.volMa5 ? (r.volume / r.volMa5).toFixed(2) : r.prevVol ? (r.volume / r.prevVol).toFixed(2) : '-' }}
+            </td>
+            <td class="px-3 py-2 text-right font-mono text-xs text-blue-300">
+              <template v-if="r.limitBidVol">{{ r.limitBidVol.toLocaleString() }}</template>
+              <span v-else-if="r.closedLimitUp" class="text-orange-400 text-xs">漲停收</span>
+              <template v-else>-</template>
+              <span v-if="bidWithdrawNote(r)" class="ml-1 text-orange-400 font-bold text-xs">⚠{{bidWithdrawNote(r)}}</span>
+            </td>
+            <td class="px-3 py-2 text-right font-mono text-xs text-yellow-400">
+              {{ r.limitDays ? r.limitDays + '天' : '-' }}
+            </td>
+            <td class="px-3 py-2 text-right font-mono text-xs">
+              <div>
+                <template v-if="bidCredibilityScore(r) !== null">
+                  <span :class="bidCredibilityScore(r) >= 65 ? 'text-green-400 font-bold' : bidCredibilityScore(r) >= 40 ? 'text-yellow-400' : 'text-red-400'">{{ bidCredibilityScore(r) }}</span><span class="text-gray-600">分</span>
+                </template>
+                <span v-else-if="!r.limitBidVol" class="text-gray-600">－</span>
+                <span v-else class="text-gray-500">待觀察</span>
+              </div>
+              <div v-if="bidRetention(r) !== null" class="text-xs mt-0.5"
+                   :class="bidRetention(r) >= 70 ? 'text-green-600' : bidRetention(r) >= 40 ? 'text-yellow-700' : 'text-red-700'">
+                尾{{ Math.round(bidRetention(r)) }}%
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 量縮漲停觀察 第二順位 -->
+    <div class="bg-gray-900 border border-blue-900/50 rounded-xl overflow-hidden">
+      <div class="px-4 py-3 border-b border-blue-900/40 flex items-center gap-2 flex-wrap">
+        <span class="text-blue-400 font-semibold text-sm">▲ 量縮漲停觀察　第二順位</span>
+        <span class="text-gray-600 text-xs">5日量比 &lt; 0.7　且　委買比 &gt; 1.5</span>
+        <span v-if="moversDate" class="text-xs text-gray-600">（歷史資料）</span>
+        <span class="ml-auto text-xs text-blue-600">{{ limitSqueezeList2.length }} 支</span>
+      </div>
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="border-b border-gray-800 bg-gray-950">
+            <th class="px-3 py-2 text-left text-xs text-gray-500 font-normal">代號／名稱</th>
+            <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">5日均量</th>
+            <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">今日量</th>
+            <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">漲停委買比</th>
+            <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">5日量比</th>
+            <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">漲停委買量</th>
+            <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">連漲停</th>
+            <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">委買可信度</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-if="!limitSqueezeList2.length">
+            <td colspan="8" class="px-3 py-4 text-center text-gray-700 text-xs">目前無符合條件</td>
+          </tr>
+          <tr v-for="r in limitSqueezeList2" :key="r.stockNo"
+              class="border-b border-gray-800/50 bg-blue-900/10 hover:bg-blue-900/20 transition cursor-pointer"
+              @click="goToWarrant(r.stockNo)">
+            <td class="px-3 py-2">
+              <div class="flex items-center gap-1">
+                <span class="text-white font-medium hover:text-purple-400 transition">{{ r.stockName }}</span>
+                <span v-if="r.earlyLimitUp" class="text-yellow-300 text-xs" title="開盤一小時內漲停">⚡</span>
+                <span v-if="warrantCoveredSet.has(r.stockNo)" class="text-xs bg-purple-900/60 text-purple-300 px-1 py-0.5 rounded">有證</span>
+              </div>
+              <div class="flex items-center gap-1.5">
+                <span class="text-xs text-gray-500">{{ r.stockNo }}</span>
+                <button v-if="limitSnapshotTimes.length" @click.stop="openBidTimeline(r)" class="text-xs text-blue-600 hover:text-blue-400">時序</button>
+              </div>
+            </td>
+            <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.volMa5?.toLocaleString() ?? r.prevVol?.toLocaleString() ?? '-' }}</td>
+            <td class="px-3 py-2 text-right font-mono text-xs" :class="r.volume >= 100000 ? 'text-rose-400 font-bold' : 'text-gray-400'">{{ r.volume.toLocaleString() }}</td>
+            <td class="px-3 py-2 text-right font-mono text-xs" :class="bidRatioClass(r)">
+              <template v-if="r.limitBidVol">{{ r.volume ? (r.limitBidVol / r.volume).toFixed(2) : '-' }}</template>
+              <span v-else-if="r.closedLimitUp" class="text-orange-400 text-xs">漲停收</span>
+              <template v-else>-</template>
+            </td>
+            <td class="px-3 py-2 text-right font-mono text-xs" :class="volRatio5dClass(r)">
+              {{ r.volMa5 ? (r.volume / r.volMa5).toFixed(2) : r.prevVol ? (r.volume / r.prevVol).toFixed(2) : '-' }}
+            </td>
+            <td class="px-3 py-2 text-right font-mono text-xs text-blue-300">
+              <template v-if="r.limitBidVol">{{ r.limitBidVol.toLocaleString() }}</template>
+              <span v-else-if="r.closedLimitUp" class="text-orange-400 text-xs">漲停收</span>
+              <template v-else>-</template>
+              <span v-if="bidWithdrawNote(r)" class="ml-1 text-orange-400 font-bold text-xs">⚠{{bidWithdrawNote(r)}}</span>
+            </td>
+            <td class="px-3 py-2 text-right font-mono text-xs text-yellow-400">
+              {{ r.limitDays ? r.limitDays + '天' : '-' }}
+            </td>
+            <td class="px-3 py-2 text-right font-mono text-xs">
+              <div>
+                <template v-if="bidCredibilityScore(r) !== null">
+                  <span :class="bidCredibilityScore(r) >= 65 ? 'text-green-400 font-bold' : bidCredibilityScore(r) >= 40 ? 'text-yellow-400' : 'text-red-400'">{{ bidCredibilityScore(r) }}</span><span class="text-gray-600">分</span>
+                </template>
+                <span v-else-if="!r.limitBidVol" class="text-gray-600">－</span>
+                <span v-else class="text-gray-500">待觀察</span>
+              </div>
+              <div v-if="bidRetention(r) !== null" class="text-xs mt-0.5"
+                   :class="bidRetention(r) >= 70 ? 'text-green-600' : bidRetention(r) >= 40 ? 'text-yellow-700' : 'text-red-700'">
+                尾{{ Math.round(bidRetention(r)) }}%
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 量縮漲停觀察 第三順位 -->
+    <div class="bg-gray-900 border border-gray-800/60 rounded-xl overflow-hidden">
+      <div class="px-4 py-3 border-b border-gray-800/40 flex items-center gap-2 flex-wrap">
+        <span class="text-gray-400 font-semibold text-sm">△ 量縮漲停觀察　第三順位</span>
+        <span class="text-gray-600 text-xs">5日量比 &lt; 0.8　且　委買比 &gt; 0.8</span>
+        <span class="ml-auto text-xs text-gray-600">{{ limitSqueezeList3.length }} 支</span>
+      </div>
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="border-b border-gray-800 bg-gray-950">
+            <th class="px-3 py-2 text-left text-xs text-gray-500 font-normal">代號／名稱</th>
+            <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">5日均量</th>
+            <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">今日量</th>
+            <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">漲停委買比</th>
+            <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">5日量比</th>
+            <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">漲停委買量</th>
+            <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">連漲停</th>
+            <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">委買可信度</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-if="!limitSqueezeList3.length">
+            <td colspan="8" class="px-3 py-4 text-center text-gray-700 text-xs">目前無符合條件</td>
+          </tr>
+          <tr v-for="r in limitSqueezeList3" :key="r.stockNo"
+              class="border-b border-gray-800/50 hover:bg-gray-800/20 transition cursor-pointer"
+              @click="goToWarrant(r.stockNo)">
+            <td class="px-3 py-2">
+              <div class="flex items-center gap-1">
+                <span class="text-white font-medium hover:text-purple-400 transition">{{ r.stockName }}</span>
+                <span v-if="r.earlyLimitUp" class="text-yellow-300 text-xs" title="開盤一小時內漲停">⚡</span>
+                <span v-if="warrantCoveredSet.has(r.stockNo)" class="text-xs bg-purple-900/60 text-purple-300 px-1 py-0.5 rounded">有證</span>
+              </div>
+              <div class="flex items-center gap-1.5">
+                <span class="text-xs text-gray-500">{{ r.stockNo }}</span>
+                <button v-if="limitSnapshotTimes.length" @click.stop="openBidTimeline(r)" class="text-xs text-blue-600 hover:text-blue-400">時序</button>
+              </div>
+            </td>
+            <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.volMa5?.toLocaleString() ?? r.prevVol?.toLocaleString() ?? '-' }}</td>
+            <td class="px-3 py-2 text-right font-mono text-xs" :class="r.volume >= 100000 ? 'text-rose-400 font-bold' : 'text-gray-400'">{{ r.volume.toLocaleString() }}</td>
+            <td class="px-3 py-2 text-right font-mono text-xs" :class="bidRatioClass(r)">
+              {{ r.limitBidVol && r.volume ? (r.limitBidVol / r.volume).toFixed(2) : '-' }}
+            </td>
+            <td class="px-3 py-2 text-right font-mono text-xs" :class="volRatio5dClass(r)">
+              {{ r.volMa5 ? (r.volume / r.volMa5).toFixed(2) : r.prevVol ? (r.volume / r.prevVol).toFixed(2) : '-' }}
+            </td>
+            <td class="px-3 py-2 text-right font-mono text-xs text-gray-500">{{ r.limitBidVol?.toLocaleString() ?? '-' }}<span v-if="bidWithdrawNote(r)" class="ml-1 text-orange-400 font-bold">⚠{{bidWithdrawNote(r)}}</span></td>
+            <td class="px-3 py-2 text-right font-mono text-xs text-yellow-400">
+              {{ r.limitDays ? r.limitDays + '天' : '-' }}
+            </td>
+            <td class="px-3 py-2 text-right font-mono text-xs">
+              <div>
+                <template v-if="bidCredibilityScore(r) !== null">
+                  <span :class="bidCredibilityScore(r) >= 65 ? 'text-green-400 font-bold' : bidCredibilityScore(r) >= 40 ? 'text-yellow-400' : 'text-red-400'">{{ bidCredibilityScore(r) }}</span><span class="text-gray-600">分</span>
+                </template>
+                <span v-else-if="!r.limitBidVol" class="text-gray-600">－</span>
+                <span v-else class="text-gray-500">待觀察</span>
+              </div>
+              <div v-if="bidRetention(r) !== null" class="text-xs mt-0.5"
+                   :class="bidRetention(r) >= 70 ? 'text-green-600' : bidRetention(r) >= 40 ? 'text-yellow-700' : 'text-red-700'">
+                尾{{ Math.round(bidRetention(r)) }}%
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 量增漲停觀察 第一順位 -->
+    <div class="bg-gray-900 border border-amber-500/40 rounded-xl overflow-hidden">
+      <div class="px-4 py-3 border-b border-amber-500/30 flex items-center gap-2 flex-wrap">
+        <span class="text-amber-300 font-semibold text-sm">★ 量增漲停觀察（主力換手）　第一順位</span>
+        <span class="text-gray-600 text-xs">5日量比 1.5～8x　且　委買比 &gt; 2　且　首至三板</span>
+        <span v-if="moversDate" class="text-xs text-gray-600">（歷史資料）</span>
+        <span class="ml-auto text-xs text-amber-400">{{ volIncreaseLimitList1.length }} 支</span>
+      </div>
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="border-b border-gray-800 bg-gray-950">
+            <th class="px-3 py-2 text-left text-xs text-gray-500 font-normal">代號／名稱</th>
+            <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">5日均量</th>
+            <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">今日量</th>
+            <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">漲停委買比</th>
+            <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">5日量比</th>
+            <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">漲停委買量</th>
+            <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">連漲停</th>
+            <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">委買可信度</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-if="!volIncreaseLimitList1.length">
+            <td colspan="8" class="px-3 py-4 text-center text-gray-700 text-xs">目前無符合條件</td>
+          </tr>
+          <tr v-for="r in volIncreaseLimitList1" :key="r.stockNo"
+              class="border-b border-gray-800/50 bg-amber-900/15 hover:bg-amber-900/25 transition cursor-pointer"
+              @click="goToWarrant(r.stockNo)">
+            <td class="px-3 py-2">
+              <div class="flex items-center gap-1">
+                <span class="text-white font-medium hover:text-purple-400 transition">{{ r.stockName }}</span>
+                <span v-if="r.earlyLimitUp" class="text-yellow-300 text-xs" title="開盤一小時內漲停">⚡</span>
+                <span v-if="warrantCoveredSet.has(r.stockNo)" class="text-xs bg-purple-900/60 text-purple-300 px-1 py-0.5 rounded">有證</span>
+              </div>
+              <div class="flex items-center gap-1.5">
+                <span class="text-xs text-gray-500">{{ r.stockNo }}</span>
+                <button v-if="limitSnapshotTimes.length" @click.stop="openBidTimeline(r)" class="text-xs text-blue-600 hover:text-blue-400">時序</button>
+              </div>
+            </td>
+            <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.volMa5?.toLocaleString() ?? r.prevVol?.toLocaleString() ?? '-' }}</td>
+            <td class="px-3 py-2 text-right font-mono text-xs" :class="r.volume >= 100000 ? 'text-rose-400 font-bold' : 'text-gray-400'">{{ r.volume.toLocaleString() }}</td>
+            <td class="px-3 py-2 text-right font-mono text-xs" :class="bidRatioClass(r)">
+              {{ r.volume ? (r.limitBidVol / r.volume).toFixed(2) : '-' }}
+            </td>
+            <td class="px-3 py-2 text-right font-mono text-xs" :class="volRatio5dClass(r)">
+              {{ r.volMa5 ? (r.volume / r.volMa5).toFixed(2) : r.prevVol ? (r.volume / r.prevVol).toFixed(2) : '-' }}
+            </td>
+            <td class="px-3 py-2 text-right font-mono text-xs text-amber-300">{{ r.limitBidVol?.toLocaleString() ?? '-' }}<span v-if="bidWithdrawNote(r)" class="ml-1 text-orange-400 font-bold">⚠{{bidWithdrawNote(r)}}</span></td>
+            <td class="px-3 py-2 text-right font-mono text-xs text-yellow-400">
+              {{ r.limitDays ? r.limitDays + '天' : '-' }}
+            </td>
+            <td class="px-3 py-2 text-right font-mono text-xs">
+              <div>
+                <template v-if="bidCredibilityScore(r) !== null">
+                  <span :class="bidCredibilityScore(r) >= 65 ? 'text-green-400 font-bold' : bidCredibilityScore(r) >= 40 ? 'text-yellow-400' : 'text-red-400'">{{ bidCredibilityScore(r) }}</span><span class="text-gray-600">分</span>
+                </template>
+                <span v-else-if="!r.limitBidVol" class="text-gray-600">－</span>
+                <span v-else class="text-gray-500">待觀察</span>
+              </div>
+              <div v-if="bidRetention(r) !== null" class="text-xs mt-0.5"
+                   :class="bidRetention(r) >= 70 ? 'text-green-600' : bidRetention(r) >= 40 ? 'text-yellow-700' : 'text-red-700'">
+                尾{{ Math.round(bidRetention(r)) }}%
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 量增漲停觀察 第二順位 -->
+    <div class="bg-gray-900 border border-amber-900/50 rounded-xl overflow-hidden">
+      <div class="px-4 py-3 border-b border-amber-900/40 flex items-center gap-2 flex-wrap">
+        <span class="text-amber-400 font-semibold text-sm">▲ 量增漲停觀察（主力換手）　第二順位</span>
+        <span class="text-gray-600 text-xs">5日量比 1.5～8x　且　委買比 &gt; 1.5　且　連板 ≤ 7</span>
+        <span v-if="moversDate" class="text-xs text-gray-600">（歷史資料）</span>
+        <span class="ml-auto text-xs text-amber-600">{{ volIncreaseLimitList2.length }} 支</span>
+      </div>
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="border-b border-gray-800 bg-gray-950">
+            <th class="px-3 py-2 text-left text-xs text-gray-500 font-normal">代號／名稱</th>
+            <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">5日均量</th>
+            <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">今日量</th>
+            <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">漲停委買比</th>
+            <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">5日量比</th>
+            <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">漲停委買量</th>
+            <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">連漲停</th>
+            <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">委買可信度</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-if="!volIncreaseLimitList2.length">
+            <td colspan="8" class="px-3 py-4 text-center text-gray-700 text-xs">目前無符合條件</td>
+          </tr>
+          <tr v-for="r in volIncreaseLimitList2" :key="r.stockNo"
+              class="border-b border-gray-800/50 bg-amber-900/10 hover:bg-amber-900/20 transition cursor-pointer"
+              @click="goToWarrant(r.stockNo)">
+            <td class="px-3 py-2">
+              <div class="flex items-center gap-1">
+                <span class="text-white font-medium hover:text-purple-400 transition">{{ r.stockName }}</span>
+                <span v-if="r.earlyLimitUp" class="text-yellow-300 text-xs" title="開盤一小時內漲停">⚡</span>
+                <span v-if="warrantCoveredSet.has(r.stockNo)" class="text-xs bg-purple-900/60 text-purple-300 px-1 py-0.5 rounded">有證</span>
+              </div>
+              <div class="flex items-center gap-1.5">
+                <span class="text-xs text-gray-500">{{ r.stockNo }}</span>
+                <button v-if="limitSnapshotTimes.length" @click.stop="openBidTimeline(r)" class="text-xs text-blue-600 hover:text-blue-400">時序</button>
+              </div>
+            </td>
+            <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.volMa5?.toLocaleString() ?? r.prevVol?.toLocaleString() ?? '-' }}</td>
+            <td class="px-3 py-2 text-right font-mono text-xs" :class="r.volume >= 100000 ? 'text-rose-400 font-bold' : 'text-gray-400'">{{ r.volume.toLocaleString() }}</td>
+            <td class="px-3 py-2 text-right font-mono text-xs" :class="bidRatioClass(r)">
+              {{ r.volume ? (r.limitBidVol / r.volume).toFixed(2) : '-' }}
+            </td>
+            <td class="px-3 py-2 text-right font-mono text-xs" :class="volRatio5dClass(r)">
+              {{ r.volMa5 ? (r.volume / r.volMa5).toFixed(2) : r.prevVol ? (r.volume / r.prevVol).toFixed(2) : '-' }}
+            </td>
+            <td class="px-3 py-2 text-right font-mono text-xs text-amber-400">{{ r.limitBidVol?.toLocaleString() ?? '-' }}<span v-if="bidWithdrawNote(r)" class="ml-1 text-orange-400 font-bold">⚠{{bidWithdrawNote(r)}}</span></td>
+            <td class="px-3 py-2 text-right font-mono text-xs text-yellow-400">
+              {{ r.limitDays ? r.limitDays + '天' : '-' }}
+            </td>
+            <td class="px-3 py-2 text-right font-mono text-xs">
+              <div>
+                <template v-if="bidCredibilityScore(r) !== null">
+                  <span :class="bidCredibilityScore(r) >= 65 ? 'text-green-400 font-bold' : bidCredibilityScore(r) >= 40 ? 'text-yellow-400' : 'text-red-400'">{{ bidCredibilityScore(r) }}</span><span class="text-gray-600">分</span>
+                </template>
+                <span v-else-if="!r.limitBidVol" class="text-gray-600">－</span>
+                <span v-else class="text-gray-500">待觀察</span>
+              </div>
+              <div v-if="bidRetention(r) !== null" class="text-xs mt-0.5"
+                   :class="bidRetention(r) >= 70 ? 'text-green-600' : bidRetention(r) >= 40 ? 'text-yellow-700' : 'text-red-700'">
+                尾{{ Math.round(bidRetention(r)) }}%
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 量增漲停觀察 第三順位 -->
+    <div class="bg-gray-900 border border-amber-900/30 rounded-xl overflow-hidden">
+      <div class="px-4 py-3 border-b border-amber-900/20 flex items-center gap-2 flex-wrap">
+        <span class="text-amber-600 font-semibold text-sm">△ 量增漲停觀察（主力換手）　第三順位</span>
+        <span class="text-gray-600 text-xs">5日量比 1.5～8x　且　委買比 &gt; 0.8　且　連板 ≤ 7</span>
+        <span class="ml-auto text-xs text-amber-800">{{ volIncreaseLimitList3.length }} 支</span>
+      </div>
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="border-b border-gray-800 bg-gray-950">
+            <th class="px-3 py-2 text-left text-xs text-gray-500 font-normal">代號／名稱</th>
+            <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">5日均量</th>
+            <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">今日量</th>
+            <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">漲停委買比</th>
+            <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">5日量比</th>
+            <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">漲停委買量</th>
+            <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">連漲停</th>
+            <th class="px-3 py-2 text-right text-xs text-gray-500 font-normal">委買可信度</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-if="!volIncreaseLimitList3.length">
+            <td colspan="8" class="px-3 py-4 text-center text-gray-700 text-xs">目前無符合條件</td>
+          </tr>
+          <tr v-for="r in volIncreaseLimitList3" :key="r.stockNo"
+              class="border-b border-gray-800/50 hover:bg-amber-900/10 transition cursor-pointer"
+              @click="goToWarrant(r.stockNo)">
+            <td class="px-3 py-2">
+              <div class="flex items-center gap-1">
+                <span class="text-white font-medium hover:text-purple-400 transition">{{ r.stockName }}</span>
+                <span v-if="r.earlyLimitUp" class="text-yellow-300 text-xs" title="開盤一小時內漲停">⚡</span>
+                <span v-if="warrantCoveredSet.has(r.stockNo)" class="text-xs bg-purple-900/60 text-purple-300 px-1 py-0.5 rounded">有證</span>
+              </div>
+              <div class="flex items-center gap-1.5">
+                <span class="text-xs text-gray-500">{{ r.stockNo }}</span>
+                <button v-if="limitSnapshotTimes.length" @click.stop="openBidTimeline(r)" class="text-xs text-blue-600 hover:text-blue-400">時序</button>
+              </div>
+            </td>
+            <td class="px-3 py-2 text-right font-mono text-xs text-gray-400">{{ r.volMa5?.toLocaleString() ?? r.prevVol?.toLocaleString() ?? '-' }}</td>
+            <td class="px-3 py-2 text-right font-mono text-xs" :class="r.volume >= 100000 ? 'text-rose-400 font-bold' : 'text-gray-400'">{{ r.volume.toLocaleString() }}</td>
+            <td class="px-3 py-2 text-right font-mono text-xs" :class="bidRatioClass(r)">
+              {{ r.limitBidVol && r.volume ? (r.limitBidVol / r.volume).toFixed(2) : '-' }}
+            </td>
+            <td class="px-3 py-2 text-right font-mono text-xs" :class="volRatio5dClass(r)">
+              {{ r.volMa5 ? (r.volume / r.volMa5).toFixed(2) : r.prevVol ? (r.volume / r.prevVol).toFixed(2) : '-' }}
+            </td>
+            <td class="px-3 py-2 text-right font-mono text-xs text-gray-500">{{ r.limitBidVol?.toLocaleString() ?? '-' }}<span v-if="bidWithdrawNote(r)" class="ml-1 text-orange-400 font-bold">⚠{{bidWithdrawNote(r)}}</span></td>
+            <td class="px-3 py-2 text-right font-mono text-xs text-yellow-400">
+              {{ r.limitDays ? r.limitDays + '天' : '-' }}
+            </td>
+            <td class="px-3 py-2 text-right font-mono text-xs">
+              <div>
+                <template v-if="bidCredibilityScore(r) !== null">
+                  <span :class="bidCredibilityScore(r) >= 65 ? 'text-green-400 font-bold' : bidCredibilityScore(r) >= 40 ? 'text-yellow-400' : 'text-red-400'">{{ bidCredibilityScore(r) }}</span><span class="text-gray-600">分</span>
+                </template>
+                <span v-else-if="!r.limitBidVol" class="text-gray-600">－</span>
+                <span v-else class="text-gray-500">待觀察</span>
+              </div>
+              <div v-if="bidRetention(r) !== null" class="text-xs mt-0.5"
+                   :class="bidRetention(r) >= 70 ? 'text-green-600' : bidRetention(r) >= 40 ? 'text-yellow-700' : 'text-red-700'">
+                尾{{ Math.round(bidRetention(r)) }}%
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 顏色規則說明 -->
+    <div class="bg-gray-900 border border-gray-800 rounded-xl px-4 py-3 text-xs text-gray-400 space-y-2">
+      <div class="font-semibold text-gray-300 mb-1">顏色規則說明</div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-1">
+        <div class="font-semibold text-gray-500 col-span-full">1日量比（今日量 ÷ 昨日量）</div>
+        <div class="flex items-center gap-2"><span class="text-yellow-400 font-bold">■ 黃色粗體</span><span>≥ 2　爆量</span></div>
+        <div class="flex items-center gap-2"><span class="text-gray-400">■ 灰色</span><span>0.7 ～ 2　正常</span></div>
+        <div class="flex items-center gap-2"><span class="text-red-400 font-bold">■ 紅色粗體</span><span>0.5 ～ 0.7　縮量</span></div>
+        <div class="flex items-center gap-2"><span class="text-purple-400 font-bold">■ 紫色粗體</span><span>&lt; 0.5　極度縮量</span></div>
+        <div class="font-semibold text-gray-500 col-span-full mt-1">5日量比（今日量 ÷ 5日均量）</div>
+        <div class="flex items-center gap-2"><span class="text-yellow-400 font-bold">■ 黃色粗體</span><span>≥ 2　爆量</span></div>
+        <div class="flex items-center gap-2"><span class="text-gray-400">■ 灰色</span><span>0.5 ～ 2　正常</span></div>
+        <div class="flex items-center gap-2"><span class="text-orange-400 font-bold">■ 橘色粗體</span><span>&lt; 0.5　縮量</span></div>
+        <div class="font-semibold text-gray-500 col-span-full mt-1">今日成交量欄顏色</div>
+        <div class="flex items-center gap-2"><span class="text-rose-400 font-bold">■ 玫瑰色粗體</span><span>≥ 10萬張　超大量，市場高度關注，籌碼流動快、主力動向值得追蹤</span></div>
+        <div class="flex items-center gap-2"><span class="text-red-300">■ 淡紅色</span><span>有漲停委買且比值 &gt; 1.6　強力護盤訊號</span></div>
+        <div class="flex items-center gap-2"><span class="text-gray-400">■ 灰色</span><span>一般成交量</span></div>
+        <div class="font-semibold text-gray-500 col-span-full mt-1">列背景</div>
+        <div class="flex items-center gap-2"><span class="px-2 py-0.5 rounded bg-red-900/40 text-red-300">紅底（主力換手）</span><span>符合量增漲停觀察第一或第二順位</span></div>
+        <div class="flex items-center gap-2"><span class="px-2 py-0.5 rounded bg-blue-900/40 text-blue-300">藍底（量縮漲停）</span><span>符合量縮漲停觀察第一、二或三順位</span></div>
+        <div class="font-semibold text-gray-500 col-span-full mt-1">股名旁徽章</div>
+        <div class="flex items-center gap-2"><span class="text-yellow-300 text-xs">⚡</span><span>開盤後一小時內（09:00–10:00）即達漲停，強勢訊號</span></div>
+        <div class="flex items-center gap-2"><span class="px-1 py-0.5 rounded bg-purple-900/60 text-purple-300 text-xs">有證</span><span>該股今日仍有券商發行的有效權證（認購或認售），點擊可直接跳至權證查詢頁</span></div>
+
+        <div class="font-semibold text-gray-500 col-span-full mt-2">量縮漲停觀察區（籌碼集中、惜售）</div>
+        <div class="text-gray-600 col-span-full text-xs mb-0.5">
+          共同前提：漲停（漲幅 ≥ 9.5%）＋ 成交量 ≥ 50張 ＋ 外盤量 &gt; 內盤量（無資料略過）<br>
+          量比基準：<b class="text-gray-400">5日均量</b>（前5個交易日平均成交量）；無5日資料時退用昨日量<br>
+          邏輯：量縮 → 籌碼集中、市場惜售；委買比高 → 仍有大量資金排隊，隔日續漲機率高
+        </div>
+        <div class="flex items-center gap-2 col-span-full"><span class="text-blue-300 font-bold">★ 第一順位</span><span>5日量比 &lt; 0.5 且 漲停委買比 &gt; 1.7　→ 極度縮量＋強力護盤；同順位按連板 DESC 排列</span></div>
+        <div class="flex items-center gap-2 col-span-full"><span class="text-blue-400">▲ 第二順位</span><span>5日量比 &lt; 0.7 且 漲停委買比 &gt; 1.5　→ 縮量＋明顯護盤（不與一重複）；同順位按連板 DESC 排列</span></div>
+        <div class="flex items-center gap-2 col-span-full"><span class="text-gray-400">△ 第三順位</span><span>5日量比 &lt; 0.8 且 漲停委買比 &gt; 0.8　→ 縮量觀察（不與一、二重複）；同順位按連板 DESC 排列</span></div>
+
+        <div class="font-semibold text-gray-500 col-span-full mt-2">量增漲停觀察區（主力換手）</div>
+        <div class="text-gray-600 col-span-full text-xs mb-0.5">
+          共同前提：漲停（漲幅 ≥ 9.5%）＋ 5日量比 1.5～8x ＋ 成交量 ≥ 50張 ＋ 外盤量 &gt; 內盤量（無資料略過）<br>
+          量比上限 8x：超過8倍多為散戶追買或炒作，排除；1.5～8x 為主力積極換手的合理區間<br>
+          邏輯：量增說明主力在積極建倉或換手；委買比高說明漲停後仍有資金護盤意願<br>
+          連板分層：<b class="text-gray-400">首板（首次漲停）</b>量增最值得關注；<b class="text-gray-400">二、三板</b>仍可追蹤；四板以上退入第二以下順位；第二/三順位另設連板上限 ≤ 7（第八板以上多為過度延伸，排除）
+        </div>
+        <div class="flex items-center gap-2 col-span-full"><span class="text-amber-300 font-bold">★ 第一順位</span><span>5日量比 1.5～8x 且 委買比 &gt; 2 且 首至三板　→ 最佳換手訊號；同順位按量比 DESC 排列</span></div>
+        <div class="flex items-center gap-2 col-span-full"><span class="text-amber-400">▲ 第二順位</span><span>5日量比 1.5～8x 且 委買比 &gt; 1.5 且連板 ≤ 7　→ 換手充分（不與一重複）；同順位按量比 DESC 排列</span></div>
+        <div class="flex items-center gap-2 col-span-full"><span class="text-amber-600">△ 第三順位</span><span>5日量比 1.5～8x 且 委買比 &gt; 0.8 且連板 ≤ 7　→ 量增觀察（不與一、二重複）；同順位按量比 DESC 排列</span></div>
+
+        <div class="font-semibold text-gray-500 col-span-full mt-2">委買可信度（假掛單過濾）</div>
+        <div class="text-gray-600 col-span-full text-xs mb-0.5">
+          假掛單手法：主力先掛出大量委買造成護盤假象，待散戶追價後悄悄撤單。<br>
+          系統每 30 分鐘對所有漲停股拍攝委買快照，並以三項指標判斷委買真實性：
+        </div>
+        <div class="flex items-start gap-2 col-span-full">
+          <span class="text-green-400 font-bold whitespace-nowrap">① 快照持續性</span>
+          <span>委買需在 ≥ 2 次快照中出現（間距 30 分鐘）。快照不足時不排除個股，改以「待觀察」標示，等第二次快照完成後才能正式判斷。</span>
+        </div>
+        <div class="flex items-start gap-2 col-span-full">
+          <span class="text-green-400 font-bold whitespace-nowrap">② 委買穩定性</span>
+          <span>各快照的平均委買量 ÷ 最大委買量 ≥ 0.25。假掛單通常「早盤衝高、盤中撤掉」，使平均值遠低於峰值；真實護盤則全天穩定。</span>
+        </div>
+        <div class="flex items-start gap-2 col-span-full">
+          <span class="text-green-400 font-bold whitespace-nowrap">③ 收盤前委買</span>
+          <span>若未漲停收盤，收盤快照委買量必須 &gt; 0；否則代表委買在收盤前被撤走（假掛單最常見的收尾方式）。</span>
+        </div>
+        <div class="flex items-center gap-2 col-span-full mt-0.5">
+          <span class="text-green-400">●高</span><span>三項全通過（快照 ≥ 3、穩定性 ≥ 0.5、收盤有委買）</span>
+        </div>
+        <div class="flex items-center gap-2 col-span-full">
+          <span class="text-yellow-400">●中</span><span>快照 ≥ 2 且穩定性 ≥ 0.25（收盤資料待確認）</span>
+        </div>
+        <div class="flex items-center gap-2 col-span-full">
+          <span class="text-red-400">●低</span><span>快照 ≥ 2 但穩定性不足或收盤委買已撤（疑似假掛單）</span>
+        </div>
+        <div class="flex items-center gap-2 col-span-full">
+          <span class="text-gray-500">●待觀察</span><span>僅有 1 次快照，資料不足以判斷真假，等待第二次快照（約 30 分鐘後）</span>
+        </div>
+        <div class="flex items-center gap-2 col-span-full">
+          <span class="text-gray-600">－</span><span>無快照資料（歷史資料，或委買量為 0）</span>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- end 量縮/增鎖漲停 -->
+
   <!-- ══ 半路突破 ══════════════════════════════════════════ -->
   <div v-if="tab === 'breakthrough'" class="max-w-7xl mx-auto px-4 py-6 space-y-4">
 
@@ -6376,12 +6407,80 @@ async function btSyncOhlcv() {
     <!-- 同步訊息 -->
     <div v-if="btSyncMsg" class="text-sm px-3 py-2 rounded-lg bg-gray-800 text-gray-300">{{ btSyncMsg }}</div>
 
+    <!-- 策略說明 -->
+    <div class="bg-gray-900 border border-gray-800 rounded-xl px-5 py-4 space-y-4 text-sm">
+      <div class="flex items-center gap-2">
+        <span class="text-gray-200 font-semibold">策略說明</span>
+        <span class="text-xs text-gray-600">盤中掃描 · 每 30 秒更新</span>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+
+        <!-- 架構 -->
+        <div class="space-y-2">
+          <div class="text-xs font-semibold text-purple-400 uppercase tracking-wider">系統架構</div>
+          <ul class="space-y-1.5 text-gray-400 text-xs leading-relaxed">
+            <li class="flex gap-2"><span class="text-gray-600 shrink-0">•</span>富邦 API snapshot 取得全市場即時快照</li>
+            <li class="flex gap-2"><span class="text-gray-600 shrink-0">•</span>每 30 秒掃描全市場，篩出符合條件個股</li>
+            <li class="flex gap-2"><span class="text-gray-600 shrink-0">•</span>AI 評分 0–100，分數 ≥ 70 自動發 Telegram</li>
+            <li class="flex gap-2"><span class="text-gray-600 shrink-0">•</span>歷史日K / 籌碼資料存 PostgreSQL，供評分與回測</li>
+          </ul>
+        </div>
+
+        <!-- 策略核心 -->
+        <div class="space-y-2">
+          <div class="text-xs font-semibold text-cyan-400 uppercase tracking-wider">策略核心</div>
+          <ul class="space-y-1.5 text-gray-400 text-xs leading-relaxed">
+            <li class="flex gap-2"><span class="text-gray-600 shrink-0">•</span><span><span class="text-gray-200">低位整理</span>：距 120 日低點 ≤ 25%，底部盤整</span></li>
+            <li class="flex gap-2"><span class="text-gray-600 shrink-0">•</span><span><span class="text-gray-200">半路突破</span>：10:00 後發動，漲幅 3–7%，量能放大</span></li>
+            <li class="flex gap-2"><span class="text-gray-600 shrink-0">•</span><span>攻擊型波段：非漲停追，是盤整後「剛突破」的起漲點</span></li>
+            <li class="flex gap-2"><span class="text-gray-600 shrink-0">•</span><span>籌碼加分：外資 / 投信近 3 日買超同步強化信心</span></li>
+          </ul>
+        </div>
+
+        <!-- 條件設計 -->
+        <div class="space-y-2">
+          <div class="text-xs font-semibold text-yellow-400 uppercase tracking-wider">條件設計</div>
+          <div class="space-y-2 text-xs">
+            <div class="space-y-1">
+              <div class="text-gray-300">進場條件（需全滿足）</div>
+              <ul class="space-y-1 text-gray-400 pl-2">
+                <li>距 120 日低點 ≤ 25%、量縮整理</li>
+                <li>漲幅 3–7%，突破日高、站上 VWAP</li>
+                <li>5 分鐘量 ≥ 前段 1.5 倍</li>
+              </ul>
+            </div>
+            <div class="space-y-1">
+              <div class="text-gray-300">排除條件（假突破過濾）</div>
+              <ul class="space-y-1 text-gray-400 pl-2">
+                <li>爆量（≥ 20 日均量 5 倍）</li>
+                <li>9:10 前急拉（開盤洗盤）</li>
+                <li>賣壓過重（ask 量 ≥ bid 量 2 倍）</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- AI 評分說明 -->
+      <div class="pt-2 border-t border-gray-800 flex flex-wrap gap-x-6 gap-y-1 text-xs text-gray-500">
+        <span>AI 評分 = <span class="text-gray-300">技術(0–40)</span> + <span class="text-gray-300">動能(0–40)</span> + <span class="text-gray-300">籌碼(0–20)</span></span>
+        <span><span class="text-red-400">■</span> ≥80 強烈訊號</span>
+        <span><span class="text-orange-400">■</span> ≥65 值得關注</span>
+        <span><span class="text-yellow-400">■</span> ≥50 觀察中</span>
+        <span><span class="text-gray-400">■</span> &lt;50 未達標</span>
+      </div>
+    </div>
+
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
       <!-- 左：即時掃描結果 -->
       <div class="space-y-3">
-        <h3 class="text-sm font-medium text-gray-400">即時掃描結果</h3>
-        <div v-if="!btResults.length" class="text-sm text-gray-600 py-8 text-center">尚無掃描結果（盤中自動更新）</div>
-        <div v-for="item in btResults" :key="item.symbol + item.scan_time"
+        <div class="flex items-center gap-2">
+          <h3 class="text-sm font-medium text-gray-400">即時掃描結果</h3>
+          <span v-if="!btResults.length && btHistory.length" class="text-xs text-gray-600">（顯示今日歷史紀錄）</span>
+        </div>
+        <div v-if="!btResults.length && !btHistory.length" class="text-sm text-gray-600 py-8 text-center">尚無掃描結果（盤中自動更新）</div>
+        <div v-for="item in (btResults.length ? btResults : btHistory)" :key="item.symbol + item.scan_time"
              @click="btSelectStock(item)"
              class="cursor-pointer border rounded-xl px-4 py-3 space-y-2 transition hover:brightness-110"
              :class="[btScoreBg(item.ai_score), btSelected?.symbol === item.symbol ? 'ring-1 ring-purple-500' : '']">
