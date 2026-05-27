@@ -4332,7 +4332,9 @@ const _moversCache = { data: null, ts: 0, lastGoodData: null, fetchInProgress: f
 function getMoversCacheTTL() {
   const tw = new Date(Date.now() + 8 * 3600000)
   const m = tw.getUTCHours() * 60 + tw.getUTCMinutes()
-  return (m >= 9 * 60 && m < 13 * 60 + 30) ? 30 * 1000 : 60 * 1000
+  if (m >= 8 * 60 + 50 && m < 9 * 60 + 30) return 8 * 1000   // 開盤衝鋒：8 秒
+  if (m >= 9 * 60 + 30 && m < 13 * 60 + 30) return 15 * 1000  // 盤中：15 秒
+  return 60 * 1000  // 盤後/盤前：60 秒
 }
 
 async function saveCloseSnapshot(dateStr, isClose = true) {
@@ -4829,7 +4831,8 @@ app.get('/api/market/movers', async (req, res) => {
 
   // ── 今日即時：TWSE MIS ───────────────────────────────
   const now = Date.now()
-  if (_moversCache.data && now - _moversCache.ts < getMoversCacheTTL()) {
+  const forceRefresh = req.query.force === '1'
+  if (!forceRefresh && _moversCache.data && now - _moversCache.ts < getMoversCacheTTL()) {
     const { gainers, losers, total, updatedAt } = _moversCache.data
     return res.json({ gainers: gainers.slice(0, limit), losers: losers.slice(0, limit), total, updatedAt, realtime: true, cached: true })
   }

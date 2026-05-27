@@ -677,11 +677,12 @@ async function fetchMoversDates() {
 
 const moversMisEmpty = ref(false)
 
-async function fetchMovers() {
+async function fetchMovers(opts = {}) {
   moversLoading.value = true
   moversError.value   = ''
   try {
-    const qs = moversDate.value ? `?date=${moversDate.value}&limit=200` : '?limit=200'
+    let qs = moversDate.value ? `?date=${moversDate.value}&limit=200` : '?limit=200'
+    if (opts.force) qs += '&force=1'
     const r = await fetch(`${API}/api/market/movers${qs}`)
     const d = await r.json()
     if (d.error) throw new Error(d.error)
@@ -742,7 +743,7 @@ function startMoversAutoRefresh() {
   clearTimeout(moversTimer)
   moversTimer = null
   fetchMoversDates()
-  fetchMovers()
+  fetchMovers({ force: true })
   fetchLimitSnapshots()
   scheduleNextMovers()
 }
