@@ -7017,62 +7017,148 @@ app.get('/api/strong-weak-stocks', async (req, res) => {
 })
 
 // ── 籌碼分析 ──────────────────────────────────────────────────────
+// 以 T86 + MI_MARGN 為資料源；依日期快取整份全市場資料，供任意個股查詢
+
+const _chipT86Cache    = {}  // { 'YYYYMMDD': Map<stockNo, {foreign,trust,dealer,net}> }
+const _chipMarginCache = {}  // { 'YYYYMMDD': Map<stockNo, balance> }
+const _chipCloseCache  = {}  // { 'YYYYMMDD': Map<stockNo, close> }
+let   _chipDates       = null
+let   _chipDatesTs     = 0
+
+async function _chipGetDates() {
+  if (_chipDates && Date.now() - _chipDatesTs < 3600000) return _chipDates
+  const { rows } = await pool.query(
+    `SELECT DISTINCT trade_date FROM market_daily WHERE exchange='TWSE'
+     ORDER BY trade_date DESC LIMIT 15`
+  )
+  _chipDates  = rows.map(r => r.trade_date.toISOString().slice(0, 10).replace(/-/g, ''))
+  _chipDatesTs = Date.now()
+  return _chipDates
+}
+
+function _chipTodayStr() {
+  const tw = new Date(Date.now() + 8 * 3600000)
+  return `${tw.getUTCFullYear()}${String(tw.getUTCMonth()+1).padStart(2,'0')}${String(tw.getUTCDate()).padStart(2,'0')}`
+}
+
+async function _chipFetchT86(dateStr) {
+  if (_chipT86Cache[dateStr]) return _chipT86Cache[dateStr]
+  const nv = s => +(s?.toString().replace(/,/g,'') || 0)
+  const map = new Map()
+  try {
+    const data = await fetchUrl(
+      `https://www.twse.com.tw/rwd/zh/fund/T86?date=${dateStr}&selectType=ALLBUT0999&response=json`
+    )
+    for (const row of data.data || []) {
+      map.set(row[0], { foreign: nv(row[4]), trust: nv(row[10]), dealer: nv(row[11]), net: nv(row[4])+nv(row[10])+nv(row[11]) })
+    }
+  } catch (e) { console.error(`[chip T86] ${dateStr}:`, e.message) }
+  if (map.size > 0 || dateStr !== _chipTodayStr()) _chipT86Cache[dateStr] = map
+  return map
+}
+
+async function _chipFetchMargin(dateStr) {
+  if (_chipMarginCache[dateStr]) return _chipMarginCache[dateStr]
+  const nv = s => +(s?.toString().replace(/,/g,'') || 0)
+  const map = new Map()
+  try {
+    const data = await fetchUrl(
+      `https://www.twse.com.tw/rwd/zh/marginTrading/MI_MARGN?date=${dateStr}&selectType=STOCK&response=json`
+    )
+    for (const row of data.tables?.[1]?.data || []) map.set(row[0], nv(row[6]))
+  } catch (e) { /* skip */ }
+  try {
+    const dt = new Date(`${dateStr.slice(0,4)}-${dateStr.slice(4,6)}-${dateStr.slice(6,8)}`)
+    const minguo = dt.getUTCFullYear()-1911, mm = dateStr.slice(4,6), dd = dateStr.slice(6,8)
+    const data = await fetchUrl(
+      `https://www.tpex.org.tw/web/stock/margin_trading/margin_balance/margin_bal_result.php?l=zh-tw&o=json&d=${minguo}/${mm}/${dd}`
+    )
+    for (const row of data.tables?.[0]?.data || []) map.set(row[0], nv(row[6]))
+  } catch (e) { /* skip */ }
+  if (map.size > 0 || dateStr !== _chipTodayStr()) _chipMarginCache[dateStr] = map
+  return map
+}
+
+async function _chipFetchClose(dateStr) {
+  if (_chipCloseCache[dateStr]) return _chipCloseCache[dateStr]
+  const nv = s => +(s?.toString().replace(/,/g,'') || 0)
+  const map = new Map()
+  try {
+    const data = await fetchUrl(
+      `https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX?date=${dateStr}&type=ALLBUT0999&response=json`
+    )
+    for (const row of data.data9 || []) map.set(row[0], nv(row[8]))
+  } catch (e) { /* skip */ }
+  if (map.size > 0 || dateStr !== _chipTodayStr()) _chipCloseCache[dateStr] = map
+  return map
+}
+
 app.get('/api/chip/:stockNo', async (req, res) => {
   const { stockNo } = req.params
   try {
-    const [{ rows }, { rows: concRows }] = await Promise.all([
-      pool.query(`
-        SELECT trade_date, stock_name, inst_foreign, inst_trust, inst_dealer,
-               major_net, margin_balance, close_price, total_volume
-        FROM daily_summary
-        WHERE stock_no=$1 AND trade_date >= NOW() - INTERVAL '40 days'
-        ORDER BY trade_date DESC
-        LIMIT 15
-      `, [stockNo]),
-      pool.query(`
-        SELECT stock_name, large_pct, large_count, total_shares, data_date
-        FROM concentration WHERE stock_no=$1
-        ORDER BY data_date DESC LIMIT 1
-      `, [stockNo]),
+    const [dates, { rows: concRows }, { rows: nameRows }] = await Promise.all([
+      _chipGetDates(),
+      pool.query(
+        `SELECT stock_name, large_pct, large_count, total_shares, data_date
+         FROM concentration WHERE stock_no=$1 ORDER BY data_date DESC LIMIT 1`, [stockNo]
+      ),
+      pool.query(
+        `SELECT DISTINCT stock_name FROM market_daily WHERE stock_no=$1 AND stock_name IS NOT NULL LIMIT 1`, [stockNo]
+      ),
     ])
 
-    if (!rows.length) return res.status(404).json({ error: '查無資料，請確認股票代號' })
+    // 並行抓最近 10 個交易日的 T86 + 融資（close 可選）
+    const targetDates = dates.slice(0, 10)
+    const [t86Maps, marginMaps, closeMaps] = await Promise.all([
+      Promise.all(targetDates.map(_chipFetchT86)),
+      Promise.all(targetDates.map(_chipFetchMargin)),
+      Promise.all(targetDates.map(_chipFetchClose)),
+    ])
 
-    const stockName = rows[0].stock_name || concRows[0]?.stock_name || stockNo
+    // 組裝每日資料（最新在前）
+    const dailyRows = targetDates.map((dateStr, i) => {
+      const inst   = t86Maps[i].get(stockNo)
+      const margin = marginMaps[i].get(stockNo) ?? null
+      const close  = closeMaps[i].get(stockNo) ?? null
+      return { dateStr, inst, margin, close }
+    }).filter(r => r.inst || r.margin !== null)
+
+    if (!dailyRows.length) return res.status(404).json({ error: '查無資料，請確認股票代號（僅支援上市股票）' })
+
+    const stockName = concRows[0]?.stock_name || nameRows[0]?.stock_name || stockNo
 
     function sumInst(n) {
-      const s = rows.slice(0, Math.min(n, rows.length))
+      const s = dailyRows.slice(0, Math.min(n, dailyRows.length)).filter(r => r.inst)
       return {
-        foreign: s.reduce((a, r) => a + (Number(r.inst_foreign) || 0), 0),
-        trust:   s.reduce((a, r) => a + (Number(r.inst_trust)   || 0), 0),
-        dealer:  s.reduce((a, r) => a + (Number(r.inst_dealer)  || 0), 0),
-        net:     s.reduce((a, r) => a + (Number(r.major_net)    || 0), 0),
-        days: s.length,
+        foreign: s.reduce((a, r) => a + r.inst.foreign, 0),
+        trust:   s.reduce((a, r) => a + r.inst.trust,   0),
+        dealer:  s.reduce((a, r) => a + r.inst.dealer,  0),
+        net:     s.reduce((a, r) => a + r.inst.net,     0),
+        days:    s.length,
       }
     }
 
-    const mr = rows.filter(r => r.margin_balance != null)
+    const mr = dailyRows.filter(r => r.margin != null)
     const margin = {
-      latest: mr[0]?.margin_balance ?? null,
-      latestDate: mr[0]?.trade_date?.toISOString().slice(0, 10) ?? null,
-      change1d:  mr.length >= 2  ? Number(mr[0].margin_balance) - Number(mr[1].margin_balance)  : null,
-      change5d:  mr.length >= 6  ? Number(mr[0].margin_balance) - Number(mr[5].margin_balance)  : null,
-      change10d: mr.length >= 11 ? Number(mr[0].margin_balance) - Number(mr[10].margin_balance) : null,
+      latest:     mr[0]?.margin ?? null,
+      latestDate: mr[0]?.dateStr ? `${mr[0].dateStr.slice(0,4)}-${mr[0].dateStr.slice(4,6)}-${mr[0].dateStr.slice(6,8)}` : null,
+      change1d:   mr.length >= 2  ? mr[0].margin - mr[1].margin  : null,
+      change5d:   mr.length >= 6  ? mr[0].margin - mr[5].margin  : null,
+      change10d:  mr.length >= 11 ? mr[0].margin - mr[10].margin : null,
     }
 
-    const history = rows.slice(0, 10).reverse().map(r => ({
-      date:    r.trade_date.toISOString().slice(0, 10),
-      foreign: Number(r.inst_foreign) || 0,
-      trust:   Number(r.inst_trust)   || 0,
-      dealer:  Number(r.inst_dealer)  || 0,
-      net:     Number(r.major_net)    || 0,
-      margin:  r.margin_balance != null ? Number(r.margin_balance) : null,
-      close:   r.close_price != null ? Number(r.close_price) : null,
+    const history = dailyRows.slice(0, 10).reverse().map(r => ({
+      date:    `${r.dateStr.slice(0,4)}-${r.dateStr.slice(4,6)}-${r.dateStr.slice(6,8)}`,
+      foreign: r.inst?.foreign ?? 0,
+      trust:   r.inst?.trust   ?? 0,
+      dealer:  r.inst?.dealer  ?? 0,
+      net:     r.inst?.net     ?? 0,
+      margin:  r.margin,
+      close:   r.close,
     }))
 
     res.json({
-      stockNo,
-      stockName,
+      stockNo, stockName,
       institutional: { '1d': sumInst(1), '3d': sumInst(3), '5d': sumInst(5), '10d': sumInst(10) },
       margin,
       concentration: concRows[0] ? {
@@ -7082,7 +7168,7 @@ app.get('/api/chip/:stockNo', async (req, res) => {
         dataDate:    concRows[0].data_date?.toISOString().slice(0, 10),
       } : null,
       history,
-      latestDate: rows[0].trade_date.toISOString().slice(0, 10),
+      latestDate: `${targetDates[0].slice(0,4)}-${targetDates[0].slice(4,6)}-${targetDates[0].slice(6,8)}`,
     })
   } catch (e) {
     console.error('[chip]', e.message)
