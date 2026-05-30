@@ -7016,6 +7016,80 @@ app.get('/api/strong-weak-stocks', async (req, res) => {
   }
 })
 
+// ── 籌碼分析 ──────────────────────────────────────────────────────
+app.get('/api/chip/:stockNo', async (req, res) => {
+  const { stockNo } = req.params
+  try {
+    const [{ rows }, { rows: concRows }] = await Promise.all([
+      pool.query(`
+        SELECT trade_date, stock_name, inst_foreign, inst_trust, inst_dealer,
+               major_net, margin_balance, close_price, total_volume
+        FROM daily_summary
+        WHERE stock_no=$1 AND trade_date >= NOW() - INTERVAL '40 days'
+        ORDER BY trade_date DESC
+        LIMIT 15
+      `, [stockNo]),
+      pool.query(`
+        SELECT stock_name, large_pct, large_count, total_shares, data_date
+        FROM concentration WHERE stock_no=$1
+        ORDER BY data_date DESC LIMIT 1
+      `, [stockNo]),
+    ])
+
+    if (!rows.length) return res.status(404).json({ error: '查無資料，請確認股票代號' })
+
+    const stockName = rows[0].stock_name || concRows[0]?.stock_name || stockNo
+
+    function sumInst(n) {
+      const s = rows.slice(0, Math.min(n, rows.length))
+      return {
+        foreign: s.reduce((a, r) => a + (Number(r.inst_foreign) || 0), 0),
+        trust:   s.reduce((a, r) => a + (Number(r.inst_trust)   || 0), 0),
+        dealer:  s.reduce((a, r) => a + (Number(r.inst_dealer)  || 0), 0),
+        net:     s.reduce((a, r) => a + (Number(r.major_net)    || 0), 0),
+        days: s.length,
+      }
+    }
+
+    const mr = rows.filter(r => r.margin_balance != null)
+    const margin = {
+      latest: mr[0]?.margin_balance ?? null,
+      latestDate: mr[0]?.trade_date?.toISOString().slice(0, 10) ?? null,
+      change1d:  mr.length >= 2  ? Number(mr[0].margin_balance) - Number(mr[1].margin_balance)  : null,
+      change5d:  mr.length >= 6  ? Number(mr[0].margin_balance) - Number(mr[5].margin_balance)  : null,
+      change10d: mr.length >= 11 ? Number(mr[0].margin_balance) - Number(mr[10].margin_balance) : null,
+    }
+
+    const history = rows.slice(0, 10).reverse().map(r => ({
+      date:    r.trade_date.toISOString().slice(0, 10),
+      foreign: Number(r.inst_foreign) || 0,
+      trust:   Number(r.inst_trust)   || 0,
+      dealer:  Number(r.inst_dealer)  || 0,
+      net:     Number(r.major_net)    || 0,
+      margin:  r.margin_balance != null ? Number(r.margin_balance) : null,
+      close:   r.close_price != null ? Number(r.close_price) : null,
+    }))
+
+    res.json({
+      stockNo,
+      stockName,
+      institutional: { '1d': sumInst(1), '3d': sumInst(3), '5d': sumInst(5), '10d': sumInst(10) },
+      margin,
+      concentration: concRows[0] ? {
+        largePct:    Number(concRows[0].large_pct),
+        largeCount:  concRows[0].large_count,
+        totalShares: concRows[0].total_shares,
+        dataDate:    concRows[0].data_date?.toISOString().slice(0, 10),
+      } : null,
+      history,
+      latestDate: rows[0].trade_date.toISOString().slice(0, 10),
+    })
+  } catch (e) {
+    console.error('[chip]', e.message)
+    res.status(500).json({ error: e.message })
+  }
+})
+
 // ══════════════════════════════════════════════════════════════════
 
 const PORT = process.env.PORT || 3000

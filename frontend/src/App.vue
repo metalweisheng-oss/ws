@@ -361,6 +361,42 @@ const warrantStockName = ref('')
 const warrantSortCol   = ref('volume')
 const warrantSortDesc  = ref(true)
 
+// ── 籌碼 ──
+const chipStockNo   = ref('')
+const chipLoading   = ref(false)
+const chipError     = ref('')
+const chipData      = ref(null)
+
+async function fetchChip() {
+  const no = chipStockNo.value.trim()
+  if (!no) return
+  chipLoading.value = true
+  chipError.value   = ''
+  chipData.value    = null
+  try {
+    const r = await fetch(`${API}/api/chip/${encodeURIComponent(no)}`)
+    const d = await r.json()
+    if (!r.ok) throw new Error(d.error || '查詢失敗')
+    chipData.value = d
+  } catch(e) {
+    chipError.value = e.message
+  } finally {
+    chipLoading.value = false
+  }
+}
+
+function chipFmt(v) {
+  if (v == null) return '—'
+  const abs = Math.abs(v)
+  const s = abs >= 10000 ? (abs / 10000).toFixed(1) + '萬' : abs.toLocaleString()
+  return (v > 0 ? '+' : v < 0 ? '-' : '') + s
+}
+
+function chipColor(v) {
+  if (v == null || v === 0) return 'text-gray-400'
+  return v > 0 ? 'text-red-400' : 'text-green-400'
+}
+
 async function searchWarrant() {
   if (!warrantStockNo.value.trim()) return
   warrantLoading.value = true
@@ -2320,7 +2356,7 @@ async function btSyncOhlcv() {
 
     <!-- 分頁切換 -->
     <div ref="navbarRef" class="border-b border-gray-800 px-6 flex gap-1">
-      <button v-for="t in [{ id:'changelog', label:'修正公告' }, { id:'movers', label:'漲跌排行' }, { id:'squeeze', label:'量縮/增鎖漲停' }, { id:'contribution', label:'加權貢獻' }, { id:'breakthrough', label:'半路突破' }, { id:'warrant', label:'權證' }, { id:'screener', label:'台股選股' }, { id:'strongweak', label:'漲時看勢跌時看質' }, { id:'sector', label:'強勢族群' }, { id:'inst', label:'三大法人' }, { id:'finance', label:'財務分析' }, { id:'breadth', label:'漲跌家數' }, { id:'disposal', label:'處置股' }, { id:'buyback', label:'庫藏股' }, { id:'monitor', label:'即時監控' }, { id:'report', label:'日報表' }, { id:'db', label:'歷史資料' }, { id:'chips', label:'台指期籌碼' }]" :key="t.id"
+      <button v-for="t in [{ id:'changelog', label:'修正公告' }, { id:'movers', label:'漲跌排行' }, { id:'squeeze', label:'量縮/增鎖漲停' }, { id:'contribution', label:'加權貢獻' }, { id:'breakthrough', label:'半路突破' }, { id:'warrant', label:'權證' }, { id:'chip', label:'籌碼' }, { id:'screener', label:'台股選股' }, { id:'strongweak', label:'漲時看勢跌時看質' }, { id:'sector', label:'強勢族群' }, { id:'inst', label:'三大法人' }, { id:'finance', label:'財務分析' }, { id:'breadth', label:'漲跌家數' }, { id:'disposal', label:'處置股' }, { id:'buyback', label:'庫藏股' }, { id:'monitor', label:'即時監控' }, { id:'report', label:'日報表' }, { id:'db', label:'歷史資料' }, { id:'chips', label:'台指期籌碼' }]" :key="t.id"
               @click="selectTab(t.id)"
               class="px-4 py-3 text-sm font-medium transition border-b-2 -mb-px"
               :class="tab === t.id ? 'border-purple-500 text-purple-400' : 'border-transparent text-gray-500 hover:text-gray-300'">
@@ -4639,6 +4675,145 @@ async function btSyncOhlcv() {
 
       <!-- Loading -->
       <div v-if="warrantLoading" class="text-center py-12 text-gray-500 text-sm">查詢中，請稍候...</div>
+    </div>
+
+    <!-- ══ 籌碼 ══════════════════════════════════════════════ -->
+    <div v-if="tab === 'chip'" class="max-w-3xl mx-auto px-4 py-6 space-y-5">
+
+      <!-- 搜尋列 -->
+      <div class="bg-gray-900 rounded-xl border border-gray-800 px-5 py-4 flex gap-3 items-end">
+        <div>
+          <div class="text-xs text-gray-500 mb-1">股票代號</div>
+          <input v-model="chipStockNo" @keyup.enter="fetchChip" type="text" placeholder="例：2330"
+                 class="w-32 bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-purple-500" />
+        </div>
+        <button @click="fetchChip"
+                class="px-4 py-1.5 bg-purple-600 hover:bg-purple-500 text-white text-sm font-medium rounded-lg transition">
+          查詢
+        </button>
+      </div>
+
+      <!-- Loading -->
+      <div v-if="chipLoading" class="text-center py-10 text-gray-500 text-sm">查詢中...</div>
+
+      <!-- Error -->
+      <div v-if="chipError" class="bg-red-900/30 border border-red-700 rounded-xl px-5 py-3 text-red-300 text-sm">{{ chipError }}</div>
+
+      <!-- 結果 -->
+      <template v-if="chipData">
+        <div class="flex items-baseline gap-3">
+          <span class="text-xl font-bold text-white">{{ chipData.stockName }}</span>
+          <span class="text-gray-500 text-sm">{{ chipData.stockNo }}・資料日期 {{ chipData.latestDate }}</span>
+        </div>
+
+        <!-- 三大法人 -->
+        <div class="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
+          <div class="px-5 py-3 border-b border-gray-800 text-sm font-semibold text-gray-300">三大法人買賣超（張）</div>
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="text-xs text-gray-500 border-b border-gray-800">
+                <th class="px-5 py-2 text-left font-normal">法人</th>
+                <th class="px-4 py-2 text-right font-normal">1日</th>
+                <th class="px-4 py-2 text-right font-normal">3日</th>
+                <th class="px-4 py-2 text-right font-normal">5日</th>
+                <th class="px-4 py-2 text-right font-normal">10日</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="row in [
+                { label:'外資', key:'foreign' },
+                { label:'投信', key:'trust' },
+                { label:'自營商', key:'dealer' },
+                { label:'合計', key:'net' },
+              ]" :key="row.key" class="border-b border-gray-800/50 last:border-0">
+                <td class="px-5 py-2.5 text-gray-300" :class="row.key==='net'?'font-semibold':''">{{ row.label }}</td>
+                <td v-for="d in ['1d','3d','5d','10d']" :key="d" class="px-4 py-2.5 text-right font-mono"
+                    :class="chipColor(chipData.institutional[d][row.key])">
+                  {{ chipFmt(chipData.institutional[d][row.key]) }}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- 融資餘額 -->
+        <div class="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
+          <div class="px-5 py-3 border-b border-gray-800 text-sm font-semibold text-gray-300">融資餘額（張）</div>
+          <div class="px-5 py-4 grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
+            <div>
+              <div class="text-xs text-gray-500 mb-1">目前餘額</div>
+              <div class="text-white font-mono font-semibold">
+                {{ chipData.margin.latest != null ? Number(chipData.margin.latest).toLocaleString() : '—' }}
+              </div>
+              <div class="text-xs text-gray-600 mt-0.5">{{ chipData.margin.latestDate || '' }}</div>
+            </div>
+            <div v-for="[label, key] in [['日增減','change1d'],['5日增減','change5d'],['10日增減','change10d']]" :key="key">
+              <div class="text-xs text-gray-500 mb-1">{{ label }}</div>
+              <div class="font-mono font-semibold" :class="chipColor(chipData.margin[key])">
+                {{ chipFmt(chipData.margin[key]) }}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 集保股東分布 -->
+        <div v-if="chipData.concentration" class="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
+          <div class="px-5 py-3 border-b border-gray-800 text-sm font-semibold text-gray-300">
+            集保大戶持股
+            <span class="text-xs text-gray-600 font-normal ml-2">{{ chipData.concentration.dataDate }}</span>
+          </div>
+          <div class="px-5 py-4 grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm">
+            <div>
+              <div class="text-xs text-gray-500 mb-1">大戶持股比例</div>
+              <div class="text-white font-semibold text-lg">{{ Number(chipData.concentration.largePct).toFixed(2) }}%</div>
+            </div>
+            <div>
+              <div class="text-xs text-gray-500 mb-1">大戶人數</div>
+              <div class="text-white font-semibold">{{ Number(chipData.concentration.largeCount).toLocaleString() }} 人</div>
+            </div>
+            <div>
+              <div class="text-xs text-gray-500 mb-1">流通股數</div>
+              <div class="text-white font-semibold">
+                {{ chipData.concentration.totalShares != null ? (Number(chipData.concentration.totalShares) / 1000).toLocaleString(undefined,{maximumFractionDigits:0}) + ' 張' : '—' }}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 近10日三大法人走勢 -->
+        <div v-if="chipData.history.length" class="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
+          <div class="px-5 py-3 border-b border-gray-800 text-sm font-semibold text-gray-300">近期每日明細（張）</div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-xs">
+              <thead>
+                <tr class="text-gray-500 border-b border-gray-800">
+                  <th class="px-4 py-2 text-left font-normal">日期</th>
+                  <th class="px-3 py-2 text-right font-normal">外資</th>
+                  <th class="px-3 py-2 text-right font-normal">投信</th>
+                  <th class="px-3 py-2 text-right font-normal">自營</th>
+                  <th class="px-3 py-2 text-right font-normal">合計</th>
+                  <th class="px-3 py-2 text-right font-normal">融資餘額</th>
+                  <th class="px-3 py-2 text-right font-normal">收盤</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="row in [...chipData.history].reverse()" :key="row.date"
+                    class="border-b border-gray-800/50 last:border-0 hover:bg-gray-800/30">
+                  <td class="px-4 py-2 text-gray-400">{{ row.date.slice(5) }}</td>
+                  <td class="px-3 py-2 text-right font-mono" :class="chipColor(row.foreign)">{{ chipFmt(row.foreign) }}</td>
+                  <td class="px-3 py-2 text-right font-mono" :class="chipColor(row.trust)">{{ chipFmt(row.trust) }}</td>
+                  <td class="px-3 py-2 text-right font-mono" :class="chipColor(row.dealer)">{{ chipFmt(row.dealer) }}</td>
+                  <td class="px-3 py-2 text-right font-mono font-semibold" :class="chipColor(row.net)">{{ chipFmt(row.net) }}</td>
+                  <td class="px-3 py-2 text-right font-mono text-gray-300">{{ row.margin != null ? Number(row.margin).toLocaleString() : '—' }}</td>
+                  <td class="px-3 py-2 text-right font-mono text-gray-200">{{ row.close != null ? Number(row.close).toFixed(2) : '—' }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <p class="text-xs text-gray-600">資料來源：TWSE T86 / 集保中心。三大法人資料收盤後更新。</p>
+      </template>
     </div>
 
     <!-- ══ 漲跌排行 ══════════════════════════════════════════ -->
