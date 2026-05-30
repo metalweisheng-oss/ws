@@ -7043,14 +7043,15 @@ function _chipTodayStr() {
 
 async function _chipFetchT86(dateStr) {
   if (_chipT86Cache[dateStr]) return _chipT86Cache[dateStr]
-  const nv = s => +(s?.toString().replace(/,/g,'') || 0)
+  const nv = s => Math.round(+(s?.toString().replace(/,/g,'') || 0) / 1000) // shares → 張
   const map = new Map()
   try {
     const data = await fetchUrl(
       `https://www.twse.com.tw/rwd/zh/fund/T86?date=${dateStr}&selectType=ALLBUT0999&response=json`
     )
     for (const row of data.data || []) {
-      map.set(row[0], { foreign: nv(row[4]), trust: nv(row[10]), dealer: nv(row[11]), net: nv(row[4])+nv(row[10])+nv(row[11]) })
+      const f = nv(row[4]), t = nv(row[10]), d = nv(row[11])
+      map.set(row[0], { foreign: f, trust: t, dealer: d, net: f+t+d })
     }
   } catch (e) { console.error(`[chip T86] ${dateStr}:`, e.message) }
   if (map.size > 0 || dateStr !== _chipTodayStr()) _chipT86Cache[dateStr] = map
