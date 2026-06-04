@@ -822,8 +822,8 @@ function passAntiSpoof(r) {
   if (r.innerVol != null && r.outerVol != null && r.innerVol > 0 && r.outerVol <= r.innerVol) return false
   return true
 }
-// 以5日均量為基準；無5日均量時退用前一日量
-function volRef5d(r) { return r.volMa5 || r.prevVol || null }
+// 以5日均量為基準；無5日均量退用3日均量，再退用前一日量
+function volRef5d(r) { return r.volMa5 || r.volMa3 || r.prevVol || null }
 
 // 假掛單四重過濾（僅在有快照資料時生效，歷史資料無資料自動跳過）
 // ① 至少出現 2 次快照（排除一閃而過的假掛）
@@ -972,7 +972,9 @@ const limitSqueezeList3 = computed(() => {
     const ref = volRef5d(r)
     if (!ref || r.volume / ref >= 0.8) return false
     // L3 需有基本鎖倉意願：委買比 > 0.8，或漲停收盤
+    // limitBidVol===0：富邦API委買歸零或無資料，無法判斷鎖倉意願→加入△觀察（最寬鬆層）
     if (r.limitBidVol) return r.limitBidVol / r.volume > 0.8
+    if (r.limitBidVol === 0) return true
     return r.closedLimitUp || false
   }).sort((a, b) => {
     const dDiff = (b.limitDays ?? 0) - (a.limitDays ?? 0)
@@ -1900,6 +1902,25 @@ function signShares(v) {
 function signColor(v) { return +v > 0 ? 'text-red-400' : +v < 0 ? 'text-green-400' : 'text-gray-400' }
 
 const changelog = [
+  {
+    date: '2026-06-05', tag: '修正',
+    items: [
+      '籌碼分頁：修正 TPEX（上櫃）三大法人欄位對應錯誤——原本 row[10] 對到「外資合計淨買」（非投信），row[19] 對到「自營商避險淨買」（非自營合計）；修正為 row[10]=外資合計、row[13]=投信淨買、row[22]=自營商合計淨買，確保上櫃個股三大法人數值正確',
+      '籌碼分頁：修正「三大法人」分頁新增上櫃（TPEX）支援後，針對上市+上櫃股票皆可正確查詢法人籌碼；上市股走 TWSE T86、上櫃股走 TPEX 三大法人 API',
+    ]
+  },
+  {
+    date: '2026-06-02', tag: '修正',
+    items: [
+      '量縮/增鎖漲停觀察名單：處置期間個股名稱旁新增橙色「處」標籤，與漲跌排行榜一致',
+      '權證搜尋：修正上櫃股票用名稱搜尋回傳「找不到」的問題（如「金居」），新增 DB 回查機制，上市上櫃股票名稱搜尋皆可正常找到對應權證',
+      '量縮/增鎖漲停觀察名單：修正 `limitBidVol === 0`（委買全撤）被 JavaScript 當作 falsy 判斷，導致鎖漲停個股（如可成 2474）在委買掛 0 時被排除在三個順位之外；現改為明確判斷 `=== 0` 時亦列入 △ 三順位觀察',
+      '漲跌排行 / 量縮觀察：修正五日均量 `volRef5d` 計算——原本 `volMa5` 為 null 時直接跳到 `prevVol`，新上市股若已有三日資料但不足五日，量比仍顯示為空；現改為 `volMa5 || volMa3 || prevVol`，補充三日均量作為中間 fallback',
+      '量縮/增鎖漲停觀察名單：新增 13:10 / 13:20 兩個快照觸發時間，全天快照時段由 09:30、10:00、10:30、11:00、11:30、13:00、13:30 增補為含 13:10 / 13:20',
+      '後端基礎設施：修正 Fubon Python venv 缺少 `python-dotenv` 套件，導致盤中所有富邦 snapshot_all 呼叫失敗並 fallback 至 TWSE MIS（速度慢且覆蓋度不完整）；安裝後富邦資料流恢復正常',
+      '權證搜尋：修正盤中查詢時溢價率、槓桿、IV、Delta 全部空白的問題——根本原因為程式以「權證掛牌交易所」（多為 OTC）去查「標的股」現價，上市股在 OTC MIS 查不到導致 stockPrice=null；修正後改以標的股自身交易所查詢現價；同時修正同一標的若同時有 TSE 和 OTC 掛牌的權證時，僅查其中一個交易所的 MIS 造成部分權證報價缺失',
+    ]
+  },
   {
     date: '2026-05-31', tag: '新功能',
     items: [
@@ -6129,6 +6150,7 @@ async function btSyncOhlcv() {
                 <span class="text-white font-medium hover:text-purple-400 transition">{{ r.stockName }}</span>
                 <span v-if="r.earlyLimitUp" class="text-yellow-300 text-xs" title="開盤一小時內漲停">⚡</span>
                 <span v-if="warrantCoveredSet.has(r.stockNo)" class="text-xs bg-purple-900/60 text-purple-300 px-1 py-0.5 rounded">有證</span>
+                <span v-if="activeDisposalSet.has(r.stockNo)" class="text-xs bg-orange-900/60 text-orange-300 px-1 py-0.5 rounded font-semibold" title="處置股">處</span>
               </div>
               <div class="flex items-center gap-1.5">
                 <span class="text-xs text-gray-500">{{ r.stockNo }}</span>
@@ -6205,6 +6227,7 @@ async function btSyncOhlcv() {
                 <span class="text-white font-medium hover:text-purple-400 transition">{{ r.stockName }}</span>
                 <span v-if="r.earlyLimitUp" class="text-yellow-300 text-xs" title="開盤一小時內漲停">⚡</span>
                 <span v-if="warrantCoveredSet.has(r.stockNo)" class="text-xs bg-purple-900/60 text-purple-300 px-1 py-0.5 rounded">有證</span>
+                <span v-if="activeDisposalSet.has(r.stockNo)" class="text-xs bg-orange-900/60 text-orange-300 px-1 py-0.5 rounded font-semibold" title="處置股">處</span>
               </div>
               <div class="flex items-center gap-1.5">
                 <span class="text-xs text-gray-500">{{ r.stockNo }}</span>
@@ -6280,6 +6303,7 @@ async function btSyncOhlcv() {
                 <span class="text-white font-medium hover:text-purple-400 transition">{{ r.stockName }}</span>
                 <span v-if="r.earlyLimitUp" class="text-yellow-300 text-xs" title="開盤一小時內漲停">⚡</span>
                 <span v-if="warrantCoveredSet.has(r.stockNo)" class="text-xs bg-purple-900/60 text-purple-300 px-1 py-0.5 rounded">有證</span>
+                <span v-if="activeDisposalSet.has(r.stockNo)" class="text-xs bg-orange-900/60 text-orange-300 px-1 py-0.5 rounded font-semibold" title="處置股">處</span>
               </div>
               <div class="flex items-center gap-1.5">
                 <span class="text-xs text-gray-500">{{ r.stockNo }}</span>
@@ -6349,6 +6373,7 @@ async function btSyncOhlcv() {
                 <span class="text-white font-medium hover:text-purple-400 transition">{{ r.stockName }}</span>
                 <span v-if="r.earlyLimitUp" class="text-yellow-300 text-xs" title="開盤一小時內漲停">⚡</span>
                 <span v-if="warrantCoveredSet.has(r.stockNo)" class="text-xs bg-purple-900/60 text-purple-300 px-1 py-0.5 rounded">有證</span>
+                <span v-if="activeDisposalSet.has(r.stockNo)" class="text-xs bg-orange-900/60 text-orange-300 px-1 py-0.5 rounded font-semibold" title="處置股">處</span>
               </div>
               <div class="flex items-center gap-1.5">
                 <span class="text-xs text-gray-500">{{ r.stockNo }}</span>
@@ -6418,6 +6443,7 @@ async function btSyncOhlcv() {
                 <span class="text-white font-medium hover:text-purple-400 transition">{{ r.stockName }}</span>
                 <span v-if="r.earlyLimitUp" class="text-yellow-300 text-xs" title="開盤一小時內漲停">⚡</span>
                 <span v-if="warrantCoveredSet.has(r.stockNo)" class="text-xs bg-purple-900/60 text-purple-300 px-1 py-0.5 rounded">有證</span>
+                <span v-if="activeDisposalSet.has(r.stockNo)" class="text-xs bg-orange-900/60 text-orange-300 px-1 py-0.5 rounded font-semibold" title="處置股">處</span>
               </div>
               <div class="flex items-center gap-1.5">
                 <span class="text-xs text-gray-500">{{ r.stockNo }}</span>
@@ -6486,6 +6512,7 @@ async function btSyncOhlcv() {
                 <span class="text-white font-medium hover:text-purple-400 transition">{{ r.stockName }}</span>
                 <span v-if="r.earlyLimitUp" class="text-yellow-300 text-xs" title="開盤一小時內漲停">⚡</span>
                 <span v-if="warrantCoveredSet.has(r.stockNo)" class="text-xs bg-purple-900/60 text-purple-300 px-1 py-0.5 rounded">有證</span>
+                <span v-if="activeDisposalSet.has(r.stockNo)" class="text-xs bg-orange-900/60 text-orange-300 px-1 py-0.5 rounded font-semibold" title="處置股">處</span>
               </div>
               <div class="flex items-center gap-1.5">
                 <span class="text-xs text-gray-500">{{ r.stockNo }}</span>

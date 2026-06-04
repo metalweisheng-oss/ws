@@ -1,0 +1,7 @@
+[2026-06-02 09:30:21.892276 +08:00 INFO] [apikey_login] personal_id="D122054524"
+[2026-06-02 09:30:22.006662 +08:00 INFO] API Key account requires certificate validation
+[2026-06-02 09:30:22.034371 +08:00 INFO] [apikey_login] Loaded permissions from XPSAZBIZS: {StockAccounting, MarketData}
+[2026-06-02 09:30:22.449170 +08:00 INFO] [future_option_mapping]: 414.726666ms
+[2026-06-02 09:30:22.477536 +08:00 INFO] [future_option_mapping]: 27.674125ms
+[2026-06-02 09:30:23.673131 +08:00 INFO] [future_option_mapping]: 1.195487792s
+[2026-06-02 09:30:23.748558 +08:00 INFO] [future_option_mapping]: 73.375791ms

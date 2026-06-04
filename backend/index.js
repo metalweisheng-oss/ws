@@ -3799,11 +3799,29 @@ cron.schedule('30 9-12 * * 1-5', async () => {
   catch(e) { console.error(`[limit-watch] ${label} Telegram 失敗:`, e.message) }
 }, { timezone: 'Asia/Taipei' })
 
+// 13:10 / 13:20 額外快照（收盤前衝刺段）
+cron.schedule('10 13 * * 1-5', async () => {
+  const label = '13:10'
+  console.log(`[cron] ${label} 盤中漲停委買快照`)
+  try { await saveCloseSnapshot(null, false) } catch(e) { console.error(`[close-snapshot] ${label} 失敗:`, e.message) }
+  try { await saveLimitWatchSnapshot() } catch(e) { console.error(`[limit-watch] ${label} 快照失敗:`, e.message) }
+  try { await sendSqueezeAlert(`${label} 快照`) } catch(e) { console.error(`[limit-watch] ${label} Telegram 失敗:`, e.message) }
+}, { timezone: 'Asia/Taipei' })
+cron.schedule('20 13 * * 1-5', async () => {
+  const label = '13:20'
+  console.log(`[cron] ${label} 盤中漲停委買快照`)
+  try { await saveCloseSnapshot(null, false) } catch(e) { console.error(`[close-snapshot] ${label} 失敗:`, e.message) }
+  try { await saveLimitWatchSnapshot() } catch(e) { console.error(`[limit-watch] ${label} 快照失敗:`, e.message) }
+  try { await sendSqueezeAlert(`${label} 快照`) } catch(e) { console.error(`[limit-watch] ${label} Telegram 失敗:`, e.message) }
+}, { timezone: 'Asia/Taipei' })
+
 // 13:35 收盤後儲存漲停委買快照（市場 13:30 收盤），標記漲停收盤
 cron.schedule('35 13 * * 1-5', async () => {
   console.log('[cron] 13:35 儲存漲停委買收盤快照')
   try { await saveCloseSnapshot(null, true) }
   catch(e) { console.error('[close-snapshot] 13:35 失敗:', e.message) }
+  try { await saveLimitWatchSnapshot() }
+  catch(e) { console.error('[limit-watch] 13:35 快照失敗:', e.message) }
 }, { timezone: 'Asia/Taipei' })
 
 // ── 量縮漲停觀察名單 Telegram 通知 ────────────────────────
@@ -3812,7 +3830,7 @@ function _passAntiSpoof(r) {
   if (r.innerVol != null && r.outerVol != null && r.innerVol > 0 && r.outerVol <= r.innerVol) return false
   return true
 }
-function _volRef5d(r) { return r.volMa5 || r.prevVol || null }
+function _volRef5d(r) { return r.volMa5 || r.volMa3 || r.prevVol || null }
 function _passAntiFake(r) {
   if (!r.limitBidVol) return true
   // 快照 < 2 時資料不足，放行並由可信度欄位標示「待觀察」
@@ -5792,7 +5810,22 @@ app.get('/api/warrant/search', async (req, res) => {
       if (hit) { resolvedCode = nameToCode[hit]; resolvedName = hit }
     }
 
-    // Not found in TWSE list → query MIS to handle OTC stocks (e.g. 8299 群聯)
+    // Not found in TWSE list → try DB market_daily for OTC stock names (e.g. 金居 8358)
+    if (!resolvedCode) {
+      const dbRes = await pool.query(
+        `SELECT DISTINCT ON (stock_no) stock_no, stock_name, exchange FROM market_daily
+         WHERE stock_name = $1 OR stock_name LIKE $2
+         ORDER BY stock_no, trade_date DESC LIMIT 1`,
+        [input, `%${input}%`]
+      ).catch(() => null)
+      if (dbRes?.rows[0]) {
+        resolvedCode = dbRes.rows[0].stock_no
+        resolvedName = dbRes.rows[0].stock_name
+        if (dbRes.rows[0].exchange === 'otc') exchange = 'otc'
+      }
+    }
+
+    // Not found in TWSE list or DB → query MIS to handle OTC stock codes (e.g. 8299 群聯)
     if (!resolvedCode) {
       const misTse = await fetchMisBatch([input], 5000, 'tse').catch(() => null)
       const misOtc = await fetchMisBatch([input], 5000, 'otc').catch(() => null)
@@ -5830,6 +5863,7 @@ app.get('/api/warrant/search', async (req, res) => {
         : null
       return res.json({ rows: [], stockName, stockCode: resolvedStockNo, total: 0, reason: 'no_active_warrants', latestExpiry })
     }
+    const stockExchange = exchange  // 標的股交易所（TSE/OTC），在此之後不可更動
     exchange = warrants[0]._exchange
 
     // 先按 type 過濾，再查 MIS，減少不必要的網路請求
@@ -5842,13 +5876,18 @@ app.get('/api/warrant/search', async (req, res) => {
 
     const todayStr = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' })
 
-    // Batch-query MIS for warrant prices — all batches in parallel (batch size 100)
-    // 同時並行查歷史 IV 均值，不佔 MIS 等待時間
-    const batches = []
-    for (let i = 0; i < allCodes.length; i += 100) batches.push(allCodes.slice(i, i + 100))
+    // 權證依掛牌交易所分組查 MIS（同一標的可同時有 TSE 和 OTC 掛牌的權證）
+    const tseCodes = filteredWarrants.filter(r => r._exchange === 'tse').map(r => r['權證代號'])
+    const otcCodes = filteredWarrants.filter(r => r._exchange === 'otc').map(r => r['權證代號'])
+    const makeBatches = (codes, ex) => {
+      const out = []
+      for (let i = 0; i < codes.length; i += 100) out.push(fetchMisBatch(codes.slice(i, i+100), 6000, ex).catch(() => null))
+      return out
+    }
+
     const [batchResults, stockMis, ivHistRows] = await Promise.all([
-      Promise.all(batches.map(batch => fetchMisBatch(batch, 6000, exchange).catch(() => null))),
-      fetchMisBatch([resolvedStockNo], 6000, exchange).catch(() => null),
+      Promise.all([...makeBatches(tseCodes, 'tse'), ...makeBatches(otcCodes, 'otc')]),
+      fetchMisBatch([resolvedStockNo], 6000, stockExchange).catch(() => null),  // 用標的股自身交易所查
       allCodes.length ? pool.query(`
         SELECT warrant_no, ROUND(AVG(iv)::numeric, 2) AS avg_iv
         FROM (
@@ -7017,18 +7056,25 @@ app.get('/api/strong-weak-stocks', async (req, res) => {
 })
 
 // ── 籌碼分析 ──────────────────────────────────────────────────────
-// 以 T86 + MI_MARGN 為資料源；依日期快取整份全市場資料，供任意個股查詢
+// 以 T86 / TPEX法人 + MI_MARGN 為資料源；依日期快取整份全市場資料，供任意個股查詢
 
-const _chipT86Cache    = {}  // { 'YYYYMMDD': Map<stockNo, {foreign,trust,dealer,net}> }
-const _chipMarginCache = {}  // { 'YYYYMMDD': Map<stockNo, balance> }
-const _chipCloseCache  = {}  // { 'YYYYMMDD': Map<stockNo, close> }
-let   _chipDates       = null
-let   _chipDatesTs     = 0
+const _chipT86Cache       = {}  // { 'YYYYMMDD': Map<stockNo, {foreign,trust,dealer,net}> }
+const _chipTpexInstCache  = {}  // { 'YYYYMMDD': Map<stockNo, {foreign,trust,dealer,net}> }
+const _chipMarginCache    = {}  // { 'YYYYMMDD': Map<stockNo, balance> }
+const _chipCloseCache     = {}  // { 'YYYYMMDD': Map<stockNo, close> }  (TWSE)
+const _chipTpexCloseCache = {}  // { 'YYYYMMDD': Map<stockNo, close> }  (TPEX)
+let   _chipDates          = null
+let   _chipDatesTs        = 0
+
+function _chipToTpexD(dateStr) {
+  const y = parseInt(dateStr.slice(0,4)) - 1911
+  return `${y}/${dateStr.slice(4,6)}/${dateStr.slice(6,8)}`
+}
 
 async function _chipGetDates() {
   if (_chipDates && Date.now() - _chipDatesTs < 3600000) return _chipDates
   const { rows } = await pool.query(
-    `SELECT DISTINCT trade_date FROM market_daily WHERE exchange='TWSE'
+    `SELECT DISTINCT trade_date FROM market_daily WHERE exchange IN ('TWSE','TPEX')
      ORDER BY trade_date DESC LIMIT 15`
   )
   _chipDates  = rows.map(r => r.trade_date.toISOString().slice(0, 10).replace(/-/g, ''))
@@ -7094,6 +7140,42 @@ async function _chipFetchClose(dateStr) {
   return map
 }
 
+async function _chipFetchTpexInst(dateStr) {
+  if (_chipTpexInstCache[dateStr]) return _chipTpexInstCache[dateStr]
+  const nv = s => Math.round(+(s?.toString().replace(/,/g,'') || 0) / 1000)
+  const map = new Map()
+  try {
+    const data = await fetchUrl(
+      `https://www.tpex.org.tw/web/stock/3insti/daily_trade/3itrade_hedge_result.php?l=zh-tw&o=json&d=${_chipToTpexD(dateStr)}&t=D`
+    )
+    for (const row of data?.tables?.[0]?.data || []) {
+      const no = row[0]?.trim()
+      if (!no) continue
+      const f = nv(row[10]), t = nv(row[13]), d = nv(row[22])
+      map.set(no, { foreign: f, trust: t, dealer: d, net: f+t+d })
+    }
+  } catch (e) { console.error(`[chip TPEX inst] ${dateStr}:`, e.message) }
+  if (map.size > 0 || dateStr !== _chipTodayStr()) _chipTpexInstCache[dateStr] = map
+  return map
+}
+
+async function _chipFetchTpexClose(dateStr) {
+  if (_chipTpexCloseCache[dateStr]) return _chipTpexCloseCache[dateStr]
+  const map = new Map()
+  try {
+    const data = await fetchUrl(
+      `https://www.tpex.org.tw/web/stock/aftertrading/daily_close_quotes/stk_quote_result.php?l=zh-tw&o=json&d=${_chipToTpexD(dateStr)}`
+    )
+    for (const row of data?.tables?.[0]?.data || []) {
+      const no = row[0]?.trim()
+      const close = parseFloat(String(row[2]||'').replace(/,/g,''))
+      if (no && !isNaN(close) && close > 0) map.set(no, close)
+    }
+  } catch (e) { /* skip */ }
+  if (map.size > 0 || dateStr !== _chipTodayStr()) _chipTpexCloseCache[dateStr] = map
+  return map
+}
+
 app.get('/api/chip/:stockNo', async (req, res) => {
   const { stockNo } = req.params
   try {
@@ -7104,27 +7186,30 @@ app.get('/api/chip/:stockNo', async (req, res) => {
          FROM concentration WHERE stock_no=$1 ORDER BY data_date DESC LIMIT 1`, [stockNo]
       ),
       pool.query(
-        `SELECT DISTINCT stock_name FROM market_daily WHERE stock_no=$1 AND stock_name IS NOT NULL LIMIT 1`, [stockNo]
+        `SELECT DISTINCT ON (stock_no) stock_name, exchange FROM market_daily
+         WHERE stock_no=$1 AND stock_name IS NOT NULL ORDER BY stock_no, trade_date DESC LIMIT 1`, [stockNo]
       ),
     ])
 
-    // 並行抓最近 10 個交易日的 T86 + 融資（close 可選）
+    const isOtc = nameRows[0]?.exchange === 'TPEX'
+
+    // 並行抓最近 10 個交易日的法人 + 融資 + 收盤（上市用 T86/MI_INDEX，上櫃用 TPEX API）
     const targetDates = dates.slice(0, 10)
-    const [t86Maps, marginMaps, closeMaps] = await Promise.all([
-      Promise.all(targetDates.map(_chipFetchT86)),
+    const [instMaps, marginMaps, closeMaps] = await Promise.all([
+      Promise.all(targetDates.map(isOtc ? _chipFetchTpexInst : _chipFetchT86)),
       Promise.all(targetDates.map(_chipFetchMargin)),
-      Promise.all(targetDates.map(_chipFetchClose)),
+      Promise.all(targetDates.map(isOtc ? _chipFetchTpexClose : _chipFetchClose)),
     ])
 
     // 組裝每日資料（最新在前）
     const dailyRows = targetDates.map((dateStr, i) => {
-      const inst   = t86Maps[i].get(stockNo)
+      const inst   = instMaps[i].get(stockNo)
       const margin = marginMaps[i].get(stockNo) ?? null
       const close  = closeMaps[i].get(stockNo) ?? null
       return { dateStr, inst, margin, close }
     }).filter(r => r.inst || r.margin !== null)
 
-    if (!dailyRows.length) return res.status(404).json({ error: '查無資料，請確認股票代號（僅支援上市股票）' })
+    if (!dailyRows.length) return res.status(404).json({ error: '查無資料，請確認股票代號' })
 
     const stockName = concRows[0]?.stock_name || nameRows[0]?.stock_name || stockNo
 
