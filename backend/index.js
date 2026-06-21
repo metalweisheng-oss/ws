@@ -214,6 +214,20 @@ app.post('/api/telegram/webhook', (req, res) => {
   sendTelegram(`💬 <b>來自 ${from}</b>\n${msg.text}`)
 })
 
+// 朋友排程 API：讓朋友的 Claude / cron 主動推訊息進來，轉發給本人
+app.post('/api/notify', (req, res) => {
+  const key = req.headers['x-api-key']
+  const validKeys = (process.env.FRIEND_NOTIFY_KEYS || '').split(',').map(s => s.trim()).filter(Boolean)
+  if (!key || !validKeys.includes(key)) return res.status(401).json({ error: 'invalid api key' })
+
+  const text = req.body?.text
+  if (!text || typeof text !== 'string') return res.status(400).json({ error: 'text is required' })
+
+  console.log(`[notify-api] 轉發排程訊息`)
+  sendTelegram(`🤖 <b>來自朋友的排程</b>\n${text}`)
+  res.json({ ok: true })
+})
+
 async function sendEmail(subject, htmlBody) {
   const user = process.env.GMAIL_USER
   const pass = process.env.GMAIL_APP_PASSWORD
