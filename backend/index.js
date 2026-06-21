@@ -199,6 +199,21 @@ function sendTelegram(text) {
   req.end()
 }
 
+// Telegram webhook：接收外部訊息並轉發給本人（需先用 setWebhook 註冊）
+app.post('/api/telegram/webhook', (req, res) => {
+  res.sendStatus(200)
+  const secret = process.env.TELEGRAM_WEBHOOK_SECRET
+  if (secret && req.headers['x-telegram-bot-api-secret-token'] !== secret) return
+
+  const msg = req.body?.message
+  if (!msg || !msg.text) return
+  if (String(msg.chat.id) === process.env.TELEGRAM_CHAT_ID) return // 自己傳的訊息不用轉發
+
+  const from = msg.from?.username ? `@${msg.from.username}` : (msg.from?.first_name || '未知用戶')
+  console.log(`[telegram-webhook] 轉發訊息，來自 ${from}`)
+  sendTelegram(`💬 <b>來自 ${from}</b>\n${msg.text}`)
+})
+
 async function sendEmail(subject, htmlBody) {
   const user = process.env.GMAIL_USER
   const pass = process.env.GMAIL_APP_PASSWORD
@@ -3668,7 +3683,7 @@ app.get('/api/inst/history', async (req, res) => {
       WHERE stock_no = $1
       ORDER BY trade_date DESC
       LIMIT $2
-    `, [stockNo, days + 1])
+    `, [stockNo, days + 20])
 
     if (!rows.length) return res.json({ stock_no: stockNo, stock_name: null, rows: [] })
 
@@ -3728,7 +3743,38 @@ app.get('/api/inst/history', async (req, res) => {
       }
     }
 
+    // 查 broker_daily 分點家數差資料
+    const brokerDateMap = {}
+    try {
+      const { rows: bdRows } = await pool.query(`
+        SELECT trade_date, family_diff, buyer_count, seller_count, net_buy_lots
+        FROM broker_daily
+        WHERE stock_no = $1
+        ORDER BY trade_date DESC
+        LIMIT $2
+      `, [stockNo, days + 5])
+      for (const bd of bdRows) {
+        const dk = bd.trade_date instanceof Date
+          ? bd.trade_date.toISOString().slice(0, 10)
+          : String(bd.trade_date).slice(0, 10)
+        brokerDateMap[dk] = bd
+      }
+    } catch(e) { /* broker_daily 不存在時略過 */ }
+
     const toLot = v => v != null ? Math.round(+v / 1000) : null
+    const calcConc = (startIdx, winSize) => {
+      let sumMajor = 0, sumVol = 0, cnt = 0
+      for (let j = startIdx; j < Math.min(startIdx + winSize, rows.length); j++) {
+        const r = rows[j]
+        if (r.inst_foreign == null && r.inst_trust == null && r.inst_dealer == null) continue
+        if (r.volume == null) continue
+        sumMajor += (+r.inst_foreign||0) + (+r.inst_trust||0) + (+r.inst_dealer||0)
+        sumVol   += +r.volume
+        cnt++
+      }
+      if (cnt === 0 || sumVol === 0) return null
+      return +(sumMajor / sumVol * 100).toFixed(2)
+    }
     const result = []
     const displayRows = rows.slice(0, days)
     // 建立按日期排序的 closeMap key list 供計算前一日收盤
@@ -3752,8 +3798,19 @@ app.get('/api/inst/history', async (req, res) => {
         inst_dealer:  toLot(r.inst_dealer),
         major_net:    (r.inst_foreign != null && r.inst_trust != null)
                         ? toLot(+r.inst_foreign + +r.inst_trust) : null,
-        margin_bal:   r.margin_bal != null ? +r.margin_bal : null,
-        short_bal:    r.short_bal  != null ? +r.short_bal  : null,
+        margin_bal:        r.margin_bal != null ? +r.margin_bal : null,
+        short_bal:         r.short_bal  != null ? +r.short_bal  : null,
+        family_diff:       brokerDateMap[dateStr]?.family_diff ?? (
+                             (r.inst_foreign != null || r.inst_trust != null || r.inst_dealer != null)
+                               ? [r.inst_foreign, r.inst_trust, r.inst_dealer].filter(v => v != null && +v > 0).length
+                                 - [r.inst_foreign, r.inst_trust, r.inst_dealer].filter(v => v != null && +v < 0).length
+                               : null
+                           ),
+        broker_buyer_count:  brokerDateMap[dateStr]?.buyer_count  ?? null,
+        broker_seller_count: brokerDateMap[dateStr]?.seller_count ?? null,
+        broker_net_lots:     brokerDateMap[dateStr]?.net_buy_lots ?? null,
+        concentration_5d:  calcConc(i, 5),
+        concentration_20d: calcConc(i, 20),
       })
     }
 

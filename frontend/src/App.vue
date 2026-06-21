@@ -1823,6 +1823,18 @@ function instColor(v) {
   if (v == null) return 'text-gray-600'
   return v > 0 ? 'text-red-400' : v < 0 ? 'text-green-400' : 'text-gray-500'
 }
+function instConcColor(v) {
+  if (v == null) return 'text-gray-600'
+  return v > 0 ? 'text-red-400' : v < 0 ? 'text-green-400' : 'text-gray-500'
+}
+function instFamilyColor(v) {
+  if (v == null) return 'text-gray-600'
+  if (v >= 2) return 'text-red-400'
+  if (v > 0) return 'text-orange-400'
+  if (v === 0) return 'text-gray-500'
+  if (v > -2) return 'text-teal-400'
+  return 'text-green-400'
+}
 function instChangePctColor(v) {
   if (v == null) return 'text-gray-600'
   return v > 0 ? 'text-red-400' : v < 0 ? 'text-green-400' : 'text-gray-500'
@@ -1902,6 +1914,24 @@ function signShares(v) {
 function signColor(v) { return +v > 0 ? 'text-red-400' : +v < 0 ? 'text-green-400' : 'text-gray-400' }
 
 const changelog = [
+  {
+    date: '2026-06-20', tag: '新功能',
+    items: [
+      '漲跌排行：說明欄新增「建立規則」區塊，列出資料來源（富邦全市場快照優先，失敗時 fallback TWSE/TPEX MIS）、篩選規則（成交量=0 且漲跌幅 &lt;9.5% 排除，但鎖漲停股例外保留）、連續天數計算方式（往前查 20 日歷史，逐日比對同向漲跌停）與快取更新頻率（開盤衝鋒 8 秒／盤中 15 秒／其他 60 秒），方便對照榜單結果的判斷依據',
+    ]
+  },
+  {
+    date: '2026-06-11', tag: '新增',
+    items: [
+      '朋友 API 存取系統：建立 read-only API key（sk_ro_fr_…，效期至 2026-12-31），提供 OpenAPI spec（/api/openapi.json）與文件頁（/docs/api），朋友可直接 curl 或將 spec 餵給 Claude 自動生成查詢',
+    ]
+  },
+  {
+    date: '2026-06-07', tag: '新增',
+    items: [
+      '三大法人查詢：新增「家數差」欄位（優先使用 TWSE BSR 券商分點資料，範圍 ±數百；無分點資料時回退三機構計算 -3~+3）、「五日集中」與「二十日集中」欄位（集中度＝N日法人淨買÷N日成交量×100%，正數紅色・負數綠色）；家數差有分點資料時顯示買超/賣超家數',
+    ]
+  },
   {
     date: '2026-06-05', tag: '修正',
     items: [
@@ -4257,6 +4287,18 @@ async function btSyncOhlcv() {
               {{ instFmt(instSummary.total_major) }}
             </div>
           </div>
+          <div v-if="instRows[0]?.concentration_5d != null" class="bg-gray-800 rounded-lg px-4 py-3">
+            <div class="text-xs text-gray-500 mb-1">五日集中度</div>
+            <div class="text-base font-bold font-mono" :class="instConcColor(instRows[0].concentration_5d)">
+              {{ instRows[0].concentration_5d > 0 ? '+' : '' }}{{ instRows[0].concentration_5d.toFixed(2) }}%
+            </div>
+          </div>
+          <div v-if="instRows[0]?.concentration_20d != null" class="bg-gray-800 rounded-lg px-4 py-3">
+            <div class="text-xs text-gray-500 mb-1">二十日集中度</div>
+            <div class="text-base font-bold font-mono" :class="instConcColor(instRows[0].concentration_20d)">
+              {{ instRows[0].concentration_20d > 0 ? '+' : '' }}{{ instRows[0].concentration_20d.toFixed(2) }}%
+            </div>
+          </div>
         </div>
       </div>
 
@@ -4273,6 +4315,9 @@ async function btSyncOhlcv() {
                 <th class="px-4 py-2.5 text-right">投信</th>
                 <th class="px-4 py-2.5 text-right">自營</th>
                 <th class="px-4 py-2.5 text-right">主力合計</th>
+                <th class="px-4 py-2.5 text-right">家數差</th>
+                <th class="px-4 py-2.5 text-right">五日集中</th>
+                <th class="px-4 py-2.5 text-right">二十日集中</th>
                 <th class="px-4 py-2.5 text-right">融資餘額</th>
                 <th class="px-4 py-2.5 text-right">融券餘額</th>
               </tr>
@@ -4301,6 +4346,18 @@ async function btSyncOhlcv() {
                 <td class="px-4 py-2.5 text-right font-mono font-semibold" :class="instColor(row.major_net)">
                   {{ instFmt(row.major_net) }}
                 </td>
+                <td class="px-4 py-2.5 text-right font-mono font-semibold" :class="instFamilyColor(row.family_diff)">
+                  {{ row.family_diff != null ? (row.family_diff > 0 ? '+' : '') + row.family_diff : '—' }}
+                  <span v-if="row.broker_buyer_count != null" class="block text-[0.65rem] text-gray-500 font-normal leading-tight">
+                    買:{{ row.broker_buyer_count }} 賣:{{ row.broker_seller_count }}
+                  </span>
+                </td>
+                <td class="px-4 py-2.5 text-right font-mono" :class="instConcColor(row.concentration_5d)">
+                  {{ row.concentration_5d != null ? (row.concentration_5d > 0 ? '+' : '') + row.concentration_5d.toFixed(2) + '%' : '—' }}
+                </td>
+                <td class="px-4 py-2.5 text-right font-mono" :class="instConcColor(row.concentration_20d)">
+                  {{ row.concentration_20d != null ? (row.concentration_20d > 0 ? '+' : '') + row.concentration_20d.toFixed(2) + '%' : '—' }}
+                </td>
                 <td class="px-4 py-2.5 text-right font-mono text-gray-400">
                   {{ row.margin_bal != null ? (+row.margin_bal).toLocaleString() : '—' }}
                 </td>
@@ -4312,7 +4369,7 @@ async function btSyncOhlcv() {
           </table>
         </div>
         <div class="px-5 py-3 border-t border-gray-800 text-xs text-gray-600">
-          三大法人單位：張（1張=1000股）。正數=買超 紅色・負數=賣超 綠色。主力合計＝外資＋投信。融資/融券餘額單位：張。資料來源：TWSE T86 / MI_MARGN。
+          三大法人單位：張（1張=1000股）。正數=買超 紅色・負數=賣超 綠色。主力合計＝外資＋投信。家數差＝當日券商分點買超家數 - 賣超家數（有資料時優先顯示，否則顯示三機構 -3~+3）。集中度＝N日法人淨買÷N日成交量，正數紅色・負數綠色。融資/融券單位：張。資料來源：TWSE BSR / T86 / MI_MARGN。
         </div>
       </div>
 
@@ -4873,8 +4930,39 @@ async function btSyncOhlcv() {
       <!-- 顏色與操作說明 -->
       <div class="bg-gray-900/60 border border-gray-800 rounded-xl px-4 py-3 text-xs space-y-2.5">
 
-        <!-- 列底色 -->
+        <!-- 建立規則：資料來源 -->
         <div class="flex flex-wrap gap-x-4 gap-y-1.5 items-center">
+          <span class="text-gray-600 shrink-0 font-medium">資料來源</span>
+          <span class="text-gray-300">富邦 API 全市場快照</span>
+          <span class="text-gray-600">主來源，TSE+OTC 一次拿完（~2秒）；失敗時 fallback TWSE/TPEX MIS 批次查詢（60檔/批，5並發）</span>
+        </div>
+
+        <!-- 建立規則：篩選 -->
+        <div class="flex flex-wrap gap-x-4 gap-y-1.5 items-center">
+          <span class="text-gray-600 shrink-0 font-medium">篩選規則</span>
+          <span class="text-gray-300">成交量 = 0 且 |漲跌幅| &lt; 9.5% 排除</span>
+          <span class="text-gray-600">鎖漲停股雖成交量=0 仍保留，避免漏掉開盤即鎖死的最強勢股</span>
+        </div>
+
+        <!-- 建立規則：連續天數 -->
+        <div class="flex flex-wrap gap-x-4 gap-y-1.5 items-center">
+          <span class="text-gray-600 shrink-0 font-medium">連續天數</span>
+          <span class="text-gray-300">往前查 20 日歷史收盤，逐日比對同向（漲停 ≥9.5% / 跌停 ≤-9.5%）</span>
+          <span class="text-gray-600">遇方向中斷即停止累計</span>
+        </div>
+
+        <!-- 建立規則：更新頻率 -->
+        <div class="flex flex-wrap gap-x-4 gap-y-1.5 items-center">
+          <span class="text-gray-600 shrink-0 font-medium">更新頻率</span>
+          <span class="text-yellow-400 font-bold">8秒</span><span class="text-gray-600">08:50–09:30 開盤衝鋒</span>
+          <span class="text-gray-600">｜</span>
+          <span class="text-cyan-400 font-bold">15秒</span><span class="text-gray-600">09:30–13:30 盤中</span>
+          <span class="text-gray-600">｜</span>
+          <span class="text-gray-400 font-bold">60秒</span><span class="text-gray-600">其他（盤前/盤後）</span>
+        </div>
+
+        <!-- 列底色 -->
+        <div class="flex flex-wrap gap-x-4 gap-y-1.5 items-center border-t border-gray-800 pt-2.5">
           <span class="text-gray-600 shrink-0 font-medium">列底色</span>
           <span class="flex items-center gap-1.5">
             <span class="inline-block w-3 h-3 rounded-sm bg-red-900/60 border border-red-700/40"></span>
