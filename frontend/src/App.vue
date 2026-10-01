@@ -1915,9 +1915,14 @@ function signColor(v) { return +v > 0 ? 'text-red-400' : +v < 0 ? 'text-green-40
 
 const changelog = [
   {
-    date: '2026-10-01', tag: '新功能',
+    date: '2026-10-02', tag: '新功能',
     items: [
-      '新增「爆量殺盤低點不遠」分頁（位於修正公告後）：內容建置中',
+      '「爆量殺盤低點不遠」分頁完整上線：恐慌爆量偵測→殺不下去追蹤（不破底/假跌破/量縮/Selling Efficiency下降/Higher Low）→買盤反擊確認→出貨風險排除→Bottom Exhaustion Score/Final Score 五層判斷邏輯，全部門檻可調整',
+      '新增 MA60、Final Score、高風險出貨觀察榜（HIGH_RISK_BOTTOM_ATTEMPT）顯示',
+      '回測功能新增策略D（等REVERSAL_CONFIRMED進場），A/B/C/D四策略比較3/5/10/20日報酬、勝率、最大回撤；全市場回測顯示等確認殺不下去再進場（B/C/D）勝率70~83%、回撤遠小於看到爆量就進場（A）的60~66%勝率、-40%~-65%回撤',
+      '修正「有效跌破」與「假跌破」判斷互相矛盾的問題：前者改以收盤價認定，後者維持以盤中最低價認定',
+      '修正流動性過濾：改用真實成交金額（原本資料來源未解析此欄位，過濾形同虛設）',
+      '修正 Selling Efficiency / Higher Low 相關的 look-ahead bias 風險（pivot 確認邏輯防呆）',
     ]
   },
   {
