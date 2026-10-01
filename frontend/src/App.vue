@@ -2404,6 +2404,7 @@ const PLUNGE_API = 'https://ws.tail915bbc.ts.net:8001'
 const plungeAsOfDate   = ref(null)
 const plungeData       = ref([])
 const plungeWatchlist  = ref([])
+const plungeHighRisk   = ref([])
 const plungeLoading    = ref(false)
 const plungeSyncMsg    = ref('')
 const plungeStageFilter = ref('ALL')
@@ -2426,6 +2427,13 @@ const PLUNGE_STAGE_META = {
   BOTTOM_CONFIRMING:  { label: '止跌確認中',   cls: 'bg-blue-900/40 text-blue-300 border-blue-700' },
   REVERSAL_CONFIRMED: { label: '止跌反轉確認', cls: 'bg-red-900/40 text-red-300 border-red-700' },
   BOTTOM_FAILED:      { label: '破底失敗(二次探底)', cls: 'bg-gray-800 text-gray-500 border-gray-700' },
+  STRONG_FAILURE:     { label: '強力破底失敗',   cls: 'bg-gray-800 text-gray-500 border-gray-700' },
+}
+function plungeDistColor(v) {
+  if (v == null) return 'text-gray-500'
+  if (v >= 70) return 'text-red-400'
+  if (v >= 40) return 'text-orange-400'
+  return 'text-gray-500'
 }
 function plungeStageLabel(stage) { return PLUNGE_STAGE_META[stage]?.label || stage || '—' }
 function plungeStageCls(stage) { return PLUNGE_STAGE_META[stage]?.cls || 'bg-gray-800 text-gray-400 border-gray-700' }
@@ -2449,7 +2457,8 @@ async function plungeLoadLatest() {
     const d = await r.json()
     plungeAsOfDate.value = d.as_of_date
     plungeData.value = d.data || []
-    plungeWatchlist.value = d.watchlist || []
+    plungeWatchlist.value = d.top || []
+    plungeHighRisk.value = d.high_risk || []
   } catch (e) {
     plungeSyncMsg.value = '❌ 讀取失敗：' + e.message
   }
@@ -2631,8 +2640,8 @@ async function plungeRunBacktest() {
             <div class="space-y-1.5">
               <div class="text-xs font-semibold text-cyan-400 uppercase tracking-wider">Layer 2：後續追蹤（1~5日起）</div>
               <ul class="space-y-1 text-gray-400 text-xs leading-relaxed pl-1">
-                <li>• 不再有效破底（容忍約1%）</li>
-                <li>• 假跌破：盤中破低但收盤收回</li>
+                <li>• 不再有效破底（以收盤價認定，容忍約1%）</li>
+                <li>• 假跌破：盤中最低價破低但收盤收回</li>
                 <li>• 測試低點量能是否逐次萎縮（賣壓衰竭）</li>
                 <li>• Selling Efficiency = |跌幅| ÷ 量比，是否持續下降</li>
                 <li>• 低點是否逐步墊高（Higher Low）</li>
@@ -2649,9 +2658,9 @@ async function plungeRunBacktest() {
             <div class="space-y-1.5">
               <div class="text-xs font-semibold text-red-400 uppercase tracking-wider">Layer 4：排除出貨風險</div>
               <ul class="space-y-1 text-gray-400 text-xs leading-relaxed pl-1">
-                <li>• 爆量前60日已大漲（≥30%）且位處高檔</li>
+                <li>• 爆量前20/60日已大漲（≥30%）且位處MA60高檔</li>
                 <li>• 反彈高點越來越低、或快速再次跌破</li>
-                <li>• 符合則標記 DISTRIBUTION_RISK_HIGH，評分上限鎖在30分並排除於觀察榜</li>
+                <li>• 綜合計算 Distribution Risk Score（0~100），≥70分移出正常排行榜，改列高風險出貨觀察</li>
               </ul>
             </div>
           </div>
@@ -2659,10 +2668,10 @@ async function plungeRunBacktest() {
             <div class="text-gray-400 font-medium mb-1">四個階段</div>
             <div class="flex flex-wrap gap-x-5 gap-y-1">
               <span><span class="px-1.5 py-0.5 rounded border" :class="plungeStageCls('PANIC_SELLING')">恐慌爆量觀察</span> 剛爆量，只是觀察</span>
-              <span><span class="px-1.5 py-0.5 rounded border" :class="plungeStageCls('SELLING_EXHAUSTION')">賣壓衰竭</span> 不破底＋量縮＋賣壓效率下降（優先觀察）</span>
-              <span><span class="px-1.5 py-0.5 rounded border" :class="plungeStageCls('BOTTOM_CONFIRMING')">止跌確認中</span> 加上 Higher Low / 突破前高 / 站回MA5</span>
-              <span><span class="px-1.5 py-0.5 rounded border" :class="plungeStageCls('REVERSAL_CONFIRMED')">止跌反轉確認</span> Higher Low+High、站回MA5/10、量價轉強</span>
-              <span><span class="px-1.5 py-0.5 rounded border" :class="plungeStageCls('BOTTOM_FAILED')">破底失敗</span> 有效跌破且再次爆量＝第二波殺盤</span>
+              <span><span class="px-1.5 py-0.5 rounded border" :class="plungeStageCls('SELLING_EXHAUSTION')">賣壓衰竭</span> 不破底＋量縮＋賣壓效率下降＋Higher Low（優先觀察）</span>
+              <span><span class="px-1.5 py-0.5 rounded border" :class="plungeStageCls('BOTTOM_CONFIRMING')">止跌確認中</span> 加上突破前高＋站回MA5</span>
+              <span><span class="px-1.5 py-0.5 rounded border" :class="plungeStageCls('REVERSAL_CONFIRMED')">止跌反轉確認</span> Higher High、站回MA5/10、量價轉強</span>
+              <span><span class="px-1.5 py-0.5 rounded border" :class="plungeStageCls('BOTTOM_FAILED')">破底失敗</span> 收盤有效跌破（STRONG_FAILURE＝跌破當天再爆量）</span>
             </div>
           </div>
         </div>
@@ -2678,12 +2687,26 @@ async function plungeRunBacktest() {
           </div>
         </div>
         <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
-          <label v-for="(val, key) in plungeParams" :key="key" class="space-y-1">
-            <div class="text-gray-500">{{ key }}</div>
-            <input v-model.number="plungeParams[key]" type="number" step="any"
-                   class="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-gray-200 font-mono text-xs" />
-          </label>
+          <template v-for="(val, key) in plungeParams" :key="key">
+            <label v-if="typeof val !== 'object'" class="space-y-1">
+              <div class="text-gray-500">{{ key }}</div>
+              <input v-model.number="plungeParams[key]" type="number" step="any"
+                     class="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-gray-200 font-mono text-xs" />
+            </label>
+          </template>
         </div>
+        <template v-for="(obj, groupKey) in plungeParams" :key="groupKey">
+          <div v-if="typeof obj === 'object'" class="pt-2 border-t border-gray-800">
+            <div class="text-xs text-gray-500 mb-1.5">{{ groupKey }}</div>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+              <label v-for="(val, key) in obj" :key="key" class="space-y-1">
+                <div class="text-gray-600">{{ key }}</div>
+                <input v-model.number="plungeParams[groupKey][key]" type="number" step="any"
+                       class="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-gray-200 font-mono text-xs" />
+              </label>
+            </div>
+          </div>
+        </template>
       </div>
 
       <!-- 清單切換 -->
@@ -2732,7 +2755,9 @@ async function plungeRunBacktest() {
                 <th class="px-3 py-2 text-right">MA5</th>
                 <th class="px-3 py-2 text-right">MA10</th>
                 <th class="px-3 py-2 text-right">MA20</th>
-                <th class="px-3 py-2 text-right">評分</th>
+                <th class="px-3 py-2 text-right">MA60</th>
+                <th class="px-3 py-2 text-right">Bottom Score</th>
+                <th class="px-3 py-2 text-right">Final Score</th>
                 <th class="px-3 py-2 text-left">目前階段</th>
                 <th class="px-3 py-2 text-center">出貨風險</th>
               </tr>
@@ -2761,11 +2786,12 @@ async function plungeRunBacktest() {
                 <td class="px-3 py-2 text-right font-mono text-gray-500">{{ item.ma5?.toFixed(2) ?? '—' }}</td>
                 <td class="px-3 py-2 text-right font-mono text-gray-500">{{ item.ma10?.toFixed(2) ?? '—' }}</td>
                 <td class="px-3 py-2 text-right font-mono text-gray-500">{{ item.ma20?.toFixed(2) ?? '—' }}</td>
-                <td class="px-3 py-2 text-right font-bold font-mono" :class="plungeScoreColor(item.score)">{{ item.score }}</td>
+                <td class="px-3 py-2 text-right font-mono text-gray-500">{{ item.ma60?.toFixed(2) ?? '—' }}</td>
+                <td class="px-3 py-2 text-right font-mono text-gray-400">{{ item.score }}</td>
+                <td class="px-3 py-2 text-right font-bold font-mono" :class="plungeScoreColor(item.final_score)">{{ item.final_score }}</td>
                 <td class="px-3 py-2"><span class="px-1.5 py-0.5 rounded border text-xs" :class="plungeStageCls(item.stage)">{{ plungeStageLabel(item.stage) }}</span></td>
-                <td class="px-3 py-2 text-center">
-                  <span v-if="item.distribution_risk === 'HIGH'" class="text-red-400">⚠ 高</span>
-                  <span v-else class="text-gray-600">—</span>
+                <td class="px-3 py-2 text-center font-mono" :class="plungeDistColor(item.distribution_risk)">
+                  {{ item.distribution_risk != null ? item.distribution_risk.toFixed(0) : '—' }}
                 </td>
               </tr>
             </tbody>
@@ -2778,7 +2804,7 @@ async function plungeRunBacktest() {
         <div class="flex items-center gap-2">
           <span class="font-mono text-sm font-bold text-white">{{ plungeSelected.symbol }}</span>
           <span class="text-sm text-gray-400">{{ plungeSelected.name }}</span>
-          <span class="ml-auto text-xs font-bold" :class="plungeScoreColor(plungeSelected.score)">評分 {{ plungeSelected.score }}</span>
+          <span class="ml-auto text-xs font-bold" :class="plungeScoreColor(plungeSelected.final_score)">Final Score {{ plungeSelected.final_score }}</span>
         </div>
         <div v-if="!plungeDetail.length" class="text-xs text-gray-600 py-4 text-center">無歷史掃描紀錄</div>
         <div v-else class="overflow-x-auto">
@@ -2788,7 +2814,8 @@ async function plungeRunBacktest() {
                 <th class="px-2 py-1 text-left">掃描日</th>
                 <th class="px-2 py-1 text-right">收盤</th>
                 <th class="px-2 py-1 text-right">距低點%</th>
-                <th class="px-2 py-1 text-right">評分</th>
+                <th class="px-2 py-1 text-right">出貨風險</th>
+                <th class="px-2 py-1 text-right">Final Score</th>
                 <th class="px-2 py-1 text-left">階段</th>
               </tr>
             </thead>
@@ -2797,7 +2824,8 @@ async function plungeRunBacktest() {
                 <td class="px-2 py-1 text-gray-400">{{ d.as_of_date }}</td>
                 <td class="px-2 py-1 text-right font-mono">{{ d.close?.toFixed(2) }}</td>
                 <td class="px-2 py-1 text-right font-mono" :class="d.pct_from_cap_low >= 0 ? 'text-red-400' : 'text-green-400'">{{ d.pct_from_cap_low?.toFixed(2) }}%</td>
-                <td class="px-2 py-1 text-right font-mono" :class="plungeScoreColor(d.score)">{{ d.score }}</td>
+                <td class="px-2 py-1 text-right font-mono" :class="plungeDistColor(d.distribution_risk)">{{ d.distribution_risk?.toFixed(0) }}</td>
+                <td class="px-2 py-1 text-right font-mono" :class="plungeScoreColor(d.final_score)">{{ d.final_score }}</td>
                 <td class="px-2 py-1"><span class="px-1.5 py-0.5 rounded border text-xs" :class="plungeStageCls(d.stage)">{{ plungeStageLabel(d.stage) }}</span></td>
               </tr>
             </tbody>
@@ -2805,9 +2833,20 @@ async function plungeRunBacktest() {
         </div>
       </div>
 
+      <!-- 高風險出貨觀察榜 -->
+      <div v-if="plungeHighRisk.length" class="bg-gray-900 border border-orange-900/50 rounded-xl px-5 py-4 space-y-2">
+        <div class="text-sm font-semibold text-orange-300">⚠ HIGH_RISK_BOTTOM_ATTEMPT（出貨風險偏高，不計入正常排行榜）</div>
+        <div class="flex flex-wrap gap-2">
+          <button v-for="item in plungeHighRisk" :key="item.symbol" @click="plungeSelectStock(item)"
+                  class="px-2.5 py-1.5 text-xs bg-gray-800 hover:bg-gray-700 rounded-lg text-gray-300">
+            {{ item.symbol }} {{ item.name }}　<span class="text-orange-400">風險{{ item.distribution_risk?.toFixed(0) }}</span>
+          </button>
+        </div>
+      </div>
+
       <!-- 回測 -->
       <div class="bg-gray-900 border border-gray-800 rounded-xl px-5 py-4 space-y-4">
-        <div class="text-sm font-semibold text-gray-200">回測：比較三種進場時機</div>
+        <div class="text-sm font-semibold text-gray-200">回測：比較四種進場時機</div>
         <div class="flex flex-wrap items-end gap-3 text-xs">
           <label class="space-y-1">
             <div class="text-gray-500">起始日</div>
@@ -2823,7 +2862,7 @@ async function plungeRunBacktest() {
           </button>
         </div>
         <div class="text-xs text-gray-600 leading-relaxed">
-          A：爆量殺低當天直接買（收盤進場）　B：等「賣壓衰竭」才進場　C：等「止跌確認中」才進場　－　比較 3/5/10/20 日後的平均報酬、勝率、中位數報酬、最大回撤
+          A：爆量殺低當天直接買（收盤進場）　B：等「賣壓衰竭」才進場　C：等「止跌確認中」才進場　D：等「止跌反轉確認」才進場　－　比較 3/5/10/20 日後的平均報酬、勝率、中位數報酬、最大回撤
         </div>
 
         <div v-if="plungeBtResult" class="overflow-x-auto">
@@ -2840,9 +2879,9 @@ async function plungeRunBacktest() {
               </tr>
             </thead>
             <tbody class="divide-y divide-gray-800">
-              <template v-for="strat in ['A','B','C']" :key="strat">
+              <template v-for="strat in ['A','B','C','D']" :key="strat">
                 <tr v-for="h in [3,5,10,20]" :key="strat+h">
-                  <td class="px-3 py-1.5 text-gray-300 font-semibold">{{ strat }}：{{ strat === 'A' ? '爆量當天買' : strat === 'B' ? '等賣壓衰竭' : '等止跌確認' }}</td>
+                  <td class="px-3 py-1.5 text-gray-300 font-semibold">{{ strat }}：{{ strat === 'A' ? '爆量當天買' : strat === 'B' ? '等賣壓衰竭' : strat === 'C' ? '等止跌確認' : '等反轉確認' }}</td>
                   <td class="px-3 py-1.5 text-right font-mono text-gray-400">{{ h }}日</td>
                   <td class="px-3 py-1.5 text-right font-mono text-gray-400">{{ plungeBtResult.summary?.[strat]?.[h]?.trades ?? 0 }}</td>
                   <td class="px-3 py-1.5 text-right font-mono text-gray-300">{{ plungeBtResult.summary?.[strat]?.[h]?.win_rate != null ? plungeBtResult.summary[strat][h].win_rate + '%' : '—' }}</td>
