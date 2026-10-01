@@ -1823,6 +1823,18 @@ function instColor(v) {
   if (v == null) return 'text-gray-600'
   return v > 0 ? 'text-red-400' : v < 0 ? 'text-green-400' : 'text-gray-500'
 }
+function instConcColor(v) {
+  if (v == null) return 'text-gray-600'
+  return v > 0 ? 'text-red-400' : v < 0 ? 'text-green-400' : 'text-gray-500'
+}
+function instFamilyColor(v) {
+  if (v == null) return 'text-gray-600'
+  if (v >= 2) return 'text-red-400'
+  if (v > 0) return 'text-orange-400'
+  if (v === 0) return 'text-gray-500'
+  if (v > -2) return 'text-teal-400'
+  return 'text-green-400'
+}
 function instChangePctColor(v) {
   if (v == null) return 'text-gray-600'
   return v > 0 ? 'text-red-400' : v < 0 ? 'text-green-400' : 'text-gray-500'
@@ -1902,6 +1914,18 @@ function signShares(v) {
 function signColor(v) { return +v > 0 ? 'text-red-400' : +v < 0 ? 'text-green-400' : 'text-gray-400' }
 
 const changelog = [
+  {
+    date: '2026-06-11', tag: '新增',
+    items: [
+      '朋友 API 存取系統：建立 read-only API key（sk_ro_fr_…，效期至 2026-12-31），提供 OpenAPI spec（/api/openapi.json）與文件頁（/docs/api），朋友可直接 curl 或將 spec 餵給 Claude 自動生成查詢',
+    ]
+  },
+  {
+    date: '2026-06-07', tag: '新增',
+    items: [
+      '三大法人查詢：新增「家數差」欄位（優先使用 TWSE BSR 券商分點資料，範圍 ±數百；無分點資料時回退三機構計算 -3~+3）、「五日集中」與「二十日集中」欄位（集中度＝N日法人淨買÷N日成交量×100%，正數紅色・負數綠色）；家數差有分點資料時顯示買超/賣超家數',
+    ]
+  },
   {
     date: '2026-06-05', tag: '修正',
     items: [
@@ -4257,6 +4281,18 @@ async function btSyncOhlcv() {
               {{ instFmt(instSummary.total_major) }}
             </div>
           </div>
+          <div v-if="instRows[0]?.concentration_5d != null" class="bg-gray-800 rounded-lg px-4 py-3">
+            <div class="text-xs text-gray-500 mb-1">五日集中度</div>
+            <div class="text-base font-bold font-mono" :class="instConcColor(instRows[0].concentration_5d)">
+              {{ instRows[0].concentration_5d > 0 ? '+' : '' }}{{ instRows[0].concentration_5d.toFixed(2) }}%
+            </div>
+          </div>
+          <div v-if="instRows[0]?.concentration_20d != null" class="bg-gray-800 rounded-lg px-4 py-3">
+            <div class="text-xs text-gray-500 mb-1">二十日集中度</div>
+            <div class="text-base font-bold font-mono" :class="instConcColor(instRows[0].concentration_20d)">
+              {{ instRows[0].concentration_20d > 0 ? '+' : '' }}{{ instRows[0].concentration_20d.toFixed(2) }}%
+            </div>
+          </div>
         </div>
       </div>
 
@@ -4273,6 +4309,9 @@ async function btSyncOhlcv() {
                 <th class="px-4 py-2.5 text-right">投信</th>
                 <th class="px-4 py-2.5 text-right">自營</th>
                 <th class="px-4 py-2.5 text-right">主力合計</th>
+                <th class="px-4 py-2.5 text-right">家數差</th>
+                <th class="px-4 py-2.5 text-right">五日集中</th>
+                <th class="px-4 py-2.5 text-right">二十日集中</th>
                 <th class="px-4 py-2.5 text-right">融資餘額</th>
                 <th class="px-4 py-2.5 text-right">融券餘額</th>
               </tr>
@@ -4301,6 +4340,18 @@ async function btSyncOhlcv() {
                 <td class="px-4 py-2.5 text-right font-mono font-semibold" :class="instColor(row.major_net)">
                   {{ instFmt(row.major_net) }}
                 </td>
+                <td class="px-4 py-2.5 text-right font-mono font-semibold" :class="instFamilyColor(row.family_diff)">
+                  {{ row.family_diff != null ? (row.family_diff > 0 ? '+' : '') + row.family_diff : '—' }}
+                  <span v-if="row.broker_buyer_count != null" class="block text-[0.65rem] text-gray-500 font-normal leading-tight">
+                    買:{{ row.broker_buyer_count }} 賣:{{ row.broker_seller_count }}
+                  </span>
+                </td>
+                <td class="px-4 py-2.5 text-right font-mono" :class="instConcColor(row.concentration_5d)">
+                  {{ row.concentration_5d != null ? (row.concentration_5d > 0 ? '+' : '') + row.concentration_5d.toFixed(2) + '%' : '—' }}
+                </td>
+                <td class="px-4 py-2.5 text-right font-mono" :class="instConcColor(row.concentration_20d)">
+                  {{ row.concentration_20d != null ? (row.concentration_20d > 0 ? '+' : '') + row.concentration_20d.toFixed(2) + '%' : '—' }}
+                </td>
                 <td class="px-4 py-2.5 text-right font-mono text-gray-400">
                   {{ row.margin_bal != null ? (+row.margin_bal).toLocaleString() : '—' }}
                 </td>
@@ -4312,7 +4363,7 @@ async function btSyncOhlcv() {
           </table>
         </div>
         <div class="px-5 py-3 border-t border-gray-800 text-xs text-gray-600">
-          三大法人單位：張（1張=1000股）。正數=買超 紅色・負數=賣超 綠色。主力合計＝外資＋投信。融資/融券餘額單位：張。資料來源：TWSE T86 / MI_MARGN。
+          三大法人單位：張（1張=1000股）。正數=買超 紅色・負數=賣超 綠色。主力合計＝外資＋投信。家數差＝當日券商分點買超家數 - 賣超家數（有資料時優先顯示，否則顯示三機構 -3~+3）。集中度＝N日法人淨買÷N日成交量，正數紅色・負數綠色。融資/融券單位：張。資料來源：TWSE BSR / T86 / MI_MARGN。
         </div>
       </div>
 
