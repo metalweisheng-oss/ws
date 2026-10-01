@@ -2398,6 +2398,142 @@ async function btSyncOhlcv() {
   btSyncing.value = false
   setTimeout(() => btSyncMsg.value = '', 8000)
 }
+
+// ── 爆量殺盤低點不遠 ──────────────────────────────────────────
+const PLUNGE_API = 'https://ws.tail915bbc.ts.net:8001'
+const plungeAsOfDate   = ref(null)
+const plungeData       = ref([])
+const plungeWatchlist  = ref([])
+const plungeLoading    = ref(false)
+const plungeSyncMsg    = ref('')
+const plungeStageFilter = ref('ALL')
+const plungeViewMode   = ref('watchlist')   // watchlist | all
+const plungeSelected   = ref(null)
+const plungeDetail     = ref([])
+const plungeShowMethodology = ref(false)
+const plungeShowParams = ref(false)
+const plungeParams     = ref(null)
+const plungeParamsMsg  = ref('')
+const plungeBtStart    = ref('2024-10-01')
+const plungeBtEnd      = ref('')
+const plungeBtRunning  = ref(false)
+const plungeBtResult   = ref(null)
+const plungeBtHistory  = ref([])
+
+const PLUNGE_STAGE_META = {
+  PANIC_SELLING:      { label: '恐慌爆量觀察', cls: 'bg-orange-900/40 text-orange-300 border-orange-700' },
+  SELLING_EXHAUSTION: { label: '賣壓衰竭',     cls: 'bg-yellow-900/40 text-yellow-300 border-yellow-700' },
+  BOTTOM_CONFIRMING:  { label: '止跌確認中',   cls: 'bg-blue-900/40 text-blue-300 border-blue-700' },
+  REVERSAL_CONFIRMED: { label: '止跌反轉確認', cls: 'bg-red-900/40 text-red-300 border-red-700' },
+  BOTTOM_FAILED:      { label: '破底失敗(二次探底)', cls: 'bg-gray-800 text-gray-500 border-gray-700' },
+}
+function plungeStageLabel(stage) { return PLUNGE_STAGE_META[stage]?.label || stage || '—' }
+function plungeStageCls(stage) { return PLUNGE_STAGE_META[stage]?.cls || 'bg-gray-800 text-gray-400 border-gray-700' }
+function plungeScoreColor(score) {
+  if (score >= 70) return 'text-red-400'
+  if (score >= 50) return 'text-orange-400'
+  if (score >= 30) return 'text-yellow-400'
+  return 'text-gray-500'
+}
+
+const plungeFilteredData = computed(() => {
+  const list = plungeViewMode.value === 'watchlist' ? plungeWatchlist.value : plungeData.value
+  if (plungeStageFilter.value === 'ALL') return list
+  return list.filter(d => d.stage === plungeStageFilter.value)
+})
+
+async function plungeLoadLatest() {
+  plungeLoading.value = true
+  try {
+    const r = await fetch(`${PLUNGE_API}/api/plunge/scan/latest`)
+    const d = await r.json()
+    plungeAsOfDate.value = d.as_of_date
+    plungeData.value = d.data || []
+    plungeWatchlist.value = d.watchlist || []
+  } catch (e) {
+    plungeSyncMsg.value = '❌ 讀取失敗：' + e.message
+  }
+  plungeLoading.value = false
+}
+
+async function plungeRunScan() {
+  plungeSyncMsg.value = '執行全市場掃描中...'
+  try {
+    const r = await fetch(`${PLUNGE_API}/api/plunge/scan/run`, { method: 'POST' })
+    const d = await r.json()
+    plungeSyncMsg.value = `✅ ${d.message}，稍候重新整理查看結果`
+  } catch (e) {
+    plungeSyncMsg.value = '❌ 觸發失敗：' + e.message
+  }
+  setTimeout(() => plungeSyncMsg.value = '', 8000)
+}
+
+async function plungeSyncOhlcv() {
+  plungeSyncMsg.value = '同步歷史K線中（與半路突破共用資料，約需數分鐘）...'
+  try {
+    const r = await fetch(`${PLUNGE_API}/api/bt/sync/ohlcv?months=3`, { method: 'POST' })
+    const d = await r.json()
+    plungeSyncMsg.value = `✅ ${d.message}`
+  } catch (e) {
+    plungeSyncMsg.value = '❌ 同步失敗：' + e.message
+  }
+  setTimeout(() => plungeSyncMsg.value = '', 8000)
+}
+
+async function plungeSelectStock(item) {
+  plungeSelected.value = item
+  plungeDetail.value = []
+  try {
+    const r = await fetch(`${PLUNGE_API}/api/plunge/stock/${item.symbol}?limit=60`)
+    const d = await r.json()
+    plungeDetail.value = d.data || []
+  } catch {}
+}
+
+async function plungeLoadParams() {
+  try {
+    const r = await fetch(`${PLUNGE_API}/api/plunge/params`)
+    plungeParams.value = await r.json()
+  } catch {}
+}
+
+async function plungeSaveParams() {
+  if (!plungeParams.value) return
+  try {
+    const r = await fetch(`${PLUNGE_API}/api/plunge/params`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(plungeParams.value),
+    })
+    plungeParams.value = await r.json()
+    plungeParamsMsg.value = '✅ 參數已儲存（下次掃描生效）'
+  } catch (e) {
+    plungeParamsMsg.value = '❌ 儲存失敗：' + e.message
+  }
+  setTimeout(() => plungeParamsMsg.value = '', 5000)
+}
+
+async function plungeLoadBacktestHistory() {
+  try {
+    const r = await fetch(`${PLUNGE_API}/api/plunge/backtest/recent?limit=10`)
+    plungeBtHistory.value = await r.json()
+  } catch {}
+}
+
+async function plungeRunBacktest() {
+  plungeBtRunning.value = true
+  plungeBtResult.value = null
+  try {
+    const end = plungeBtEnd.value ? `&end=${plungeBtEnd.value}` : ''
+    const r = await fetch(`${PLUNGE_API}/api/plunge/backtest?start=${plungeBtStart.value}${end}`, { method: 'POST' })
+    plungeBtResult.value = await r.json()
+    await plungeLoadBacktestHistory()
+  } catch (e) {
+    plungeSyncMsg.value = '❌ 回測失敗：' + e.message
+    setTimeout(() => plungeSyncMsg.value = '', 8000)
+  }
+  plungeBtRunning.value = false
+}
 </script>
 
 <template>
@@ -2451,9 +2587,287 @@ async function btSyncOhlcv() {
     </div>
 
     <!-- ── 爆量殺盤低點不遠 Tab ── -->
-    <div v-if="tab === 'plunge'" class="max-w-6xl mx-auto px-4 py-6 space-y-4">
-      <h2 class="text-lg font-semibold text-white">爆量殺盤低點不遠</h2>
-      <div class="text-sm text-gray-500">內容建置中</div>
+    <div v-if="tab === 'plunge'" class="max-w-7xl mx-auto px-4 py-6 space-y-4"
+         @vue:mounted="plungeLoadLatest(); plungeLoadParams(); plungeLoadBacktestHistory()">
+
+      <!-- 標題列 -->
+      <div class="flex items-center justify-between flex-wrap gap-2">
+        <div class="flex items-center gap-3">
+          <h2 class="text-lg font-semibold text-white">爆量殺盤低點不遠</h2>
+          <span class="text-xs text-gray-600" v-if="plungeAsOfDate">掃描基準日：{{ plungeAsOfDate }}</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <button @click="plungeLoadLatest" class="px-3 py-1.5 text-xs bg-gray-800 hover:bg-gray-700 rounded-lg text-gray-300">重新整理</button>
+          <button @click="plungeRunScan" class="px-3 py-1.5 text-xs bg-purple-900/50 hover:bg-purple-800/60 rounded-lg text-purple-300">手動掃描</button>
+          <button @click="plungeSyncOhlcv" class="px-3 py-1.5 text-xs bg-blue-900/50 hover:bg-blue-800/60 rounded-lg text-blue-300">同步K線</button>
+          <button @click="plungeShowParams = !plungeShowParams" class="px-3 py-1.5 text-xs bg-gray-800 hover:bg-gray-700 rounded-lg text-gray-300">參數設定</button>
+        </div>
+      </div>
+      <div v-if="plungeSyncMsg" class="text-sm px-3 py-2 rounded-lg bg-gray-800 text-gray-300">{{ plungeSyncMsg }}</div>
+
+      <!-- 方法說明（可收合） -->
+      <div class="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+        <button @click="plungeShowMethodology = !plungeShowMethodology"
+                class="w-full px-5 py-3 flex items-center justify-between text-sm hover:bg-gray-800/50 transition">
+          <span class="text-gray-200 font-semibold">選股邏輯說明</span>
+          <span class="text-gray-500">{{ plungeShowMethodology ? '收合 ▲' : '展開 ▼' }}</span>
+        </button>
+        <div v-if="plungeShowMethodology" class="px-5 pb-5 space-y-4 text-sm border-t border-gray-800 pt-4">
+          <div class="text-gray-400 leading-relaxed">
+            核心概念：不是找「爆量下跌」就買，而是找<span class="text-gray-200">「恐慌性爆量殺盤後，空方再次嘗試往下殺卻殺不下去」</span>的轉折過程。
+            流程：下跌趨勢 → 恐慌性爆量殺盤 → 後續測試低點 → 跌破失敗或快速收回 → 下跌量能萎縮 → 低點墊高 → 股價轉強。
+            <span class="text-orange-300">爆量下跌＝開始追蹤，不是買進訊號。</span>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div class="space-y-1.5">
+              <div class="text-xs font-semibold text-purple-400 uppercase tracking-wider">Layer 1：恐慌爆量偵測</div>
+              <ul class="space-y-1 text-gray-400 text-xs leading-relaxed pl-1">
+                <li>• 前段下跌：近10日跌幅 &lt; -8% 或股價低於20日均線</li>
+                <li>• 當日：成交量 ≥ 20日均量2倍、跌幅 &gt; 3%、收黑K、振幅明顯放大</li>
+                <li>• 若同時創近期新低，加分（非必要條件）</li>
+                <li>• 該日最低價記為 <span class="text-gray-200 font-mono">CAPITULATION_LOW</span></li>
+              </ul>
+            </div>
+            <div class="space-y-1.5">
+              <div class="text-xs font-semibold text-cyan-400 uppercase tracking-wider">Layer 2：後續追蹤（1~5日起）</div>
+              <ul class="space-y-1 text-gray-400 text-xs leading-relaxed pl-1">
+                <li>• 不再有效破底（容忍約1%）</li>
+                <li>• 假跌破：盤中破低但收盤收回</li>
+                <li>• 測試低點量能是否逐次萎縮（賣壓衰竭）</li>
+                <li>• Selling Efficiency = |跌幅| ÷ 量比，是否持續下降</li>
+                <li>• 低點是否逐步墊高（Higher Low）</li>
+              </ul>
+            </div>
+            <div class="space-y-1.5">
+              <div class="text-xs font-semibold text-green-400 uppercase tracking-wider">Layer 3：買盤反擊確認</div>
+              <ul class="space-y-1 text-gray-400 text-xs leading-relaxed pl-1">
+                <li>• 長下影線、收盤收在當日上半部、收紅K</li>
+                <li>• 突破前一日高點、站回MA5/MA10</li>
+                <li>• 上漲日成交量 &gt; 下跌日成交量、Higher High</li>
+              </ul>
+            </div>
+            <div class="space-y-1.5">
+              <div class="text-xs font-semibold text-red-400 uppercase tracking-wider">Layer 4：排除出貨風險</div>
+              <ul class="space-y-1 text-gray-400 text-xs leading-relaxed pl-1">
+                <li>• 爆量前60日已大漲（≥30%）且位處高檔</li>
+                <li>• 反彈高點越來越低、或快速再次跌破</li>
+                <li>• 符合則標記 DISTRIBUTION_RISK_HIGH，評分上限鎖在30分並排除於觀察榜</li>
+              </ul>
+            </div>
+          </div>
+          <div class="pt-2 border-t border-gray-800 space-y-1 text-xs text-gray-500">
+            <div class="text-gray-400 font-medium mb-1">四個階段</div>
+            <div class="flex flex-wrap gap-x-5 gap-y-1">
+              <span><span class="px-1.5 py-0.5 rounded border" :class="plungeStageCls('PANIC_SELLING')">恐慌爆量觀察</span> 剛爆量，只是觀察</span>
+              <span><span class="px-1.5 py-0.5 rounded border" :class="plungeStageCls('SELLING_EXHAUSTION')">賣壓衰竭</span> 不破底＋量縮＋賣壓效率下降（優先觀察）</span>
+              <span><span class="px-1.5 py-0.5 rounded border" :class="plungeStageCls('BOTTOM_CONFIRMING')">止跌確認中</span> 加上 Higher Low / 突破前高 / 站回MA5</span>
+              <span><span class="px-1.5 py-0.5 rounded border" :class="plungeStageCls('REVERSAL_CONFIRMED')">止跌反轉確認</span> Higher Low+High、站回MA5/10、量價轉強</span>
+              <span><span class="px-1.5 py-0.5 rounded border" :class="plungeStageCls('BOTTOM_FAILED')">破底失敗</span> 有效跌破且再次爆量＝第二波殺盤</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 參數設定 -->
+      <div v-if="plungeShowParams && plungeParams" class="bg-gray-900 border border-gray-800 rounded-xl px-5 py-4 space-y-3">
+        <div class="flex items-center justify-between">
+          <span class="text-sm font-semibold text-gray-200">可調參數（全部無 hard-code，改完存檔後下次掃描生效）</span>
+          <div class="flex items-center gap-2">
+            <span v-if="plungeParamsMsg" class="text-xs text-gray-400">{{ plungeParamsMsg }}</span>
+            <button @click="plungeSaveParams" class="px-3 py-1.5 text-xs bg-purple-700 hover:bg-purple-600 rounded-lg">儲存參數</button>
+          </div>
+        </div>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+          <label v-for="(val, key) in plungeParams" :key="key" class="space-y-1">
+            <div class="text-gray-500">{{ key }}</div>
+            <input v-model.number="plungeParams[key]" type="number" step="any"
+                   class="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-gray-200 font-mono text-xs" />
+          </label>
+        </div>
+      </div>
+
+      <!-- 清單切換 -->
+      <div class="flex items-center gap-2 flex-wrap">
+        <button @click="plungeViewMode = 'watchlist'"
+                class="px-3 py-1.5 text-xs rounded-lg transition"
+                :class="plungeViewMode === 'watchlist' ? 'bg-purple-700 text-white' : 'bg-gray-800 text-gray-400 hover:text-gray-200'">
+          ⭐ 最值得觀察排行榜（{{ plungeWatchlist.length }}）
+        </button>
+        <button @click="plungeViewMode = 'all'"
+                class="px-3 py-1.5 text-xs rounded-lg transition"
+                :class="plungeViewMode === 'all' ? 'bg-purple-700 text-white' : 'bg-gray-800 text-gray-400 hover:text-gray-200'">
+          全部掃描結果（{{ plungeData.length }}）
+        </button>
+        <span class="text-gray-700">|</span>
+        <button v-for="s in ['ALL','PANIC_SELLING','SELLING_EXHAUSTION','BOTTOM_CONFIRMING','REVERSAL_CONFIRMED','BOTTOM_FAILED']" :key="s"
+                @click="plungeStageFilter = s"
+                class="px-2.5 py-1 text-xs rounded-lg border transition"
+                :class="plungeStageFilter === s ? 'border-gray-400 text-gray-100' : 'border-gray-800 text-gray-500 hover:text-gray-300'">
+          {{ s === 'ALL' ? '全部階段' : plungeStageLabel(s) }}
+        </button>
+      </div>
+
+      <!-- 排行榜表格 -->
+      <div class="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+        <div v-if="plungeLoading" class="px-4 py-10 text-center text-sm text-gray-600">載入中...</div>
+        <div v-else-if="!plungeFilteredData.length" class="px-4 py-10 text-center text-sm text-gray-600">
+          尚無符合條件的資料（可點「手動掃描」觸發一次掃描；首次使用請先「同步K線」）
+        </div>
+        <div v-else class="overflow-x-auto">
+          <table class="w-full text-xs whitespace-nowrap">
+            <thead class="bg-gray-800/60 text-gray-500">
+              <tr>
+                <th class="px-3 py-2 text-left">代號/名稱</th>
+                <th class="px-3 py-2 text-right">收盤</th>
+                <th class="px-3 py-2 text-right">漲跌幅</th>
+                <th class="px-3 py-2 text-right">RVOL</th>
+                <th class="px-3 py-2 text-left">爆量日期</th>
+                <th class="px-3 py-2 text-right">爆量K低點</th>
+                <th class="px-3 py-2 text-right">距低點%</th>
+                <th class="px-3 py-2 text-right">觀察天數</th>
+                <th class="px-3 py-2 text-center">假跌破</th>
+                <th class="px-3 py-2 text-center">HigherLow</th>
+                <th class="px-3 py-2 text-center">賣壓衰竭</th>
+                <th class="px-3 py-2 text-right">SellingEff</th>
+                <th class="px-3 py-2 text-right">MA5</th>
+                <th class="px-3 py-2 text-right">MA10</th>
+                <th class="px-3 py-2 text-right">MA20</th>
+                <th class="px-3 py-2 text-right">評分</th>
+                <th class="px-3 py-2 text-left">目前階段</th>
+                <th class="px-3 py-2 text-center">出貨風險</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-800">
+              <tr v-for="item in plungeFilteredData" :key="item.symbol"
+                  @click="plungeSelectStock(item)"
+                  class="cursor-pointer hover:bg-gray-800/40 transition"
+                  :class="plungeSelected?.symbol === item.symbol ? 'bg-gray-800/60' : ''">
+                <td class="px-3 py-2"><span class="font-mono font-bold text-white">{{ item.symbol }}</span> <span class="text-gray-400">{{ item.name }}</span></td>
+                <td class="px-3 py-2 text-right font-mono">{{ item.close?.toFixed(2) }}</td>
+                <td class="px-3 py-2 text-right font-mono" :class="item.change_pct > 0 ? 'text-red-400' : item.change_pct < 0 ? 'text-green-400' : 'text-gray-400'">
+                  {{ item.change_pct != null ? (item.change_pct > 0 ? '+' : '') + item.change_pct.toFixed(2) + '%' : '—' }}
+                </td>
+                <td class="px-3 py-2 text-right font-mono text-yellow-400">{{ item.rvol?.toFixed(2) }}x</td>
+                <td class="px-3 py-2 text-gray-400">{{ item.event_date }}</td>
+                <td class="px-3 py-2 text-right font-mono text-gray-400">{{ item.capitulation_low?.toFixed(2) }}</td>
+                <td class="px-3 py-2 text-right font-mono" :class="item.pct_from_cap_low >= 0 ? 'text-red-400' : 'text-green-400'">
+                  {{ item.pct_from_cap_low != null ? (item.pct_from_cap_low > 0 ? '+' : '') + item.pct_from_cap_low.toFixed(2) + '%' : '—' }}
+                </td>
+                <td class="px-3 py-2 text-right font-mono text-gray-400">{{ item.days_since_event }}</td>
+                <td class="px-3 py-2 text-center">{{ item.has_false_breakdown ? '✓' : '—' }}</td>
+                <td class="px-3 py-2 text-center">{{ item.is_higher_low ? `✓ x${item.higher_low_count}` : '—' }}</td>
+                <td class="px-3 py-2 text-center">{{ item.selling_pressure_exhaustion ? '✓' : '—' }}</td>
+                <td class="px-3 py-2 text-right font-mono text-gray-400">{{ item.selling_efficiency != null ? item.selling_efficiency.toFixed(2) : '—' }}</td>
+                <td class="px-3 py-2 text-right font-mono text-gray-500">{{ item.ma5?.toFixed(2) ?? '—' }}</td>
+                <td class="px-3 py-2 text-right font-mono text-gray-500">{{ item.ma10?.toFixed(2) ?? '—' }}</td>
+                <td class="px-3 py-2 text-right font-mono text-gray-500">{{ item.ma20?.toFixed(2) ?? '—' }}</td>
+                <td class="px-3 py-2 text-right font-bold font-mono" :class="plungeScoreColor(item.score)">{{ item.score }}</td>
+                <td class="px-3 py-2"><span class="px-1.5 py-0.5 rounded border text-xs" :class="plungeStageCls(item.stage)">{{ plungeStageLabel(item.stage) }}</span></td>
+                <td class="px-3 py-2 text-center">
+                  <span v-if="item.distribution_risk === 'HIGH'" class="text-red-400">⚠ 高</span>
+                  <span v-else class="text-gray-600">—</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 個股明細 -->
+      <div v-if="plungeSelected" class="bg-gray-900 border border-gray-800 rounded-xl px-5 py-4 space-y-3">
+        <div class="flex items-center gap-2">
+          <span class="font-mono text-sm font-bold text-white">{{ plungeSelected.symbol }}</span>
+          <span class="text-sm text-gray-400">{{ plungeSelected.name }}</span>
+          <span class="ml-auto text-xs font-bold" :class="plungeScoreColor(plungeSelected.score)">評分 {{ plungeSelected.score }}</span>
+        </div>
+        <div v-if="!plungeDetail.length" class="text-xs text-gray-600 py-4 text-center">無歷史掃描紀錄</div>
+        <div v-else class="overflow-x-auto">
+          <table class="w-full text-xs whitespace-nowrap">
+            <thead class="text-gray-500">
+              <tr>
+                <th class="px-2 py-1 text-left">掃描日</th>
+                <th class="px-2 py-1 text-right">收盤</th>
+                <th class="px-2 py-1 text-right">距低點%</th>
+                <th class="px-2 py-1 text-right">評分</th>
+                <th class="px-2 py-1 text-left">階段</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-800">
+              <tr v-for="d in plungeDetail" :key="d.as_of_date">
+                <td class="px-2 py-1 text-gray-400">{{ d.as_of_date }}</td>
+                <td class="px-2 py-1 text-right font-mono">{{ d.close?.toFixed(2) }}</td>
+                <td class="px-2 py-1 text-right font-mono" :class="d.pct_from_cap_low >= 0 ? 'text-red-400' : 'text-green-400'">{{ d.pct_from_cap_low?.toFixed(2) }}%</td>
+                <td class="px-2 py-1 text-right font-mono" :class="plungeScoreColor(d.score)">{{ d.score }}</td>
+                <td class="px-2 py-1"><span class="px-1.5 py-0.5 rounded border text-xs" :class="plungeStageCls(d.stage)">{{ plungeStageLabel(d.stage) }}</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 回測 -->
+      <div class="bg-gray-900 border border-gray-800 rounded-xl px-5 py-4 space-y-4">
+        <div class="text-sm font-semibold text-gray-200">回測：比較三種進場時機</div>
+        <div class="flex flex-wrap items-end gap-3 text-xs">
+          <label class="space-y-1">
+            <div class="text-gray-500">起始日</div>
+            <input v-model="plungeBtStart" type="date" class="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-gray-200" />
+          </label>
+          <label class="space-y-1">
+            <div class="text-gray-500">結束日（留空＝今天）</div>
+            <input v-model="plungeBtEnd" type="date" class="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-gray-200" />
+          </label>
+          <button @click="plungeRunBacktest" :disabled="plungeBtRunning"
+                  class="px-4 py-1.5 bg-purple-700 hover:bg-purple-600 rounded-lg disabled:opacity-40">
+            {{ plungeBtRunning ? '回測執行中（可能需數分鐘）...' : '執行回測' }}
+          </button>
+        </div>
+        <div class="text-xs text-gray-600 leading-relaxed">
+          A：爆量殺低當天直接買（收盤進場）　B：等「賣壓衰竭」才進場　C：等「止跌確認中」才進場　－　比較 3/5/10/20 日後的平均報酬、勝率、中位數報酬、最大回撤
+        </div>
+
+        <div v-if="plungeBtResult" class="overflow-x-auto">
+          <table class="w-full text-xs whitespace-nowrap">
+            <thead class="text-gray-500">
+              <tr>
+                <th class="px-3 py-1.5 text-left">策略</th>
+                <th class="px-3 py-1.5 text-right">持有天數</th>
+                <th class="px-3 py-1.5 text-right">交易數</th>
+                <th class="px-3 py-1.5 text-right">勝率</th>
+                <th class="px-3 py-1.5 text-right">平均報酬</th>
+                <th class="px-3 py-1.5 text-right">中位數報酬</th>
+                <th class="px-3 py-1.5 text-right">最大回撤</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-800">
+              <template v-for="strat in ['A','B','C']" :key="strat">
+                <tr v-for="h in [3,5,10,20]" :key="strat+h">
+                  <td class="px-3 py-1.5 text-gray-300 font-semibold">{{ strat }}：{{ strat === 'A' ? '爆量當天買' : strat === 'B' ? '等賣壓衰竭' : '等止跌確認' }}</td>
+                  <td class="px-3 py-1.5 text-right font-mono text-gray-400">{{ h }}日</td>
+                  <td class="px-3 py-1.5 text-right font-mono text-gray-400">{{ plungeBtResult.summary?.[strat]?.[h]?.trades ?? 0 }}</td>
+                  <td class="px-3 py-1.5 text-right font-mono text-gray-300">{{ plungeBtResult.summary?.[strat]?.[h]?.win_rate != null ? plungeBtResult.summary[strat][h].win_rate + '%' : '—' }}</td>
+                  <td class="px-3 py-1.5 text-right font-mono" :class="(plungeBtResult.summary?.[strat]?.[h]?.avg_return ?? 0) >= 0 ? 'text-red-400' : 'text-green-400'">
+                    {{ plungeBtResult.summary?.[strat]?.[h]?.avg_return != null ? plungeBtResult.summary[strat][h].avg_return + '%' : '—' }}
+                  </td>
+                  <td class="px-3 py-1.5 text-right font-mono text-gray-400">{{ plungeBtResult.summary?.[strat]?.[h]?.median_return != null ? plungeBtResult.summary[strat][h].median_return + '%' : '—' }}</td>
+                  <td class="px-3 py-1.5 text-right font-mono text-green-500">{{ plungeBtResult.summary?.[strat]?.[h]?.max_drawdown != null ? plungeBtResult.summary[strat][h].max_drawdown + '%' : '—' }}</td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+          <div class="text-xs text-gray-600 pt-2">共 {{ plungeBtResult.total_signals }} 筆訊號，期間 {{ plungeBtResult.start }} ～ {{ plungeBtResult.end }}</div>
+        </div>
+
+        <div v-if="plungeBtHistory.length" class="pt-2 border-t border-gray-800">
+          <div class="text-xs text-gray-500 mb-1">歷史回測紀錄</div>
+          <div class="flex flex-wrap gap-2">
+            <button v-for="h in plungeBtHistory" :key="h.id" @click="plungeBtResult = h"
+                    class="px-2.5 py-1 text-xs bg-gray-800 hover:bg-gray-700 rounded text-gray-400">
+              {{ h.start_date }}~{{ h.end_date }}（{{ h.total_signals }}筆｜{{ h.created_at?.slice(0,16) }}）
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- ── 即時監控 Tab ── -->
