@@ -1915,6 +1915,12 @@ function signColor(v) { return +v > 0 ? 'text-red-400' : +v < 0 ? 'text-green-40
 
 const changelog = [
   {
+    date: '2026-06-20', tag: '新功能',
+    items: [
+      '漲跌排行：說明欄新增「建立規則」區塊，列出資料來源（富邦全市場快照優先，失敗時 fallback TWSE/TPEX MIS）、篩選規則（成交量=0 且漲跌幅 &lt;9.5% 排除，但鎖漲停股例外保留）、連續天數計算方式（往前查 20 日歷史，逐日比對同向漲跌停）與快取更新頻率（開盤衝鋒 8 秒／盤中 15 秒／其他 60 秒），方便對照榜單結果的判斷依據',
+    ]
+  },
+  {
     date: '2026-06-11', tag: '新增',
     items: [
       '朋友 API 存取系統：建立 read-only API key（sk_ro_fr_…，效期至 2026-12-31），提供 OpenAPI spec（/api/openapi.json）與文件頁（/docs/api），朋友可直接 curl 或將 spec 餵給 Claude 自動生成查詢',
@@ -2407,7 +2413,7 @@ async function btSyncOhlcv() {
 
     <!-- 分頁切換 -->
     <div ref="navbarRef" class="border-b border-gray-800 px-6 flex gap-1">
-      <button v-for="t in [{ id:'changelog', label:'修正公告' }, { id:'movers', label:'漲跌排行' }, { id:'squeeze', label:'量縮/增鎖漲停' }, { id:'contribution', label:'加權貢獻' }, { id:'breakthrough', label:'半路突破' }, { id:'warrant', label:'權證' }, { id:'chip', label:'籌碼' }, { id:'screener', label:'台股選股' }, { id:'strongweak', label:'漲時看勢跌時看質' }, { id:'sector', label:'強勢族群' }, { id:'inst', label:'三大法人' }, { id:'finance', label:'財務分析' }, { id:'breadth', label:'漲跌家數' }, { id:'disposal', label:'處置股' }, { id:'buyback', label:'庫藏股' }, { id:'monitor', label:'即時監控' }, { id:'report', label:'日報表' }, { id:'db', label:'歷史資料' }, { id:'chips', label:'台指期籌碼' }]" :key="t.id"
+      <button v-for="t in [{ id:'changelog', label:'修正公告' }, { id:'plunge', label:'爆量殺盤低點不遠' }, { id:'movers', label:'漲跌排行' }, { id:'squeeze', label:'量縮/增鎖漲停' }, { id:'contribution', label:'加權貢獻' }, { id:'breakthrough', label:'半路突破' }, { id:'warrant', label:'權證' }, { id:'chip', label:'籌碼' }, { id:'screener', label:'台股選股' }, { id:'strongweak', label:'漲時看勢跌時看質' }, { id:'sector', label:'強勢族群' }, { id:'inst', label:'三大法人' }, { id:'finance', label:'財務分析' }, { id:'breadth', label:'漲跌家數' }, { id:'disposal', label:'處置股' }, { id:'buyback', label:'庫藏股' }, { id:'monitor', label:'即時監控' }, { id:'report', label:'日報表' }, { id:'db', label:'歷史資料' }, { id:'chips', label:'台指期籌碼' }]" :key="t.id"
               @click="selectTab(t.id)"
               class="px-4 py-3 text-sm font-medium transition border-b-2 -mb-px"
               :class="tab === t.id ? 'border-purple-500 text-purple-400' : 'border-transparent text-gray-500 hover:text-gray-300'">
@@ -2436,6 +2442,12 @@ async function btSyncOhlcv() {
           </li>
         </ul>
       </div>
+    </div>
+
+    <!-- ── 爆量殺盤低點不遠 Tab ── -->
+    <div v-if="tab === 'plunge'" class="max-w-6xl mx-auto px-4 py-6 space-y-4">
+      <h2 class="text-lg font-semibold text-white">爆量殺盤低點不遠</h2>
+      <div class="text-sm text-gray-500">內容建置中</div>
     </div>
 
     <!-- ── 即時監控 Tab ── -->
@@ -4924,8 +4936,39 @@ async function btSyncOhlcv() {
       <!-- 顏色與操作說明 -->
       <div class="bg-gray-900/60 border border-gray-800 rounded-xl px-4 py-3 text-xs space-y-2.5">
 
-        <!-- 列底色 -->
+        <!-- 建立規則：資料來源 -->
         <div class="flex flex-wrap gap-x-4 gap-y-1.5 items-center">
+          <span class="text-gray-600 shrink-0 font-medium">資料來源</span>
+          <span class="text-gray-300">富邦 API 全市場快照</span>
+          <span class="text-gray-600">主來源，TSE+OTC 一次拿完（~2秒）；失敗時 fallback TWSE/TPEX MIS 批次查詢（60檔/批，5並發）</span>
+        </div>
+
+        <!-- 建立規則：篩選 -->
+        <div class="flex flex-wrap gap-x-4 gap-y-1.5 items-center">
+          <span class="text-gray-600 shrink-0 font-medium">篩選規則</span>
+          <span class="text-gray-300">成交量 = 0 且 |漲跌幅| &lt; 9.5% 排除</span>
+          <span class="text-gray-600">鎖漲停股雖成交量=0 仍保留，避免漏掉開盤即鎖死的最強勢股</span>
+        </div>
+
+        <!-- 建立規則：連續天數 -->
+        <div class="flex flex-wrap gap-x-4 gap-y-1.5 items-center">
+          <span class="text-gray-600 shrink-0 font-medium">連續天數</span>
+          <span class="text-gray-300">往前查 20 日歷史收盤，逐日比對同向（漲停 ≥9.5% / 跌停 ≤-9.5%）</span>
+          <span class="text-gray-600">遇方向中斷即停止累計</span>
+        </div>
+
+        <!-- 建立規則：更新頻率 -->
+        <div class="flex flex-wrap gap-x-4 gap-y-1.5 items-center">
+          <span class="text-gray-600 shrink-0 font-medium">更新頻率</span>
+          <span class="text-yellow-400 font-bold">8秒</span><span class="text-gray-600">08:50–09:30 開盤衝鋒</span>
+          <span class="text-gray-600">｜</span>
+          <span class="text-cyan-400 font-bold">15秒</span><span class="text-gray-600">09:30–13:30 盤中</span>
+          <span class="text-gray-600">｜</span>
+          <span class="text-gray-400 font-bold">60秒</span><span class="text-gray-600">其他（盤前/盤後）</span>
+        </div>
+
+        <!-- 列底色 -->
+        <div class="flex flex-wrap gap-x-4 gap-y-1.5 items-center border-t border-gray-800 pt-2.5">
           <span class="text-gray-600 shrink-0 font-medium">列底色</span>
           <span class="flex items-center gap-1.5">
             <span class="inline-block w-3 h-3 rounded-sm bg-red-900/60 border border-red-700/40"></span>
