@@ -2413,7 +2413,7 @@ async function btSyncOhlcv() {
 
     <!-- 分頁切換 -->
     <div ref="navbarRef" class="border-b border-gray-800 px-6 flex gap-1">
-      <button v-for="t in [{ id:'changelog', label:'修正公告' }, { id:'movers', label:'漲跌排行' }, { id:'squeeze', label:'量縮/增鎖漲停' }, { id:'contribution', label:'加權貢獻' }, { id:'breakthrough', label:'半路突破' }, { id:'warrant', label:'權證' }, { id:'chip', label:'籌碼' }, { id:'screener', label:'台股選股' }, { id:'strongweak', label:'漲時看勢跌時看質' }, { id:'sector', label:'強勢族群' }, { id:'inst', label:'三大法人' }, { id:'finance', label:'財務分析' }, { id:'breadth', label:'漲跌家數' }, { id:'disposal', label:'處置股' }, { id:'buyback', label:'庫藏股' }, { id:'monitor', label:'即時監控' }, { id:'report', label:'日報表' }, { id:'db', label:'歷史資料' }, { id:'chips', label:'台指期籌碼' }]" :key="t.id"
+      <button v-for="t in [{ id:'changelog', label:'修正公告' }, { id:'plunge', label:'爆量殺盤低點不遠' }, { id:'movers', label:'漲跌排行' }, { id:'squeeze', label:'量縮/增鎖漲停' }, { id:'contribution', label:'加權貢獻' }, { id:'breakthrough', label:'半路突破' }, { id:'warrant', label:'權證' }, { id:'chip', label:'籌碼' }, { id:'screener', label:'台股選股' }, { id:'strongweak', label:'漲時看勢跌時看質' }, { id:'sector', label:'強勢族群' }, { id:'inst', label:'三大法人' }, { id:'finance', label:'財務分析' }, { id:'breadth', label:'漲跌家數' }, { id:'disposal', label:'處置股' }, { id:'buyback', label:'庫藏股' }, { id:'monitor', label:'即時監控' }, { id:'report', label:'日報表' }, { id:'db', label:'歷史資料' }, { id:'chips', label:'台指期籌碼' }]" :key="t.id"
               @click="selectTab(t.id)"
               class="px-4 py-3 text-sm font-medium transition border-b-2 -mb-px"
               :class="tab === t.id ? 'border-purple-500 text-purple-400' : 'border-transparent text-gray-500 hover:text-gray-300'">
@@ -2442,6 +2442,12 @@ async function btSyncOhlcv() {
           </li>
         </ul>
       </div>
+    </div>
+
+    <!-- ── 爆量殺盤低點不遠 Tab ── -->
+    <div v-if="tab === 'plunge'" class="max-w-6xl mx-auto px-4 py-6 space-y-4">
+      <h2 class="text-lg font-semibold text-white">爆量殺盤低點不遠</h2>
+      <div class="text-sm text-gray-500">內容建置中</div>
     </div>
 
     <!-- ── 即時監控 Tab ── -->
